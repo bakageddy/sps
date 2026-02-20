@@ -49,14 +49,14 @@ impl<'a> StuckThreadMeta<'a> {
     const STUCKTHREAD_HEADER_USEFUL_INFO: usize = 2;
     const STUCKTHREAD_HEADER_TOTAL_INFO: usize = 5;
 
-    const STUCKTHREAD_MESSAGE_USEFUL_INFO: usize =
-        Self::STUCKTHREAD_TOTAL_INFO - Self::STUCKTHREAD_HEADER_TOTAL_INFO;
-    const STUCKTHREAD_MESSAGE_TOTAL_INFO: usize =
-        Self::STUCKTHREAD_USEFUL_INFO - Self::STUCKTHREAD_HEADER_USEFUL_INFO;
+    const STUCKTHREAD_MESSAGE_USEFUL_INFO: usize = 6;
+    const STUCKTHREAD_MESSAGE_TOTAL_INFO: usize = 7;
 
     fn extract_bracket_groups<'b>(
         input: &mut &'b str,
     ) -> Result<Vec<&'b str>, StuckThreadMetaParserError> {
+        assert!(Self::STUCKTHREAD_MESSAGE_USEFUL_INFO == 6);
+        assert!(Self::STUCKTHREAD_MESSAGE_TOTAL_INFO == 7);
         let mut groups = Vec::with_capacity(8);
         let iter_count: usize = 0;
         while let Some((_, rest)) = input.split_once('[') {
@@ -104,7 +104,7 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
         }
 
         let message = StuckThreadMeta::extract_bracket_groups(&mut message)?;
-        if message.len() < StuckThreadMeta::STUCKTHREAD_TOTAL_INFO {
+        if message.len() < StuckThreadMeta::STUCKTHREAD_MESSAGE_TOTAL_INFO {
             return Err(StuckThreadMetaParserError::IncorrectMessageInfoCount {
                 got: message.len(),
             });
@@ -113,7 +113,7 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
         let time = headers.get(0).unwrap();
         let date = headers.get(1).unwrap();
 
-        let date_format = time::format_description::parse("[date]-[month]-[year]")
+        let date_format = time::format_description::parse("[day]-[month]-[year]")
             .map_err(|e| StuckThreadMetaParserError::InvalidTimeFormatDescription(e))?;
         let time_format =
             time::format_description::parse("[hour]:[minute]:[second].[subsecond]")
@@ -137,9 +137,10 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
                 })?;
 
         let active_duration = message.get(2).expect("IncorrectMessageInfoCount");
+        let active_duration = active_duration.replace(",", "");
         let active_duration = active_duration.parse::<i64>().map_err(|_| {
             StuckThreadMetaParserError::InvalidDuration {
-                got: active_duration.to_string(),
+                got: active_duration,
             }
         })?;
         let api_request = message.get(4).expect("IncorrectMessageInfoCount");
@@ -156,7 +157,7 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
         Ok(StuckThreadMeta {
             start,
             thread_id,
-            thread_name,
+            thread_name: *thread_name,
             request: *api_request,
             active_duration_ms: active_duration,
             active_monitor_count: active_thread_count,
@@ -165,6 +166,7 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
     }
 }
 
+#[derive(Debug)]
 pub enum StuckThreadParserError {
     MetaInfoError(StuckThreadMetaParserError),
     MetaExtractionError,
@@ -172,6 +174,7 @@ pub enum StuckThreadParserError {
     StackTrace(StackTraceParseError),
 }
 
+#[derive(Debug)]
 pub enum StuckThreadMetaParserError {
     DoubleColonAbsent,
     UnmatchedRightBracket(usize),
