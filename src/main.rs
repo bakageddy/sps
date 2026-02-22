@@ -1,10 +1,31 @@
+use std::{fs, io, process::exit};
 
-use std::fs;
+use clap::Parser;
+use sps::{stuckthread::{StuckThread, StuckThreadProducer}};
+fn main() -> io::Result<()> {
+    tracing_subscriber::fmt().init();
 
-use sps::{stacktrace::StackTrace, stuckthread::StuckThread};
+    let args = sps::arg::AppArgs::parse();
+    
 
-fn main() {
-    let stuckthread = fs::read_to_string("./sample/stuckthread.txt").unwrap();
-    let stuck_thread = StuckThread::try_from(stuckthread.as_str());
-    println!("{stuck_thread:#?}");
+    let abs = args.path.canonicalize()?;
+    if !abs.is_dir() {
+        exit(1);
+    }
+
+    let mut contents = String::new();
+
+    for entry in abs.read_dir().unwrap() {
+        let entry = entry.unwrap().path();
+        if !entry.file_name().unwrap().to_string_lossy().starts_with("stuckthreads") {
+            continue;
+        }
+        contents.push_str(&fs::read_to_string(entry).unwrap());
+    }
+
+    let result = StuckThreadProducer::produce(&contents);
+    println!("{result:#?}");
+
+    
+    Ok(())
 }

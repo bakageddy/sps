@@ -1,30 +1,78 @@
+use std::{fs, path::Path};
+
+use assert_cmd::assert;
 use time::{
-    Date, Duration, PrimitiveDateTime, Time, UtcDateTime,
+    Date, Duration, PrimitiveDateTime, Time,
     error::{InvalidFormatDescription, Parse},
+    format_description::FormatItem,
+    macros::{datetime, format_description},
 };
 
 use crate::stacktrace::{StackTrace, StackTraceParseError};
 
-#[derive(Debug, Default)]
+static DATE_FORMAT: &[FormatItem<'static>] = format_description!("[day]-[month]-[year]");
+static TIME_FORMAT: &[FormatItem<'static>] =
+    format_description!("[hour]:[minute]:[second].[subsecond]");
+
+#[derive(Debug)]
 pub struct StuckThread<'a> {
-    pub st: StackTrace<'a>,
+    pub st: Option<StackTrace<'a>>,
     pub meta: StuckThreadMeta<'a>,
 }
 
 #[derive(Debug)]
-pub struct StuckThreadMeta<'a> {
+pub enum StuckThreadMeta<'a> {
+    Begin(StuckThreadMetaBegin<'a>),
+    End(StuckThreadMetaEnd<'a>),
+}
+
+#[derive(Debug)]
+pub struct StuckThreadMetaBegin<'a> {
     pub start: time::PrimitiveDateTime,
     pub thread_id: u32,
     pub thread_name: &'a str,
     pub request: &'a str,
     pub active_duration_ms: i64,
     pub active_monitor_count: usize,
+}
 
-    pub end: Option<PrimitiveDateTime>,
+#[derive(Debug)]
+pub struct StuckThreadMetaEnd<'a> {
+    pub thread_name: &'a str,
+    pub thread_id: u32,
+    pub active_duration_ms: i64,
+    pub active_monitor_count: usize,
+}
+
+pub struct StuckThreadProducer;
+
+impl StuckThreadProducer {
+    pub fn produce<'a>(
+        contents: &'a str,
+    ) -> Option<Vec<Result<StuckThread<'a>, StuckThreadParserError<'a>>>> {
+
+        let mut result = vec![];
+
+        let mut start = 0;
+        let mut offset = 0;
+        for line in contents.split_inclusive('\n') {
+            if line.starts_with('[') {
+                let record = &contents[start..start + offset];
+                result.push(StuckThread::try_from(record));
+
+                start = start + offset;
+                offset = line.len();
+            } else {
+                offset += line.len();
+            }
+        }
+
+        Some(result)
+    }
 }
 
 impl<'a> TryFrom<&'a str> for StuckThread<'a> {
-    type Error = StuckThreadParserError;
+    type Error = StuckThreadParserError<'a>;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let (meta, rest) = value
@@ -32,13 +80,24 @@ impl<'a> TryFrom<&'a str> for StuckThread<'a> {
             .ok_or(StuckThreadParserError::MetaExtractionError)?;
         let stuck_thread_meta = StuckThreadMeta::try_from(meta)
             .map_err(|e| StuckThreadParserError::MetaInfoError(e))?;
-        let stacktrace =
-            StackTrace::try_from(rest).map_err(|e| StuckThreadParserError::StackTrace(e))?;
 
-        Ok(Self {
-            st: stacktrace,
-            meta: stuck_thread_meta,
-        })
+        match stuck_thread_meta {
+            StuckThreadMeta::Begin(_) => {
+                let stacktrace = StackTrace::try_from(rest)
+                    .map_err(|e| StuckThreadParserError::StackTrace(e))?;
+                return Ok(Self {
+                    st: Some(stacktrace),
+                    meta: stuck_thread_meta,
+                });
+            }
+
+            StuckThreadMeta::End(_) => {
+                return Ok(Self {
+                    st: None,
+                    meta: stuck_thread_meta,
+                });
+            }
+        }
     }
 }
 
@@ -54,9 +113,7 @@ impl<'a> StuckThreadMeta<'a> {
 
     fn extract_bracket_groups<'b>(
         input: &mut &'b str,
-    ) -> Result<Vec<&'b str>, StuckThreadMetaParserError> {
-        assert!(Self::STUCKTHREAD_MESSAGE_USEFUL_INFO == 6);
-        assert!(Self::STUCKTHREAD_MESSAGE_TOTAL_INFO == 7);
+    ) -> Result<Vec<&'b str>, StuckThreadMetaParserError<'b>> {
         let mut groups = Vec::with_capacity(8);
         let iter_count: usize = 0;
         while let Some((_, rest)) = input.split_once('[') {
@@ -71,25 +128,36 @@ impl<'a> StuckThreadMeta<'a> {
         }
         Ok(groups)
     }
-}
 
-impl<'a> Default for StuckThreadMeta<'a> {
-    fn default() -> Self {
-        let now = UtcDateTime::now();
-        Self {
-            start: now.date().with_time(now.time()),
-            thread_id: Default::default(),
-            thread_name: Default::default(),
-            active_duration_ms: 0,
-            active_monitor_count: 0,
-            request: Default::default(),
-            end: Default::default(),
-        }
+    fn parse_thread_id(value: &'a str) -> Option<u32> {
+        value.parse::<u32>().ok()
+    }
+
+    fn parse_comma_separate_i64(value: &'a str) -> Option<i64> {
+        value.replace(",", "").parse::<i64>().ok()
+    }
+
+    fn parse_usize(value: &'a str) -> Option<usize> {
+        value.parse::<usize>().ok()
+    }
+
+    fn parse_date_time(
+        date: &'a str,
+        time: &'a str,
+    ) -> Result<PrimitiveDateTime, StuckThreadMetaParserError<'a>> {
+        let time = Time::parse(time, TIME_FORMAT)
+            .map_err(|e| StuckThreadMetaParserError::InvalidTimeFormat(e))?;
+
+        let date = Date::parse(date, DATE_FORMAT)
+            .map_err(|e| StuckThreadMetaParserError::InvalidDateFormat(e))?;
+
+        let datetime = PrimitiveDateTime::new(date, time);
+        Ok(datetime)
     }
 }
 
 impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
-    type Error = StuckThreadMetaParserError;
+    type Error = StuckThreadMetaParserError<'a>;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let (mut header, mut message) = value
@@ -97,90 +165,169 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
             .ok_or(StuckThreadMetaParserError::DoubleColonAbsent)?;
 
         let headers = StuckThreadMeta::extract_bracket_groups(&mut header)?;
-        if headers.len() < StuckThreadMeta::STUCKTHREAD_HEADER_TOTAL_INFO {
+        let message = StuckThreadMeta::extract_bracket_groups(&mut message)?;
+
+        let [time, date, _, _, _] = headers.as_slice() else {
             return Err(StuckThreadMetaParserError::IncorrectHeaderInfoCount {
                 got: headers.len(),
+                groups: headers,
             });
-        }
+        };
 
-        let message = StuckThreadMeta::extract_bracket_groups(&mut message)?;
-        if message.len() < StuckThreadMeta::STUCKTHREAD_MESSAGE_TOTAL_INFO {
+        let start = StuckThreadMeta::parse_date_time(date, time)?;
+
+        let mut meta: StuckThreadMeta;
+        let message_len = message.len();
+        if message_len == 7 {
+            meta = StuckThreadMeta::Begin(StuckThreadMetaBegin::try_from(message)?);
+        } else if message_len == 4 || message_len == 3 {
+            meta = StuckThreadMeta::End(StuckThreadMetaEnd::try_from(message)?);
+        } else {
             return Err(StuckThreadMetaParserError::IncorrectMessageInfoCount {
                 got: message.len(),
+                groups: message,
             });
         }
 
-        let time = headers.get(0).unwrap();
-        let date = headers.get(1).unwrap();
-
-        let date_format = time::format_description::parse("[day]-[month]-[year]")
-            .map_err(|e| StuckThreadMetaParserError::InvalidTimeFormatDescription(e))?;
-        let time_format =
-            time::format_description::parse("[hour]:[minute]:[second].[subsecond]")
-                .map_err(|e| StuckThreadMetaParserError::InvalidDateFormatDescription(e))?;
-
-        let time = Time::parse(time, &time_format)
-            .map_err(|e| StuckThreadMetaParserError::InvalidTimeFormat(e))?;
-
-        let date = Date::parse(date, &date_format)
-            .map_err(|e| StuckThreadMetaParserError::InvalidDateFormat(e))?;
-
-        let start = PrimitiveDateTime::new(date, time);
-        let thread_name = message.get(0).expect("IncorrectMessageInfoCount");
-
-        let thread_id = message.get(1).expect("IncorrectMessageInfoCount");
-        let thread_id =
-            thread_id
-                .parse::<u32>()
-                .map_err(|_| StuckThreadMetaParserError::InvalidThreadId {
-                    got: thread_id.to_string(),
-                })?;
-
-        let active_duration = message.get(2).expect("IncorrectMessageInfoCount");
-        let active_duration = active_duration.replace(",", "");
-        let active_duration = active_duration.parse::<i64>().map_err(|_| {
-            StuckThreadMetaParserError::InvalidDuration {
-                got: active_duration,
+        match meta {
+            StuckThreadMeta::Begin(ref mut b) => {
+                b.start = start
+                    .checked_sub(Duration::milliseconds(b.active_duration_ms))
+                    .ok_or(StuckThreadMetaParserError::DurationOverflow)?;
             }
-        })?;
-        let api_request = message.get(4).expect("IncorrectMessageInfoCount");
-        let active_thread_count = message.get(6).expect("IncorrectMessageInfoCount");
-        let active_thread_count = active_thread_count.parse::<usize>().map_err(|_| {
+            _ => {}
+        };
+
+        Ok(meta)
+    }
+}
+
+impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaBegin<'a> {
+    type Error = StuckThreadMetaParserError<'a>;
+
+    fn try_from(value: Vec<&'a str>) -> Result<Self, Self::Error> {
+        if value.len() != 7 {
+            return Err(StuckThreadMetaParserError::IncorrectHeaderInfoCount {
+                got: value.len(),
+                groups: value,
+            });
+        }
+
+        let [
+            thread_name,
+            thread_id,
+            active_duration,
+            _,
+            api_request,
+            _threshold,
+            active_thread_count,
+        ] = value.as_slice()
+        else {
+            return Err(StuckThreadMetaParserError::IncorrectMessageInfoCount {
+                got: value.len(),
+                groups: value,
+            });
+        };
+
+        let thread_id = StuckThreadMeta::parse_thread_id(*thread_id)
+            .ok_or(StuckThreadMetaParserError::InvalidThreadId { got: *thread_id })?;
+
+        let active_duration = StuckThreadMeta::parse_comma_separate_i64(*active_duration).ok_or(
+            StuckThreadMetaParserError::InvalidActiveDuration {
+                got: *active_duration,
+            },
+        )?;
+
+        let active_thread_count = StuckThreadMeta::parse_usize(*active_thread_count).ok_or(
             StuckThreadMetaParserError::InvalidActiveThreadCount {
-                got: active_thread_count.to_string(),
-            }
-        })?;
+                got: *active_thread_count,
+            },
+        )?;
 
-        let start = start
-            .checked_sub(Duration::milliseconds(active_duration))
-            .ok_or(StuckThreadMetaParserError::DurationOverflow)?;
-        Ok(StuckThreadMeta {
-            start,
+        Ok(StuckThreadMetaBegin {
+            start: datetime!(1970-01-01 00:00:00.0),
+            active_duration_ms: active_duration,
+            active_monitor_count: active_thread_count,
             thread_id,
             thread_name: *thread_name,
             request: *api_request,
+        })
+    }
+}
+
+impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaEnd<'a> {
+    type Error = StuckThreadMetaParserError<'a>;
+
+    fn try_from(value: Vec<&'a str>) -> Result<Self, Self::Error> {
+        let mut active_thread_count = None;
+        let mut thread_name: &str;
+        let mut thread_id: &str;
+        let mut active_duration: &str;
+
+        match value.as_slice() {
+            [tn, ti, ad] => {
+                thread_name = *tn;
+                thread_id = *ti;
+                active_duration = *ad;
+            },
+
+            [tn, ti, ad, atc] => {
+                thread_name = *tn;
+                thread_id = *ti;
+                active_duration = *ad;
+                active_thread_count = Some(atc);
+            },
+
+            _ => {
+                return Err(StuckThreadMetaParserError::IncorrectMessageInfoCount {
+                    got: value.len(),
+                    groups: value,
+                });
+            }
+        }
+
+        let thread_id = StuckThreadMeta::parse_thread_id(thread_id)
+            .ok_or(StuckThreadMetaParserError::InvalidThreadId { got: thread_id })?;
+
+        let active_duration = StuckThreadMeta::parse_comma_separate_i64(active_duration).ok_or(
+            StuckThreadMetaParserError::InvalidActiveDuration {
+                got: active_duration,
+            },
+        )?;
+
+        let mut active_monitor_count = 0;
+        if let Some(active_thread_count) = active_thread_count {
+            active_monitor_count = StuckThreadMeta::parse_usize(active_thread_count).ok_or(
+                StuckThreadMetaParserError::InvalidActiveThreadCount {
+                    got: active_thread_count,
+                },
+            )?;
+        }
+
+        Ok(StuckThreadMetaEnd {
+            thread_name: thread_name,
+            thread_id,
             active_duration_ms: active_duration,
-            active_monitor_count: active_thread_count,
-            end: None,
+            active_monitor_count: active_monitor_count,
         })
     }
 }
 
 #[derive(Debug)]
-pub enum StuckThreadParserError {
-    MetaInfoError(StuckThreadMetaParserError),
+pub enum StuckThreadParserError<'a> {
+    MetaInfoError(StuckThreadMetaParserError<'a>),
     MetaExtractionError,
 
     StackTrace(StackTraceParseError),
 }
 
 #[derive(Debug)]
-pub enum StuckThreadMetaParserError {
+pub enum StuckThreadMetaParserError<'a> {
     DoubleColonAbsent,
     UnmatchedRightBracket(usize),
 
-    IncorrectHeaderInfoCount { got: usize },
-    IncorrectMessageInfoCount { got: usize },
+    IncorrectHeaderInfoCount { got: usize, groups: Vec<&'a str> },
+    IncorrectMessageInfoCount { got: usize, groups: Vec<&'a str> },
 
     InvalidTimeFormat(Parse),
     InvalidDateFormat(Parse),
@@ -188,9 +335,9 @@ pub enum StuckThreadMetaParserError {
     InvalidTimeFormatDescription(InvalidFormatDescription),
     InvalidDateFormatDescription(InvalidFormatDescription),
 
-    InvalidDuration { got: String },
-    InvalidThreadId { got: String },
-    InvalidActiveThreadCount { got: String },
+    InvalidThreadId { got: &'a str },
+    InvalidActiveThreadCount { got: &'a str },
+    InvalidActiveDuration { got: &'a str },
 
     DurationOverflow,
 }
