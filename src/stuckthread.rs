@@ -1,6 +1,5 @@
 use std::{fs, path::Path};
 
-use assert_cmd::assert;
 use time::{
     Date, Duration, PrimitiveDateTime, Time,
     error::{InvalidFormatDescription, Parse},
@@ -13,6 +12,10 @@ use crate::stacktrace::{StackTrace, StackTraceParseError};
 static DATE_FORMAT: &[FormatItem<'static>] = format_description!("[day]-[month]-[year]");
 static TIME_FORMAT: &[FormatItem<'static>] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
+
+pub trait ToUnixMillis {
+    fn to_unix_millis(&self) -> Option<i64>;
+}
 
 #[derive(Debug)]
 pub struct StuckThread<'a> {
@@ -33,7 +36,7 @@ pub struct StuckThreadMetaBegin<'a> {
     pub thread_name: &'a str,
     pub request: &'a str,
     pub active_duration_ms: i64,
-    pub active_monitor_count: usize,
+    pub active_monitor_count: i64,
 }
 
 #[derive(Debug)]
@@ -41,7 +44,14 @@ pub struct StuckThreadMetaEnd<'a> {
     pub thread_name: &'a str,
     pub thread_id: u32,
     pub active_duration_ms: i64,
-    pub active_monitor_count: usize,
+    pub active_monitor_count: i64,
+}
+
+impl ToUnixMillis for PrimitiveDateTime {
+    fn to_unix_millis(&self) -> Option<i64> {
+        let result = self.assume_utc().unix_timestamp_nanos() / 1_000_000;
+        i64::try_from(result).ok()
+    }
 }
 
 pub struct StuckThreadProducer;
@@ -137,8 +147,8 @@ impl<'a> StuckThreadMeta<'a> {
         value.replace(",", "").parse::<i64>().ok()
     }
 
-    fn parse_usize(value: &'a str) -> Option<usize> {
-        value.parse::<usize>().ok()
+    fn parse_i64(value: &'a str) -> Option<i64> {
+        value.parse::<i64>().ok()
     }
 
     fn parse_date_time(
@@ -238,7 +248,7 @@ impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaBegin<'a> {
             },
         )?;
 
-        let active_thread_count = StuckThreadMeta::parse_usize(*active_thread_count).ok_or(
+        let active_thread_count = StuckThreadMeta::parse_i64(*active_thread_count).ok_or(
             StuckThreadMetaParserError::InvalidActiveThreadCount {
                 got: *active_thread_count,
             },
@@ -260,9 +270,9 @@ impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaEnd<'a> {
 
     fn try_from(value: Vec<&'a str>) -> Result<Self, Self::Error> {
         let mut active_thread_count = None;
-        let mut thread_name: &str;
-        let mut thread_id: &str;
-        let mut active_duration: &str;
+        let thread_name: &str;
+        let thread_id: &str;
+        let active_duration: &str;
 
         match value.as_slice() {
             [tn, ti, ad] => {
@@ -297,7 +307,7 @@ impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaEnd<'a> {
 
         let mut active_monitor_count = 0;
         if let Some(active_thread_count) = active_thread_count {
-            active_monitor_count = StuckThreadMeta::parse_usize(active_thread_count).ok_or(
+            active_monitor_count = StuckThreadMeta::parse_i64(active_thread_count).ok_or(
                 StuckThreadMetaParserError::InvalidActiveThreadCount {
                     got: active_thread_count,
                 },

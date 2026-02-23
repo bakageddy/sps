@@ -5,5 +5,8 @@ use std::path::PathBuf;
 
 #[derive(clap::Parser)]
 pub struct AppArgs {
-    pub path: PathBuf
+    #[arg(long, short)]
+    pub path: PathBuf,
+    #[arg(long, short)]
+    pub db: Option<PathBuf>,
 }

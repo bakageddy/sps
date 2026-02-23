@@ -1,3 +1,5 @@
+use tracing::warn;
+
 #[derive(Debug)]
 pub struct StackTrace<'a> {
     pub traces: Vec<StackTraceElement<'a>>,

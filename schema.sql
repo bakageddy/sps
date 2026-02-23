@@ -1,11 +1,12 @@
 CREATE TABLE IF NOT EXISTS stuckthread_meta(
-	stack_id INTEGER NOT NULL,
+	stack_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	thread_id INTEGER NOT NULL,
+	start INTEGER NOT NULL,
 	thread_name TEXT NULL,
 	api_request TEXT NULL,
 	active_duration_ms INTEGER NOT NULL,
 	active_monitor_count_start INTEGER NULL,
-	active_monitor_count_end INTEGER NULL,
+	active_monitor_count_end INTEGER NULL
 );
 
 CREATE TABLE IF NOT EXISTS stuckthread_stack(
