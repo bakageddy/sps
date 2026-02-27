@@ -1,3 +1,6 @@
 /target
-/sample
+stuckthreads*.txt
+# sample/*.txt
 output.txt
+*.db
+*.db-journal

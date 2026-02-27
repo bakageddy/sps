@@ -1,95 +1,53 @@
-use std::{collections::HashMap, fs, io, process::exit};
+use std::{collections::HashMap, fs, process::exit};
 
 use clap::Parser;
-use sps::stacktrace::StackTrace;
-use sps::{database::Executor};
-use sps::stuckthread::{StuckThread, StuckThreadMeta, StuckThreadMetaBegin, StuckThreadProducer};
+use sps::stuckthread::{StuckThreadMeta, StuckThreadMetaBegin, StuckThreadProducer};
+use sps::util;
+use sps::{database::Executor, stacktrace::StackTrace};
 use tracing::{Level, event};
-fn main() -> io::Result<()> {
+
+fn main() -> util::Result<()> {
     tracing_subscriber::fmt().init();
 
     event!(Level::INFO, "Parsing Application Arguements");
     let args = sps::arg::AppArgs::parse();
 
-    let abs = args.path.canonicalize()?;
-    if !abs.is_dir() {
-        exit(1);
-    }
+    // TODO: Remove Unwrap
+    // TODO: Bake in schema into the executable
+    let mut cnx = Executor::init_db(args.db, "./schema.sql")?;
 
-    let cnx;
-    if args.db.is_none() {
-        cnx = rusqlite::Connection::open_in_memory();
-    } else {
-        cnx = rusqlite::Connection::open(args.db.expect("Unreachable"));
-    }
-
-    if cnx.is_err() {
-        println!("{cnx:#?}");
-        exit(1);
-    }
-
-    let mut cnx = cnx.expect("Unreachable");
     let mut contents = String::new();
-    let mut files = vec![];
-    let schema = fs::read_to_string("schema.sql").unwrap();
-    cnx.execute_batch(&schema).unwrap();
-
-    for entry in abs.read_dir().unwrap() {
-        let entry = entry.unwrap().path();
-        let file_name = entry.file_name().unwrap().to_string_lossy();
-        if file_name.starts_with("stuckthreads") {
-            files.push(entry);
-        }
+    let sorted_stuckthreads = util::get_sorted_stuckthreads(&args.path)?;
+    for entry in sorted_stuckthreads {
+        contents.push_str(&fs::read_to_string(entry)?);
     }
 
-    files.sort_by_key(|p| {
-        p.file_name()
-            .and_then(|n| n.to_str())
-            .and_then(|s| s.strip_prefix("stuckthreads"))
-            .and_then(|s| s.strip_suffix(".txt"))
-            .and_then(|n| n.parse::<u32>().ok())
-    });
-
-    files.reverse();
-    for entry in files {
-        contents.push_str(&fs::read_to_string(entry).unwrap());
-    }
-
-    event!(Level::INFO, "Parsing {abs:#?} directory");
+    event!(Level::INFO, "Parsing {:#?} directory", &args.path);
     let _result = StuckThreadProducer::produce(&contents);
-    event!(Level::INFO, "Finished Parsing {abs:#?} directory");
+    event!(Level::INFO, "Finished Parsing {:#?} directory", &args.path);
 
     if _result.is_none() {
-        event!(Level::INFO, "Cannot parse the {abs:#?} directory");
+        event!(Level::INFO, "Cannot parse the {:#?} directory", &args.path);
+        exit(1);
     }
 
     let mut buffer: HashMap<u32, (StuckThreadMetaBegin, StackTrace)> = HashMap::new();
-    let tx = cnx.transaction().unwrap();
-    for entry in _result.expect("Unreachable") {
-        match entry {
-            Ok(entry) => {
-                match entry.meta {
-                    StuckThreadMeta::Begin(e) => {
-                        buffer.insert(e.thread_id, (e, entry.st.expect("Unreachable")));
-                    }
-                    StuckThreadMeta::End(ref e) => {
-                        if !buffer.contains_key(&e.thread_id) {
-                            continue;
-                        }
-
-                        let (begin, st) = buffer.get(&e.thread_id).expect("Unreachable");
-
-                        Executor::insert_stuckthread(&tx, begin, st, Some(e)).unwrap();
-                    }
-                };
+    let tx = cnx.transaction()?;
+    for entry in _result.expect("Safety: checked") {
+        match entry.meta {
+            StuckThreadMeta::Begin(e) => {
+                buffer.insert(e.thread_id, (e, entry.st.expect("SAFETY: match")));
             }
-            Err(e) => {
-                event!(Level::WARN, "Error during parsing {e:#?}");
+            StuckThreadMeta::End(ref e) => {
+                if !buffer.contains_key(&e.thread_id) {
+                    continue;
+                }
+                let (begin, st) = buffer.get(&e.thread_id).expect("SAFETY: checked");
+                Executor::insert_stuckthread(&tx, begin, st, Some(e)).unwrap();
+                _ = buffer.remove(&e.thread_id);
             }
         }
     }
-    tx.commit().unwrap();
-    // println!("{result:#?}");
-
+    tx.commit()?;
     Ok(())
 }

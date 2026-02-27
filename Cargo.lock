@@ -362,6 +362,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "rusqlite",
+ "thiserror",
  "time",
  "tracing",
  "tracing-subscriber",

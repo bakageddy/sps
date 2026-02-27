@@ -7,6 +7,6 @@ use std::path::PathBuf;
 pub struct AppArgs {
     #[arg(long, short)]
     pub path: PathBuf,
-    #[arg(long, short)]
+    #[arg(long("database"), short)]
     pub db: Option<PathBuf>,
 }

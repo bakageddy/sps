@@ -1,17 +1,36 @@
+use std::{fs, path::PathBuf};
+
 use crate::{
+    util,
     stacktrace::{self, StackTrace},
-    stuckthread::{StuckThread, StuckThreadMeta, StuckThreadMetaBegin, StuckThreadMetaEnd, ToUnixMillis}
+    stuckthread::{StuckThreadMetaBegin, StuckThreadMetaEnd, ToUnixMillis}
 };
 
 pub struct Executor;
 
 impl Executor {
+    // TODO: bake in schema into the executable
+    pub fn init_db<P>(path: Option<PathBuf>, schema: P) -> util::Result<rusqlite::Connection> where P: AsRef<std::path::Path> {
+        let schema = schema.as_ref();
+        let schema = fs::read_to_string(schema)?;
+
+        let cnx;
+        if path.is_some() {
+            cnx = rusqlite::Connection::open(path.expect("SAFETY: checked"))?;
+        } else {
+            cnx = rusqlite::Connection::open_in_memory()?;
+        }
+
+        cnx.execute_batch(&schema)?;
+        Ok(cnx)
+    }
+
     pub fn insert_stuckthread(
         tx: &rusqlite::Transaction,
         begin: &StuckThreadMetaBegin,
         stacktrace: &StackTrace,
         end: Option<&StuckThreadMetaEnd>,
-    ) -> rusqlite::Result<()> {
+    ) -> util::Result<()> {
         let mut pstmt = tx.prepare(
             "INSERT INTO stuckthread_meta(thread_id, start, thread_name, api_request, active_duration_ms, active_monitor_count_start, active_monitor_count_end) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING stack_id"
         )?;
@@ -25,8 +44,8 @@ impl Executor {
         let mut active_duration_count = begin.active_duration_ms;
 
         if end.is_some() {
-            active_monitor_count_end = end.expect("Unreachable").active_monitor_count;
-            active_duration_count = end.expect("Unreachable").active_duration_ms;
+            active_monitor_count_end = end.expect("SAFETY: checked").active_monitor_count;
+            active_duration_count = end.expect("SAFETY: checked").active_duration_ms;
         }
 
         let stack_id = pstmt.query_row(
