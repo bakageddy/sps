@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, process::exit};
 use clap::Parser;
 use sps::stuckthread::{StuckThreadMeta, StuckThreadMetaBegin, StuckThreadProducer};
 use sps::util;
-use sps::{database::Executor, stacktrace::StackTrace};
+use sps::{database::Persistence, stacktrace::StackTrace};
 use tracing::{Level, event};
 
 fn main() -> util::Result<()> {
@@ -14,7 +14,7 @@ fn main() -> util::Result<()> {
 
     // TODO: Remove Unwrap
     // TODO: Bake in schema into the executable
-    let mut cnx = Executor::init_db(args.db, "./schema.sql")?;
+    let mut cnx = Persistence::init_db(args.db, "./schema.sql")?;
 
     let mut contents = String::new();
     let sorted_stuckthreads = util::get_sorted_stuckthreads(&args.path)?;
@@ -43,7 +43,7 @@ fn main() -> util::Result<()> {
                     continue;
                 }
                 let (begin, st) = buffer.get(&e.thread_id).expect("SAFETY: checked");
-                Executor::insert_stuckthread(&tx, begin, st, Some(e)).unwrap();
+                Persistence::insert_stuckthread(&tx, begin, st, Some(e)).unwrap();
                 _ = buffer.remove(&e.thread_id);
             }
         }

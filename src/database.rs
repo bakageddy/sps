@@ -6,9 +6,11 @@ use crate::{
     stuckthread::{StuckThreadMetaBegin, StuckThreadMetaEnd, ToUnixMillis}
 };
 
-pub struct Executor;
+// WARN: what were you on, when you named it executor?
+// TODO: rename it later.
+pub struct Persistence;
 
-impl Executor {
+impl Persistence {
     // TODO: bake in schema into the executable
     pub fn init_db<P>(path: Option<PathBuf>, schema: P) -> util::Result<rusqlite::Connection> where P: AsRef<std::path::Path> {
         let schema = schema.as_ref();
@@ -53,7 +55,7 @@ impl Executor {
             |row| row.get::<_, i64>(0)
         )?;
 
-        Executor::insert_stacktrace(tx, stacktrace, stack_id)?;
+        Persistence::insert_stacktrace(tx, stacktrace, stack_id)?;
         Ok(())
     }
 
