@@ -71,6 +71,7 @@ impl<'a> TryFrom<&'a str> for StackTraceElement<'a> {
 pub enum StackTraceSource<'a> {
     NativeMethod,
     UnknownSource,
+    Generated { inner: &'a str },
     FileName { file: &'a str, line: usize },
 }
 
@@ -84,7 +85,19 @@ impl<'a> TryFrom<&'a str> for StackTraceSource<'a> {
             _ => {}
         };
 
-        let (file_str, line_str) = value.split_once(":").ok_or(Source::ColonNotFound)?;
+        if value.contains('$') {
+            return Ok(StackTraceSource::Generated { inner: value });
+        }
+
+        let (file_str, line_str) = match value.split_once(':') {
+            Some(res) => res,
+            None => {
+                eprintln!("{}", value);
+                return Err(Source::ColonNotFound);
+            },
+        };
+
+        // let (file_str, line_str) = value.split_once(":").ok_or(Source::ColonNotFound)?;
         let line = line_str.parse::<usize>().map_err(|_| Source::LineNumber)?;
         if !file_str.ends_with("java") {
             return Err(Source::SourceTypeNotRecognized);

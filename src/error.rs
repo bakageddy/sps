@@ -19,6 +19,9 @@ pub mod stuckthread {
     pub enum Error {
         #[error("Error: {0:?}")]
         ParseError(#[from] Parse),
+
+        #[error("Error: {0:?}")]
+        NotValidUTF8(#[from] std::str::Utf8Error),
     }
 
     #[derive(Debug, thiserror::Error)]
@@ -89,6 +92,8 @@ pub mod stacktrace {
 
     #[derive(Debug, thiserror::Error)]
     pub enum Parse {
+        #[error("Error: empty iterator")]
+        EmptyIterator,
         #[error("Error during stacktrace element parsing: Throwable not found")]
         ThrowableNotFound,
         #[error("Error during stacktrace element parsing: at not found")]

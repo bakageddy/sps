@@ -1,12 +1,22 @@
+use memmap2::MmapAsRawDesc;
+use std::{
+    fs,
+    io::BufReader,
+    path::{Path, PathBuf},
+};
+
 use time::{
     Date, Duration, PrimitiveDateTime, Time,
     format_description::FormatItem,
     macros::{datetime, format_description},
 };
+use tracing::warn;
 
 use crate::{
+    stacktrace::{StackTrace, StackTraceElement},
+    error::Error,
     error::stuckthread::{self, Meta, Parse},
-    stacktrace::StackTrace,
+    util,
 };
 
 static DATE_FORMAT: &[FormatItem<'static>] = format_description!("[day]-[month]-[year]");
@@ -55,32 +65,36 @@ impl ToUnixMillis for PrimitiveDateTime {
     }
 }
 
-pub struct StuckThreadProducer;
+pub struct StuckThreadStream;
 
-impl StuckThreadProducer {
-    pub fn produce<'a>(
-        contents: &'a str,
-    ) -> Option<Vec<StuckThread<'a>>> {
-        let mut result = vec![];
+impl StuckThreadStream {
+    pub fn parse<'a>(
+        contents: &'a [u8],
+    ) -> Result<Vec<Result<StuckThread<'a>, stuckthread::Parse>>, stuckthread::Error> {
+        let contents = str::from_utf8(contents)?;
+        let mut iter = contents.split_inclusive('\n').into_iter().peekable();
 
+        let mut lno = 0;
         let mut start = 0;
         let mut offset = 0;
-        for line in contents.split_inclusive('\n') {
+
+        let mut output = Vec::new();
+        while let Some(line) = iter.next() {
+            lno += 1;
             if line.starts_with('[') {
-                let record = &contents[start..start + offset];
-                match StuckThread::try_from(record) {
-                    Ok(stuckthread) => result.push(stuckthread),
-                    Err(e) => eprintln!("{:#?}", e),
+                offset += line.len();
+                while let Some(line) = iter.next_if(|s| !s.starts_with('[')) {
+                    offset += line.len();
+                    lno += 1;
                 }
+                let record = &contents[start .. start + offset];
+                output.push(StuckThread::try_from(record));
 
                 start = start + offset;
-                offset = line.len();
-            } else {
-                offset += line.len();
+                offset = 0;
             }
         }
-
-        Some(result)
+        Ok(output)
     }
 }
 
@@ -201,13 +215,12 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
                 b.start = start
                     .checked_sub(Duration::milliseconds(b.active_duration_ms))
                     .ok_or(Meta::DurationOverflow)?;
-            }, 
+            }
             StuckThreadMeta::End(ref mut b) => {
                 b.start = start
                     .checked_sub(Duration::milliseconds(b.active_duration_ms))
                     .ok_or(Meta::DurationOverflow)?;
-
-            },
+            }
         };
 
         Ok(meta)

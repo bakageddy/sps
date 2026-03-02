@@ -1,13 +1,9 @@
 use std::{fs, path::PathBuf};
 
 use crate::{
-    util,
-    stacktrace::{self, StackTrace},
-    stuckthread::{StuckThreadMetaBegin, StuckThreadMetaEnd, ToUnixMillis}
+    stacktrace::{self, StackTrace, StackTraceSource}, stuckthread::{StuckThreadMetaBegin, StuckThreadMetaEnd, ToUnixMillis}, util
 };
 
-// WARN: what were you on, when you named it executor?
-// TODO: rename it later.
 pub struct Persistence;
 
 impl Persistence {
@@ -69,6 +65,7 @@ impl Persistence {
                 stacktrace::StackTraceSource::NativeMethod => ("NativeMethod", None),
                 stacktrace::StackTraceSource::UnknownSource => ("UnknownSource", None),
                 stacktrace::StackTraceSource::FileName { file, line } => (file, Some(line as i64)),
+                stacktrace::StackTraceSource::Generated { inner } => (inner, None),
             };
 
             pstmt.execute((stack_id, i, method, frame_source, line_number))?;
