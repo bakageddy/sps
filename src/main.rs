@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, process::exit};
+use std::{collections::HashMap, fs};
 
 use clap::Parser;
 use sps::stuckthread::{StuckThreadMeta, StuckThreadMetaBegin, StuckThreadStream};
@@ -29,7 +29,7 @@ fn main() -> util::Result<()> {
         };
 
         info!("Opening file: {:?}", &entry);
-        let map = unsafe { memmap2::Mmap::map(&handle) }; 
+        let map = unsafe { memmap2::Mmap::map(&handle) };
         let map = match map {
             Ok(map) => map,
             Err(e) => {
@@ -51,7 +51,7 @@ fn main() -> util::Result<()> {
             Err(e) => {
                 eprintln!("Error during parsing {:?} : {e:?}", &entry);
                 continue;
-            },
+            }
         };
 
         info!("Finished parsing file {:?}", &entry);
@@ -63,22 +63,22 @@ fn main() -> util::Result<()> {
                 Err(e) => {
                     warn!("Error during parsing {:?}: {e}", &entry);
                     continue;
-                },
+                }
             };
 
             match event.meta {
                 StuckThreadMeta::Begin(e) => {
                     buffer.insert(e.thread_id, (e, event.st.expect("SAFETY: match")));
-                },
+                }
 
                 StuckThreadMeta::End(ref e) => {
                     if !buffer.contains_key(&e.thread_id) {
                         continue;
                     }
                     let (begin, st) = buffer.get(&e.thread_id).expect("SAFETY: checked");
-                    
+
                     match Persistence::insert_stuckthread(&tx, begin, st, Some(e)) {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => warn!("Error during insert: {e:?}"),
                     }
                     _ = buffer.remove(&e.thread_id);
@@ -89,34 +89,16 @@ fn main() -> util::Result<()> {
     }
 
     info!("Started Persisting leftover stuckthread events");
-    for (_, (begin, st))  in buffer {
-        Persistence::insert_stuckthread(&tx, &begin, &st, None);
+    for (_, (begin, st)) in buffer {
+        match Persistence::insert_stuckthread(&tx, &begin, &st, None) {
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Error during insert: {e:?}");
+            }
+        }
     }
     info!("Finished Persisting leftover stuckthread events");
 
     let _ = tx.commit()?;
-
-
-    // if _result.is_none() {
-    //     event!(Level::INFO, "Cannot parse the {:#?} directory", &args.path);
-    //     exit(1);
-    // }
-    // let tx = cnx.transaction()?;
-    // for entry in _result.expect("Safety: checked") {
-    //     match entry.meta {
-    //         StuckThreadMeta::Begin(e) => {
-    //             buffer.insert(e.thread_id, (e, entry.st.expect("SAFETY: match")));
-    //         }
-    //         StuckThreadMeta::End(ref e) => {
-    //             if !buffer.contains_key(&e.thread_id) {
-    //                 continue;
-    //             }
-    //             let (begin, st) = buffer.get(&e.thread_id).expect("SAFETY: checked");
-    //             Persistence::insert_stuckthread(&tx, begin, st, Some(e)).unwrap();
-    //             _ = buffer.remove(&e.thread_id);
-    //         }
-    //     }
-    // }
-    // tx.commit()?;
     Ok(())
 }

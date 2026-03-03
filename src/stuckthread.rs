@@ -1,26 +1,15 @@
-use memmap2::MmapAsRawDesc;
-use std::{
-    fs,
-    io::BufReader,
-    path::{Path, PathBuf},
-};
-
 use time::{
     Date, Duration, PrimitiveDateTime, Time,
-    format_description::FormatItem,
     macros::{datetime, format_description},
 };
-use tracing::warn;
 
 use crate::{
-    stacktrace::{StackTrace, StackTraceElement},
-    error::Error,
+    stacktrace::StackTrace,
     error::stuckthread::{self, Meta, Parse},
-    util,
 };
 
-static DATE_FORMAT: &[FormatItem<'static>] = format_description!("[day]-[month]-[year]");
-static TIME_FORMAT: &[FormatItem<'static>] =
+static DATE_FORMAT: &[time::format_description::FormatItem<'static>] = format_description!("[day]-[month]-[year]");
+static TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
 
 pub trait ToUnixMillis {
@@ -88,6 +77,14 @@ impl StuckThreadStream {
                     lno += 1;
                 }
                 let record = &contents[start .. start + offset];
+                let result = StuckThread::try_from(record);
+                match result {
+                    Ok(_) => {},
+                    Err(e) => {
+                        eprintln!("Error during parsing around line {lno} {e:?}");
+                    },
+                }
+
                 output.push(StuckThread::try_from(record));
 
                 start = start + offset;
