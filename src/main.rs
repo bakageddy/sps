@@ -38,7 +38,6 @@ fn main() -> util::Result<()> {
             }
         };
 
-        // Weird hack to make sure that lifetimes are satisfied
         contents.push(map);
     }
 
