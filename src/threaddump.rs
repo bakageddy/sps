@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::error::threaddump::Parse;
+use crate::{error::threaddump::Parse, scanner::Scanner};
 
 #[derive(Debug, PartialEq, PartialOrd, Eq)]
 pub struct Object<'a> {
@@ -106,14 +106,13 @@ impl<'a> TryFrom<&'a str> for Object<'a> {
     type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        let value = value.trim_start();
-        match value.split_once('@') {
-            Some((class, object_id)) => Ok(Object {
-                class,
-                identity: Object::hex_to_u64(object_id)?,
-            }),
-            None => return Err(Parse::MissingCommat),
-        }
+        let mut scanner = Scanner::new(value);
+        scanner.skip_whitespace();
+        let class = scanner.take_until("@").map_err(|e| Parse::MissingCommat)?;
+        Ok(Object {
+            class,
+            identity: Object::hex_to_u64(scanner.data)?
+        })
     }
 }
 
@@ -143,25 +142,25 @@ impl<'a> TryFrom<&'a str> for Element<'a> {
     type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        let value = value.trim();
-        if value.starts_with("- locked ") {
-            let value = value
-                .strip_prefix("- locked ")
-                .ok_or(Parse::LockedNotFound)?;
-            let result = Object::try_from(value)?;
+        let mut scanner = Scanner::new(value);
+        scanner.skip_whitespace();
+        if scanner.peek_expect("- locked") {
+            scanner.expect("- locked").expect("SAFETY: CHECKED");
+            scanner.skip_whitespace();
+            let result = Object::try_from(scanner.data)?;
             return Ok(Element::Lock(result));
         }
 
-        let (frame, rest) = value.split_once("(").ok_or(Parse::OpenParenNotFound)?;
-        let (source, _) = rest.split_once(")").ok_or(Parse::CloseParenNotFound)?;
-
+        let frame = scanner.take_until_inclusive("(").map_err(|e| Parse::OpenParenNotFound)?;
+        let source = scanner.take_within("(", ")").map_err(|e| Parse::CloseParenNotFound)?;
         let source = Source::try_from(source)?;
-        return Ok(Element::Elem { frame, source });
+        Ok(Element::Elem { frame, source })
     }
 }
 
 impl<'a> TryFrom<&'a str> for StackTrace<'a> {
     type Error = Parse;
+    // NOTE: This is simple enough. DO NOT REFACTOR WITH SCANNER
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let value = value.trim();
         let mut frames = Vec::new();
@@ -182,16 +181,12 @@ impl<'a> TryFrom<&'a str> for ThreadState<'a> {
     type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        let value = value.trim();
-        if !value.starts_with(ThreadState::PREAMBLE) {
-            return Err(Parse::UnexpectedPreamble);
-        }
+        let mut scanner = Scanner::new(value);
+        scanner.skip_whitespace();
+        scanner.expect(ThreadState::PREAMBLE).map_err(|e| Parse::ExpectedPreamble)?;
+        scanner.skip_whitespace();
 
-        let value = value
-            .trim()
-            .strip_prefix(ThreadState::PREAMBLE)
-            .expect("SAFETY: checked")
-            .trim();
+        let state = scanner.take_until(" ")?;
 
         match value.split_once("on") {
             Some((state, object)) => {
@@ -220,12 +215,16 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
     type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        let mut sc = Scanner::new(value);
+        sc.skip_whitespace();
+        let header = sc.take_until("\n").map_err(Parse::ThreadHeaderExtraction)?;
+
         let value = value.trim_start();
         let (header, optional) = value
             .split_once('\n')
             .ok_or(Parse::ThreadHeaderExtraction)?;
 
-        let (value, stack) = value.split_once("\n").ok_or(Parse::UnexpectedPreamble)?;
+        let (value, stack) = value.split_once("\n").ok_or(Parse::ExpectedPreamble)?;
         let (_, rest) = value.split_once("\"").ok_or(Parse::DoubleQuoteNotFound)?;
         let (name, rest) = rest.split_once("\"").ok_or(Parse::DoubleQuoteNotFound)?;
 

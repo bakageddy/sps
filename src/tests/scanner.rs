@@ -138,14 +138,7 @@ fn scanner_take_until() -> Result<(), scanner::Error> {
 fn scanner_take_until_pattern_not_found() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("Hello::World");
     let result = s.take_until(",");
-    assert!(result.is_err());
-    assert_eq!(
-        result,
-        Err(scanner::Error::DelimiterNotFound {
-            delimiter: String::from(","),
-            data: String::from("Hello::World")
-        })
-    );
+    assert!(result.is_none());
     Ok(())
 }
 
@@ -153,38 +146,38 @@ fn scanner_take_until_pattern_not_found() -> Result<(), scanner::Error> {
 fn scanner_take_until_pattern_entire_string() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("Hello::World");
     let result = s.take_until("Hello::World");
-    assert!(result.is_ok(), "GOT: {result:?}");
-    assert_eq!(result, Ok(""));
+    assert!(result.is_some(), "GOT: {result:?}");
+    assert_eq!(result, Some(""));
     assert_eq!(s.data, "");
     Ok(())
 }
 
 #[test]
-fn scanner_take_until_pattern_empty_string() -> Result<(), scanner::Error> {
+fn scanner_take_until_pattern_empty_string() -> Option<()> {
     let mut s = Scanner::new("Hello::World");
     let result = s.take_until("");
-    assert!(result.is_ok(), "GOT: {result:?}");
-    assert_eq!(result, Ok(""));
+    assert!(result.is_some(), "GOT: {result:?}");
+    assert_eq!(result, Some(""));
     assert_eq!(s.data, "Hello::World");
-    Ok(())
+    Some(())
 }
 
 #[test]
-fn scanner_take_until_multi_char_delimiter() -> Result<(), scanner::Error> {
+fn scanner_take_until_multi_char_delimiter() -> Option<()> {
     let mut s = Scanner::new("key::value::rest");
     let result = s.take_until("::")?;
     assert_eq!(result, "key");
     assert_eq!(s.data, "value::rest");
-    Ok(())
+    Some(())
 }
 
 #[test]
-fn scanner_take_until_delimiter_at_start() -> Result<(), scanner::Error> {
+fn scanner_take_until_delimiter_at_start() -> Option<()> {
     let mut s = Scanner::new(",hello");
     let result = s.take_until(",")?;
     assert_eq!(result, "");
     assert_eq!(s.data, "hello");
-    Ok(())
+    Some(())
 }
 
 #[test]
@@ -449,11 +442,11 @@ fn scanner_parse_thread_header_blocked() -> Result<(), scanner::Error> {
 }
 
 #[test]
-fn scanner_parse_lock_metadata() -> Result<(), scanner::Error> {
+fn scanner_parse_lock_metadata() {
     let input = "LockName: java.lang.Object@73853f10 Owner Id: 28 Owner Name: Glowroot-Aggregate-Flushing";
     let mut s = Scanner::new(input);
 
-    s.expect("LockName: ")?;
+    s.expect("LockName: ").ok()?;
     let lock_obj = s.take_until(" Owner Id: ")?;
     assert_eq!(lock_obj, "java.lang.Object@73853f10");
 
@@ -462,8 +455,6 @@ fn scanner_parse_lock_metadata() -> Result<(), scanner::Error> {
 
     let owner_name = s.data;
     assert_eq!(owner_name, "Glowroot-Aggregate-Flushing");
-
-    Ok(())
 }
 
 #[test]

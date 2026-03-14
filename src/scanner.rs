@@ -13,6 +13,14 @@ impl<'a> Scanner<'a> {
         self.data.is_empty()
     }
 
+    pub fn peek_expect(&self, expected: &str) -> bool {
+        if self.is_empty() {
+            return false;
+        }
+
+        return self.data.starts_with(expected);
+    }
+
     pub fn expect(&mut self, expected: &str) -> Result<(), Error> {
         if self.data.len() < expected.len() {
             return Err(Error::EndOfData);
@@ -60,16 +68,12 @@ impl<'a> Scanner<'a> {
         Ok(before)
     }
 
-    pub fn take_until(&mut self, delimiter: &str) -> Result<&'a str, Error> {
+    pub fn take_until(&mut self, delimiter: &str) -> Option<&'a str> {
         let (before, after) = self
             .data
-            .split_once(delimiter)
-            .ok_or(Error::DelimiterNotFound {
-                delimiter: String::from(delimiter),
-                data: String::from(self.data),
-            })?;
+            .split_once(delimiter)?;
         self.data = after;
-        Ok(before)
+        Some(before)
     }
 
     pub fn peek_until(&mut self, delimiter: &str) -> Option<&'a str> {

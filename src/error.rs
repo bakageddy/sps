@@ -60,7 +60,7 @@ pub mod threaddump {
         #[error("Error during parsing line number in function frame: {0:?}")]
         InvalidLineNumber(#[from] std::num::ParseIntError),
         #[error("Error during parsing thread state: Thread state preamble not found")]
-        UnexpectedPreamble,
+        ExpectedPreamble,
         #[error("Error during parsing thread state: Unexpected thread state")]
         UnexpectedThreadState,
         #[error("Error during parsing thread name: Double quotes not found")]

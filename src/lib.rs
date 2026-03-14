@@ -5,5 +5,7 @@ pub mod threaddump;
 pub mod arg;
 pub mod database;
 pub mod util;
-pub mod tests;
 pub mod error;
+
+#[cfg(test)]
+mod tests;
