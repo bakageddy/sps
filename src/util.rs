@@ -1,6 +1,9 @@
+use std::fs;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
+
+use memmap2::Mmap;
 
 pub type Result<T> = std::result::Result<T, crate::error::Error>;
 
@@ -41,4 +44,14 @@ where
     });
     entries.reverse();
     Ok(entries)
+}
+
+pub fn map_file<P>(path: P) -> self::Result<Mmap>
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    let handle = fs::File::open(&path)?;
+    let map = unsafe { memmap2::Mmap::map(&handle)? };
+    Ok(map)
 }

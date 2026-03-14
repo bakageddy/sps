@@ -1,6 +1,5 @@
-use crate::error::stacktrace::Element;
 use crate::error::stacktrace::Parse;
-use crate::error::stacktrace::Source;
+use crate::scanner::Scanner;
 
 #[derive(Debug)]
 pub struct StackTrace<'a> {
@@ -17,19 +16,19 @@ impl<'a> TryFrom<&'a str> for StackTrace<'a> {
     type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        if !value.starts_with("java.lang.Throwable") {
-            return Err(Parse::ThrowableNotFound)?;
-        }
-        let (_, value) = value.split_once("\n").expect("SAFETY: checked");
+        let mut scanner = Scanner::new(value);
+        scanner.expect("java.lang.Throwable").map_err(|e| Parse::ThrowableNotFound)?;
+        scanner.skip_whitespace();
 
         let mut st = StackTrace::default();
-        for line in value.lines() {
-            let line = line.trim();
-            if !line.starts_with("at ") {
-                return Err(Parse::AtNotFound)?;
-            }
+        while !scanner.is_empty() {
+            scanner.expect("at").map_err(|e| Parse::AtNotFound)?;
+            let line = match scanner.take_until_inclusive("\n") {
+                Ok(line) => line,
+                Err(_) => break,
+            };
+            scanner.skip_whitespace();
 
-            let line = line.strip_prefix("at ").expect("SAFETY: checked");
             let result = StackTraceElement::try_from(line)?;
             st.traces.push(result);
         }
@@ -54,15 +53,14 @@ impl<'a> StackTraceElement<'a> {
 }
 
 impl<'a> TryFrom<&'a str> for StackTraceElement<'a> {
-    type Error = Element;
+    type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        let (function_name, rest) = value.split_once("(").ok_or(Element::OpenParenNotFound)?;
-
-        let (raw_source, _) = rest.split_once(")").ok_or(Element::CloseParenNotFound)?;
-        let parsed_source =
-            StackTraceSource::try_from(raw_source).map_err(|e| Element::SourceError(e))?;
-
+        let mut scanner = Scanner::new(value);
+        scanner.skip_whitespace();
+        let function_name = scanner.take_until_inclusive("(")?;
+        let raw_source = scanner.take_within("(", ")")?;
+        let parsed_source = StackTraceSource::try_from(raw_source)?;
         Ok(StackTraceElement::new(function_name, parsed_source))
     }
 }
@@ -76,7 +74,7 @@ pub enum StackTraceSource<'a> {
 }
 
 impl<'a> TryFrom<&'a str> for StackTraceSource<'a> {
-    type Error = Source;
+    type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         match value {
@@ -92,15 +90,13 @@ impl<'a> TryFrom<&'a str> for StackTraceSource<'a> {
         let (file_str, line_str) = match value.split_once(':') {
             Some(res) => res,
             None => {
-                eprintln!("{}", value);
-                return Err(Source::ColonNotFound);
-            },
+                return Err(Parse::ColonNotFound);
+            }
         };
 
-        // let (file_str, line_str) = value.split_once(":").ok_or(Source::ColonNotFound)?;
-        let line = line_str.parse::<usize>().map_err(|_| Source::LineNumber)?;
+        let line = line_str.parse::<usize>().map_err(|_| Parse::LineNumber)?;
         if !file_str.ends_with("java") {
-            return Err(Source::SourceTypeNotRecognized);
+            return Err(Parse::SourceTypeNotRecognized);
         }
         Ok(StackTraceSource::FileName {
             file: file_str,

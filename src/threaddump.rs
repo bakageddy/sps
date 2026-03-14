@@ -5,7 +5,7 @@ use crate::error::threaddump::Parse;
 #[derive(Debug, PartialEq, PartialOrd, Eq)]
 pub struct Object<'a> {
     pub class: &'a str,
-    pub object_id: u64,
+    pub identity: u64,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq)]
@@ -32,9 +32,20 @@ pub enum ThreadState<'a> {
     New,
     Terminated,
     Runnable,
-    Blocked(Object<'a>),
+    Blocked {
+        owner_id: ThreadID,
+        owner_name: Option<&'a str>,
+        object: Object<'a>,
+    },
     TimedWaiting(Object<'a>),
     Waiting(Object<'a>),
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq)]
+pub struct ThreadHeader<'a> {
+    thread_name: Option<&'a str>,
+    thread_id: ThreadID,
+    state: ThreadState<'a>,
 }
 
 pub type ThreadID = i64;
@@ -49,6 +60,7 @@ pub struct Thread<'a> {
 
 pub struct ThreadDump<'a> {
     pub threads: HashMap<ThreadID, Thread<'a>>,
+    pub triggered_unix_ms: i64,
 }
 
 impl Object<'_> {
@@ -98,7 +110,7 @@ impl<'a> TryFrom<&'a str> for Object<'a> {
         match value.split_once('@') {
             Some((class, object_id)) => Ok(Object {
                 class,
-                object_id: Object::hex_to_u64(object_id)?,
+                identity: Object::hex_to_u64(object_id)?,
             }),
             None => return Err(Parse::MissingCommat),
         }
@@ -188,7 +200,7 @@ impl<'a> TryFrom<&'a str> for ThreadState<'a> {
                 return match state {
                     "WAITING" => Ok(ThreadState::Waiting(object)),
                     "TIMED_WAITING" => Ok(ThreadState::TimedWaiting(object)),
-                    "BLOCKED" => Ok(ThreadState::Blocked(object)),
+                    // "BLOCKED" => Ok(ThreadState::Blocked(object)),
                     _ => Err(Parse::UnexpectedThreadState),
                 };
             }
@@ -208,6 +220,11 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
     type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        let value = value.trim_start();
+        let (header, optional) = value
+            .split_once('\n')
+            .ok_or(Parse::ThreadHeaderExtraction)?;
+
         let (value, stack) = value.split_once("\n").ok_or(Parse::UnexpectedPreamble)?;
         let (_, rest) = value.split_once("\"").ok_or(Parse::DoubleQuoteNotFound)?;
         let (name, rest) = rest.split_once("\"").ok_or(Parse::DoubleQuoteNotFound)?;

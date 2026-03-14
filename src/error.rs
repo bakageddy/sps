@@ -2,6 +2,8 @@
 pub enum Error {
     #[error("Error with Stuck Threads: {0:?}")]
     StuckThread(#[from] stuckthread::Error),
+    #[error("Error with Thread Dumps: {0:?}")]
+    ThreadDump(#[from] threaddump::Error),
     #[error("Error with Arguement parsing: {0:?}")]
     Clap(#[from] clap::Error),
     #[error("Error with SQLITE3: {0:?}")]
@@ -10,7 +12,35 @@ pub enum Error {
     IO(#[from] std::io::Error),
 }
 
+pub mod scanner {
+    use thiserror::Error;
+
+    #[derive(Debug, Error, PartialEq, Eq)]
+    pub enum Error {
+        #[error("Error during consuming Scanner: Expected: {expected:?}, Got: {got:?}")]
+        Expected { got: String, expected: String },
+        #[error("Error during consuming Scanner: EndOfData")]
+        EndOfData,
+        #[error("Error during consuming Scanner: Delimiter {delimiter:?} not found on {data:?}")]
+        DelimiterNotFound { delimiter: String, data: String },
+        #[error(
+            "Error during consuming Scanner: Trying to consume {expect:?} but available {have:?}"
+        )]
+        NotEnoughData { have: usize, expect: usize },
+        #[error(
+            "Error during consuming Scanner: {n:?}th byte is not a valid utf8 code point in {data:?}"
+        )]
+        NotACharBoundary { n: usize, data: String },
+    }
+}
+
 pub mod threaddump {
+    #[derive(Debug, PartialEq, Eq, thiserror::Error)]
+    pub enum Error {
+        #[error("Error during parsing thread dump: {0:?}")]
+        Parse(#[from] Parse),
+    }
+
     #[derive(Debug, PartialEq, Eq, thiserror::Error)]
     pub enum Parse {
         #[error("Error parsing thread dump: Missing '@'")]
@@ -41,6 +71,8 @@ pub mod threaddump {
         ThreadIdParse(std::num::ParseIntError),
         #[error("Error during extracting thread id")]
         ThreadIDExtraction,
+        #[error("Error during extracting thread header")]
+        ThreadHeaderExtraction,
     }
 }
 
@@ -62,27 +94,18 @@ pub mod stuckthread {
     pub enum Parse {
         #[error("Stack Trace Parse Error: {0:?}")]
         StackParseError(#[from] stacktrace::Parse),
-        #[error("Meta Data Parse Error: {0:?}")]
-        MetaParseError(#[from] Meta),
-        #[error("Meta Data Extraction Error")]
-        MetaExtractionError,
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum Meta {
         #[error("Error during Meta Data parsing: `::` not found")]
         DoubleColonAbsent,
         #[error("Error during Meta Data parsing: {count:?}th ']' not found")]
-        UnmatchedRightBracket {
-            count: usize,
-        },
-        #[error("Error during Meta Data parsing: expected {expected:?} number of groups, got: {got:?}")]
-        IncorrectHeaderInfoCount {
-            got: Vec<String>,
-            expected: usize,
-        },
+        UnmatchedRightBracket { count: usize },
+        #[error(
+            "Error during Meta Data parsing: expected {expected:?} number of groups, got: {got:?}"
+        )]
+        IncorrectHeaderInfoCount { got: Vec<String>, expected: usize },
 
-        #[error("Error during Meta Data parsing: expected {minimum_expected:?} number of groups, got: {got:?}")]
+        #[error(
+            "Error during Meta Data parsing: expected {minimum_expected:?} number of groups, got: {got:?}"
+        )]
         IncorrectMessageInfoCount {
             got: Vec<String>,
             minimum_expected: usize,
@@ -94,28 +117,29 @@ pub mod stuckthread {
         #[error("Error: Invalid Date Format Description")]
         InvalidDateTimeFormatDescription(#[from] time::error::InvalidFormatDescription),
 
-        #[error("Error during Meta Data parsing: invalid thread id, got: {got:?}, message: {inner:?}")]
-        InvalidThreadId {
-            got: String,
-            inner: ParseIntError,
-        },
-        #[error("Error during Meta Data parsing: invalid active thread count, got: {got:?}, message: {inner:?}")]
-        InvalidActiveThreadCount {
-            got: String,
-            inner: ParseIntError,
-        },
-        #[error("Error during Meta Data parsing: invalid active duration, got: {got:?}, message: {inner:?}")]
-        InvalidActiveDuration {
-            got: String,
-            inner: ParseIntError,
-        },
+        #[error(
+            "Error during Meta Data parsing: invalid thread id, got: {got:?}, message: {inner:?}"
+        )]
+        InvalidThreadId { got: String, inner: ParseIntError },
+        #[error(
+            "Error during Meta Data parsing: invalid active thread count, got: {got:?}, message: {inner:?}"
+        )]
+        InvalidActiveThreadCount { got: String, inner: ParseIntError },
+        #[error(
+            "Error during Meta Data parsing: invalid active duration, got: {got:?}, message: {inner:?}"
+        )]
+        InvalidActiveDuration { got: String, inner: ParseIntError },
 
         #[error("Error during Meta Data parsing: Duration Overflow/Underflow")]
         DurationOverflow,
+        #[error("Meta Data Extraction Error")]
+        MetaExtractionError,
     }
 }
 
 pub mod stacktrace {
+    use crate::error::scanner;
+
     // use std::path::PathBuf;
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
@@ -131,21 +155,9 @@ pub mod stacktrace {
         #[error("Error during stacktrace element parsing: at not found")]
         AtNotFound,
         #[error("Error during stacktrace element parsing: {0:?}")]
-        ElementError(#[from] Element),
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum Element {
-        #[error("Error during stacktrace element parsing: ( not found)")]
-        OpenParenNotFound,
+        ParenNotFound(#[from] scanner::Error),
         #[error("Error during stacktrace element parsing: ) not found)")]
         CloseParenNotFound,
-        #[error("Error during stacktrace element parsing: {0:?}")]
-        SourceError(#[from] Source),
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum Source {
         #[error("Error during stacktrace element source parsing: Source type not recognized")]
         SourceTypeNotRecognized,
         #[error("Error during stacktrace element source parsing: Cannot parse line number")]

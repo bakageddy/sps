@@ -4,11 +4,13 @@ use time::{
 };
 
 use crate::{
+    error::stuckthread::{Error, Parse},
+    scanner::Scanner,
     stacktrace::StackTrace,
-    error::stuckthread::{self, Meta, Parse},
 };
 
-static DATE_FORMAT: &[time::format_description::FormatItem<'static>] = format_description!("[day]-[month]-[year]");
+static DATE_FORMAT: &[time::format_description::FormatItem<'static>] =
+    format_description!("[day]-[month]-[year]");
 static TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
 
@@ -57,9 +59,7 @@ impl ToUnixMillis for PrimitiveDateTime {
 pub struct StuckThreadStream;
 
 impl StuckThreadStream {
-    pub fn parse<'a>(
-        contents: &'a [u8],
-    ) -> Result<Vec<Result<StuckThread<'a>, stuckthread::Parse>>, stuckthread::Error> {
+    pub fn parse<'a>(contents: &'a [u8]) -> Result<Vec<Result<StuckThread<'a>, Parse>>, Error> {
         let contents = str::from_utf8(contents)?;
         let mut iter = contents.split_inclusive('\n').into_iter().peekable();
 
@@ -76,13 +76,13 @@ impl StuckThreadStream {
                     offset += line.len();
                     lno += 1;
                 }
-                let record = &contents[start .. start + offset];
+                let record = &contents[start..start + offset];
                 let result = StuckThread::try_from(record);
                 match result {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(e) => {
                         eprintln!("Error during parsing around line {lno} {e:?}");
-                    },
+                    }
                 }
 
                 output.push(StuckThread::try_from(record));
@@ -96,17 +96,20 @@ impl StuckThreadStream {
 }
 
 impl<'a> TryFrom<&'a str> for StuckThread<'a> {
-    type Error = stuckthread::Parse;
+    type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        let (meta, rest) = value.split_once('\n').ok_or(Parse::MetaExtractionError)?;
-        let stuck_thread_meta =
-            StuckThreadMeta::try_from(meta).map_err(|e| Parse::MetaParseError(e))?;
+        let mut scanner = Scanner::new(value);
 
+        let meta = scanner
+            .take_until("\n")
+            .map_err(|_| Parse::MetaExtractionError)?;
+
+        let stuck_thread_meta = StuckThreadMeta::try_from(meta)?;
         match stuck_thread_meta {
             StuckThreadMeta::Begin(_) => {
                 let stacktrace =
-                    StackTrace::try_from(rest).map_err(|e| Parse::StackParseError(e))?;
+                    StackTrace::try_from(scanner.data).map_err(|e| Parse::StackParseError(e))?;
 
                 return Ok(Self {
                     st: Some(stacktrace),
@@ -125,51 +128,47 @@ impl<'a> TryFrom<&'a str> for StuckThread<'a> {
 }
 
 impl<'a> StuckThreadMeta<'a> {
-    fn extract_bracket_groups<'b>(input: &mut &'b str) -> Result<Vec<&'b str>, Meta> {
-        let mut groups = Vec::with_capacity(8);
+    fn extract_bracket_groups<'b>(input: &'b str) -> Result<Vec<&'b str>, Parse> {
+        let mut scanner = Scanner::new(input);
         let mut iter_count: usize = 0;
-        while let Some((_, rest)) = input.split_once('[') {
-            let (group, rest) = rest
-                .split_once(']')
-                .ok_or(Meta::UnmatchedRightBracket { count: iter_count })?;
-
+        let mut groups = Vec::with_capacity(8);
+        while let Ok(group) = scanner.take_within("[", "]") {
             groups.push(group);
             iter_count += 1;
-            *input = rest;
         }
         Ok(groups)
     }
 
-    fn parse_thread_id(value: &'a str) -> Result<u32, Meta> {
-        value.parse::<u32>().map_err(|e| Meta::InvalidThreadId {
+    fn parse_thread_id(value: &'a str) -> Result<u32, Parse> {
+        value.parse::<u32>().map_err(|e| Parse::InvalidThreadId {
             got: value.to_string(),
             inner: e,
         })
     }
 
-    fn parse_comma_separate_i64(value: &'a str) -> Result<i64, Meta> {
+    fn parse_comma_separate_i64(value: &'a str) -> Result<i64, Parse> {
         value
             .replace(",", "")
             .parse::<i64>()
-            .map_err(|e| Meta::InvalidActiveDuration {
+            .map_err(|e| Parse::InvalidActiveDuration {
                 got: value.to_string(),
                 inner: e,
             })
     }
 
-    fn parse_i64(value: &'a str) -> Result<i64, Meta> {
+    fn parse_i64(value: &'a str) -> Result<i64, Parse> {
         value
             .parse::<i64>()
-            .map_err(|e| Meta::InvalidActiveThreadCount {
+            .map_err(|e| Parse::InvalidActiveThreadCount {
                 got: value.to_string(),
                 inner: e,
             })
     }
 
-    fn parse_date_time(date: &'a str, time: &'a str) -> Result<PrimitiveDateTime, Meta> {
-        let time = Time::parse(time, TIME_FORMAT).map_err(|e| Meta::InvalidDateTimeFormat(e))?;
+    fn parse_date_time(date: &'a str, time: &'a str) -> Result<PrimitiveDateTime, Parse> {
+        let time = Time::parse(time, TIME_FORMAT).map_err(|e| Parse::InvalidDateTimeFormat(e))?;
 
-        let date = Date::parse(date, DATE_FORMAT).map_err(|e| Meta::InvalidDateTimeFormat(e))?;
+        let date = Date::parse(date, DATE_FORMAT).map_err(|e| Parse::InvalidDateTimeFormat(e))?;
 
         let datetime = PrimitiveDateTime::new(date, time);
         Ok(datetime)
@@ -177,17 +176,20 @@ impl<'a> StuckThreadMeta<'a> {
 }
 
 impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
-    type Error = Meta;
+    type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        let (mut header, mut message) = value.split_once("::").ok_or(Meta::DoubleColonAbsent)?;
+        let mut scanner = Scanner::new(value);
+        let header = scanner
+            .take_until("::")
+            .map_err(|_| Parse::DoubleColonAbsent)?;
 
-        let headers = StuckThreadMeta::extract_bracket_groups(&mut header)?;
-        let message = StuckThreadMeta::extract_bracket_groups(&mut message)?;
+        let headers = StuckThreadMeta::extract_bracket_groups(header)?;
+        let message = StuckThreadMeta::extract_bracket_groups(scanner.data)?;
 
         let [time, date, _, _, _] = headers.as_slice() else {
-            return Err(Meta::IncorrectHeaderInfoCount {
-                got: headers.iter().map(|s| s.to_string()).collect(),
+            return Err(Parse::IncorrectHeaderInfoCount {
+                got: headers.iter().map(|s| (*s).to_string()).collect(),
                 expected: 5,
             });
         };
@@ -201,8 +203,8 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
         } else if message_len == 4 || message_len == 3 {
             meta = StuckThreadMeta::End(StuckThreadMetaEnd::try_from(message)?);
         } else {
-            return Err(Meta::IncorrectMessageInfoCount {
-                got: message.iter().map(|s| s.to_string()).collect(),
+            return Err(Parse::IncorrectMessageInfoCount {
+                got: message.iter().map(|s| (*s).to_string()).collect(),
                 minimum_expected: 3,
             });
         }
@@ -211,12 +213,12 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
             StuckThreadMeta::Begin(ref mut b) => {
                 b.start = start
                     .checked_sub(Duration::milliseconds(b.active_duration_ms))
-                    .ok_or(Meta::DurationOverflow)?;
+                    .ok_or(Parse::DurationOverflow)?;
             }
             StuckThreadMeta::End(ref mut b) => {
                 b.start = start
                     .checked_sub(Duration::milliseconds(b.active_duration_ms))
-                    .ok_or(Meta::DurationOverflow)?;
+                    .ok_or(Parse::DurationOverflow)?;
             }
         };
 
@@ -225,7 +227,7 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
 }
 
 impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaBegin<'a> {
-    type Error = Meta;
+    type Error = Parse;
 
     fn try_from(value: Vec<&'a str>) -> Result<Self, Self::Error> {
         let [
@@ -238,7 +240,7 @@ impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaBegin<'a> {
             active_thread_count,
         ] = value.as_slice()
         else {
-            return Err(Meta::IncorrectMessageInfoCount {
+            return Err(Parse::IncorrectMessageInfoCount {
                 got: value.iter().map(|s| s.to_string()).collect(),
                 minimum_expected: 7,
             });
@@ -260,7 +262,7 @@ impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaBegin<'a> {
 }
 
 impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaEnd<'a> {
-    type Error = Meta;
+    type Error = Parse;
 
     fn try_from(value: Vec<&'a str>) -> Result<Self, Self::Error> {
         let mut active_thread_count = None;
@@ -283,7 +285,7 @@ impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaEnd<'a> {
             }
 
             _ => {
-                return Err(Meta::IncorrectMessageInfoCount {
+                return Err(Parse::IncorrectMessageInfoCount {
                     got: value.iter().map(|s| s.to_string()).collect(),
                     minimum_expected: 3,
                 });

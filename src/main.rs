@@ -19,17 +19,7 @@ fn main() -> util::Result<()> {
     let mut contents = vec![];
     let mut buffer: HashMap<u32, (StuckThreadMetaBegin, StackTrace)> = HashMap::new();
     for entry in &sorted_stuckthreads {
-        let handle = fs::File::open(&entry);
-        let handle = match handle {
-            Ok(inner) => inner,
-            Err(e) => {
-                warn!("Cannot open file {:?} due to {e}", &entry);
-                continue;
-            }
-        };
-
-        info!("Opening file: {:?}", &entry);
-        let map = unsafe { memmap2::Mmap::map(&handle) };
+        let map = util::map_file(&entry);
         let map = match map {
             Ok(map) => map,
             Err(e) => {

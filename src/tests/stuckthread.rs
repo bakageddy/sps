@@ -5,6 +5,7 @@ use crate::stuckthread::{StuckThread, StuckThreadMeta, StuckThreadMetaBegin, Stu
 // Helper: Build meta lines
 // ============================================================
 
+#[allow(unused)]
 const BEGIN_META: &str = "[15:52:17.284]|[16-02-2026]|[org.apache.catalina.valves.StuckThreadDetectionValve]|[WARN]|[90]| :: Thread [/api/v3/requests/3472132/request_detail-1771237317720_###_] (id=[226300]) has been active for [19,273] milliseconds (since [2/16/26 3:51 PM]) to serve the same request for [http://sdp-loadt-3:8080/api/v3/requests/3472132/request_detail?includes=%5B%22_links%22%5D&_=1687928484586] and may be stuck (configured threshold for this StuckThreadDetectionValve is [10] seconds). There is/are [79] thread(s) in total that are monitored by this Valve and may be stuck.\n";
 
 const END_META_4_GROUPS: &str = "[15:52:17.351]|[16-02-2026]|[org.apache.catalina.valves.StuckThreadDetectionValve]|[WARN]|[90]| :: Thread [] (id=[226293]) was previously reported to be stuck but has completed. It was active for approximately [27,650] milliseconds. There is/are still [78] thread(s) that are monitored by this Valve and may be stuck.\n";
