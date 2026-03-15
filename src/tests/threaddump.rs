@@ -319,3 +319,16 @@ fn test_thread_locked_runnable() -> Result<(), Parse> {
     println!("{result:?}");
     Ok(())
 }
+
+#[test]
+fn test_thread_no_stacktrace() -> Result<(), Parse> {
+    let input = "\"Glowroot-Aggregate-Flushing\"  Id=28  Java.lang.Thread.State: RUNNABLE\r\n";
+    let thread = Thread::try_from(input);
+    assert!(thread.is_ok(), "Got Error: {thread:?}");
+    let thread = thread?;
+    assert_eq!(thread.state, ThreadState::Runnable);
+    assert_eq!(thread.thread_name, Some("Glowroot-Aggregate-Flushing"));
+    assert_eq!(thread.thread_id, 28);
+    assert_eq!(thread.stacktrace, None);
+    Ok(())
+}
