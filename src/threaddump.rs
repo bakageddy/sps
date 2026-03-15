@@ -66,12 +66,6 @@ pub struct ThreadDump<'a> {
 impl Object<'_> {
     pub fn hex_to_u64(value: &str) -> Result<u64, Parse> {
         let value = value.trim();
-        if value.len() != 8 {
-            return Err(Parse::HexLen {
-                expected: 8,
-                got: value.len(),
-            });
-        }
         let mut result = 0;
         let mut i = 1;
         for char in value.chars().rev() {
@@ -199,18 +193,14 @@ impl<'a> TryFrom<&'a str> for ThreadState<'a> {
                 "WAITING" => {
                     _ = scanner.take_until("on").expect("SAFETY: CHECKED");
                     scanner.skip_whitespace();
-                    let object = scanner
-                        .take_until_inclusive("\n")
-                        .ok_or(Parse::ExpectedValidLockInformation)?;
+                    let object = scanner.remaining();
                     let object = Object::try_from(object)?;
                     return Ok(ThreadState::Waiting(object));
                 }
                 "TIMED_WAITING" => {
                     _ = scanner.take_until("on").expect("SAFETY: CHECKED");
                     scanner.skip_whitespace();
-                    let object = scanner
-                        .take_until_inclusive("\n")
-                        .ok_or(Parse::ExpectedValidLockInformation)?;
+                    let object = scanner.remaining();
                     let object = Object::try_from(object)?;
                     return Ok(ThreadState::TimedWaiting(object));
                 }
@@ -233,7 +223,6 @@ impl<'a> TryFrom<&'a str> for ThreadState<'a> {
                 "RUNNABLE" => Ok(ThreadState::Runnable),
                 _ => Err(Parse::UnexpectedThreadState),
             };
-            return Err(Parse::UnexpectedThreadState);
         }
     }
 }
@@ -293,9 +282,7 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
                 scanner
                     .expect("Owner Name: ")
                     .map_err(|_| Parse::ExpectedOwnerName)?;
-                let owner_name = scanner
-                    .take_until("\n")
-                    .ok_or(Parse::ExpectedNewline)?;
+                let owner_name = scanner.take_until("\n").ok_or(Parse::ExpectedNewline)?;
                 let owner_name = if owner_name.trim().is_empty() {
                     None
                 } else {
@@ -322,5 +309,12 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
             stacktrace: stack,
             state,
         })
+    }
+}
+
+impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
+    type Error = Parse;
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        todo!()
     }
 }

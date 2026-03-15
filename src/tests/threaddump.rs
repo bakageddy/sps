@@ -25,19 +25,6 @@ fn test_object_id_overflow() -> Result<(), Parse> {
 }
 
 #[test]
-fn test_object_id_hex_invalid_length() {
-    let input = "199d244dx";
-    let result = Object::hex_to_u64(input);
-    assert_eq!(
-        result.unwrap_err(),
-        Parse::HexLen {
-            expected: 8,
-            got: 9
-        }
-    );
-}
-
-#[test]
 fn test_object_id_hex_invalid_digit() {
     let input = "199d244x";
     let result = Object::hex_to_u64(input);
@@ -329,6 +316,20 @@ fn test_thread_no_stacktrace() -> Result<(), Parse> {
     assert_eq!(thread.state, ThreadState::Runnable);
     assert_eq!(thread.thread_name, Some("Glowroot-Aggregate-Flushing"));
     assert_eq!(thread.thread_id, 28);
+    assert_eq!(thread.stacktrace, None);
+    Ok(())
+}
+
+#[test]
+fn test_thread_no_stacktrace_waiting() -> Result<(), Parse> {
+    let input = r#""Finalizer"  Id=3  Java.lang.Thread.State: WAITING on java.lang.ref.ReferenceQueue$Lock@15c8762
+"#;
+    let thread = Thread::try_from(input);
+    assert!(thread.is_ok(), "Got error: {thread:?}");
+    let thread = thread?;
+    assert_eq!(thread.state, ThreadState::Waiting(Object { class: "java.lang.ref.ReferenceQueue$Lock", identity: 22841186}));
+    assert_eq!(thread.thread_name, Some("Finalizer"));
+    assert_eq!(thread.thread_id, 3);
     assert_eq!(thread.stacktrace, None);
     Ok(())
 }

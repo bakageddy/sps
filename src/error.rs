@@ -45,8 +45,6 @@ pub mod threaddump {
     pub enum Parse {
         #[error("Error parsing thread dump: Missing '@'")]
         MissingCommat,
-        #[error("Error parsing object id expected {expected:?} characters, got {got:?}")]
-        HexLen { expected: usize, got: usize },
         #[error("Error parsing object id: unexpected character: {got:?}")]
         HexUnexpectedChar { got: char },
         #[error("Missing open paren")]
