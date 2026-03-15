@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use crate::{
-    stacktrace::{self, StackTrace}, stuckthread::{StuckThreadMetaBegin, StuckThreadMetaEnd, ToUnixMillis}, util
+    stacktrace::{self, StackTrace}, stuckthread::{StuckThreadMetaBegin, StuckThreadMetaEnd}, util::{self, ToUnixMillis}
 };
 
 pub struct Persistence;

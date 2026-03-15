@@ -2,6 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
+use time::PrimitiveDateTime;
 
 use memmap2::Mmap;
 
@@ -54,4 +55,15 @@ where
     let handle = fs::File::open(&path)?;
     let map = unsafe { memmap2::Mmap::map(&handle)? };
     Ok(map)
+}
+
+pub trait ToUnixMillis {
+    fn to_unix_millis(&self) -> Option<i64>;
+}
+
+impl ToUnixMillis for PrimitiveDateTime {
+    fn to_unix_millis(&self) -> Option<i64> {
+        let result = self.assume_utc().unix_timestamp_nanos() / 1_000_000;
+        i64::try_from(result).ok()
+    }
 }

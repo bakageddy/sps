@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{error::threaddump::Parse, scanner::Scanner};
+use crate::{error::threaddump::Parse, scanner::Scanner, util::ToUnixMillis};
+use time::{PrimitiveDateTime, format_description::FormatItem, macros::format_description};
+use tracing::warn;
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Default)]
 pub struct Object<'a> {
@@ -58,9 +60,11 @@ pub struct Thread<'a> {
     pub thread_name: Option<&'a str>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct ThreadDump<'a> {
     pub threads: HashMap<ThreadID, Thread<'a>>,
     pub triggered_unix_ms: i64,
+    pub snapshot: u8,
 }
 
 impl Object<'_> {
@@ -299,7 +303,7 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
 
         let data = scanner.remaining();
         let mut stack: Option<StackTrace<'a>> = None;
-        if !data.is_empty() {
+        if !data.trim().is_empty() {
             stack = Some(StackTrace::try_from(data)?);
         }
 
@@ -312,9 +316,58 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
     }
 }
 
+impl<'a> ThreadDump<'a> {
+    pub const FORMAT: &'static [FormatItem<'static>] =
+        format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]");
+}
+
 impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
     type Error = Parse;
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        todo!()
+        let (header, rest) = value.trim_start().split_once("\n").ok_or(Parse::ExpectedNewline)?;
+        let snapshot: u8;
+        let timestamp: i64;
+        match header.split(" : ").into_iter().collect::<Vec<&str>>().as_slice() {
+            ["Thread dump", raw_snapshot, raw_timestamp] => {
+                snapshot = raw_snapshot.parse().map_err(|_| Parse::DumpSnapshot)?;
+                let time = PrimitiveDateTime::parse(*raw_timestamp, ThreadDump::FORMAT)
+                    .map_err(|e| Parse::SnapshotTimestampParsing(e))?;
+                timestamp = time.to_unix_millis().ok_or(Parse::SnapshotTimestampConversion)?;
+            },
+            _ => return Err(Parse::ThreadDumpExtraction),
+        };
+
+        let mut dump = rest.split_inclusive('\n').into_iter().peekable();
+        let mut start = 0;
+        let mut offset = 0;
+        let mut threads = HashMap::new();
+        while let Some(line) = dump.next() {
+            if line.starts_with("\"") {
+                offset += line.len();
+                while let Some(line) = dump.next_if(|l| !l.starts_with("\"")) {
+                    offset += line.len();
+                }
+
+                let contents = &rest[start..start + offset];
+                let thread = Thread::try_from(contents);
+                match thread {
+                    Ok(thread) => threads.insert(thread.thread_id, thread),
+                    Err(e) => {
+                        eprintln!("Error during parsing thread dump: {e:?}");
+                        continue;
+                    }
+                };
+
+                start += offset;
+                offset = 0;
+            } else {
+                start += line.len();
+            }
+        }
+        Ok(ThreadDump {
+            threads,
+            triggered_unix_ms: timestamp,
+            snapshot,
+        })
     }
 }

@@ -84,7 +84,17 @@ pub mod threaddump {
         #[error("Error during extracting thread lock information")]
         ExpectedValidLockInformation,
         #[error("Error during parsing thread: Expected newline")]
-        ExpectedNewline
+        ExpectedNewline,
+        #[error("Error during parsing thread dump: Expected \"Thread dump\"")]
+        ThreadDumpExtraction,
+        #[error("Error during parsing thread dump snapshot")]
+        DumpSnapshot,
+        #[error("Error during parsing thread dump: Snapshot Timestamp extraction")]
+        SnapshotTimestampExtraction,
+        #[error("Error during parsing thread dump: Snapshot parsing")]
+        SnapshotTimestampParsing(#[from] time::error::Parse),
+        #[error("Error during parsing thread dump: Snapshot Unix Time stamp conversion")]
+        SnapshotTimestampConversion,
     }
 }
 

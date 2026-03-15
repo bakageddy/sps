@@ -3,6 +3,7 @@ use time::{
     macros::{datetime, format_description},
 };
 
+use crate::util::ToUnixMillis;
 use crate::{
     error::stuckthread::{Error, Parse},
     scanner::Scanner,
@@ -13,10 +14,6 @@ static DATE_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[day]-[month]-[year]");
 static TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
-
-pub trait ToUnixMillis {
-    fn to_unix_millis(&self) -> Option<i64>;
-}
 
 #[derive(Debug)]
 pub struct StuckThread<'a> {
@@ -47,13 +44,6 @@ pub struct StuckThreadMetaEnd<'a> {
     pub thread_name: &'a str,
     pub active_duration_ms: i64,
     pub active_monitor_count: i64,
-}
-
-impl ToUnixMillis for PrimitiveDateTime {
-    fn to_unix_millis(&self) -> Option<i64> {
-        let result = self.assume_utc().unix_timestamp_nanos() / 1_000_000;
-        i64::try_from(result).ok()
-    }
 }
 
 pub struct StuckThreadStream;
@@ -101,15 +91,13 @@ impl<'a> TryFrom<&'a str> for StuckThread<'a> {
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
 
-        let meta = scanner
-            .take_until("\n")
-            .ok_or(Parse::MetaExtractionError)?;
+        let meta = scanner.take_until("\n").ok_or(Parse::MetaExtractionError)?;
 
         let stuck_thread_meta = StuckThreadMeta::try_from(meta)?;
         match stuck_thread_meta {
             StuckThreadMeta::Begin(_) => {
-                let stacktrace =
-                    StackTrace::try_from(scanner.remaining()).map_err(|e| Parse::StackParseError(e))?;
+                let stacktrace = StackTrace::try_from(scanner.remaining())
+                    .map_err(|e| Parse::StackParseError(e))?;
 
                 return Ok(Self {
                     st: Some(stacktrace),
@@ -178,9 +166,7 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
-        let header = scanner
-            .take_until("::")
-            .ok_or(Parse::DoubleColonAbsent)?;
+        let header = scanner.take_until("::").ok_or(Parse::DoubleColonAbsent)?;
 
         let headers = StuckThreadMeta::extract_bracket_groups(header)?;
         let message = StuckThreadMeta::extract_bracket_groups(scanner.remaining())?;

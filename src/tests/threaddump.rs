@@ -1,5 +1,7 @@
+use time::PrimitiveDateTime;
+
 use crate::error::threaddump::Parse;
-use crate::threaddump::{Element, Object, Source, StackTrace, ThreadState, Thread};
+use crate::threaddump::{Element, Object, Source, StackTrace, Thread, ThreadDump, ThreadState};
 #[test]
 fn test_object_id_parse() -> Result<(), Parse> {
     let input = "199d244d";
@@ -331,5 +333,244 @@ fn test_thread_no_stacktrace_waiting() -> Result<(), Parse> {
     assert_eq!(thread.thread_name, Some("Finalizer"));
     assert_eq!(thread.thread_id, 3);
     assert_eq!(thread.stacktrace, None);
+    Ok(())
+}
+
+#[test]
+fn test_threaddump_timestamp_parsing() -> Result<(), Parse> {
+    let input = "2026-02-25 18:20:16.093";
+    let result = PrimitiveDateTime::parse(input, ThreadDump::FORMAT);
+    assert!(result.is_ok(), "Got Error: {result:?}");
+    Ok(())
+}
+
+#[test]
+fn test_threaddump_no_stacktraces_continuous() -> Result<(), Parse> {
+    let input = r#"
+Thread dump : 1 : 2026-02-25 18:20:16.093
+
+"Signal Dispatcher"  Id=4  Java.lang.Thread.State: RUNNABLE
+
+"Attach Listener"  Id=5  Java.lang.Thread.State: RUNNABLE
+
+"Notification Thread"  Id=24  Java.lang.Thread.State: RUNNABLE
+    "#;
+    let result = ThreadDump::try_from(input)?;
+    println!("{result:?}");
+    Ok(())
+}
+
+#[test]
+fn test_threaddump() -> Result<(), Parse> {
+    let input = r#"
+Thread dump : 1 : 2026-02-25 18:20:16.093
+
+"Reference Handler"  Id=2  Java.lang.Thread.State: RUNNABLE
+ java.base@17.0.17/java.lang.ref.Reference.waitForReferencePendingList(Native Method)
+ java.base@17.0.17/java.lang.ref.Reference.processPendingReferences(Unknown Source)
+ java.base@17.0.17/java.lang.ref.Reference$ReferenceHandler.run(Unknown Source)
+
+"Finalizer"  Id=3  Java.lang.Thread.State: WAITING on java.lang.ref.ReferenceQueue$Lock@15c8762
+ java.base@17.0.17/java.lang.Object.wait(Native Method)
+ java.base@17.0.17/java.lang.ref.ReferenceQueue.remove(Unknown Source)
+ java.base@17.0.17/java.lang.ref.ReferenceQueue.remove(Unknown Source)
+ java.base@17.0.17/java.lang.ref.Finalizer$FinalizerThread.run(Unknown Source)
+
+"Signal Dispatcher"  Id=4  Java.lang.Thread.State: RUNNABLE
+
+"Attach Listener"  Id=5  Java.lang.Thread.State: RUNNABLE
+
+"Common-Cleaner"  Id=21  Java.lang.Thread.State: TIMED_WAITING on java.lang.ref.ReferenceQueue$Lock@5631391
+ java.base@17.0.17/java.lang.Object.wait(Native Method)
+ java.base@17.0.17/java.lang.ref.ReferenceQueue.remove(Unknown Source)
+ java.base@17.0.17/jdk.internal.ref.CleanerImpl.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+ java.base@17.0.17/jdk.internal.misc.InnocuousThread.run(Unknown Source)
+
+"Glowroot-Stack-Trace-Collector"  Id=23  Java.lang.Thread.State: TIMED_WAITING
+ java.base@17.0.17/java.lang.Thread.sleep(Native Method)
+ java.base@17.0.17/java.lang.Thread.sleep(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.TimeUnit.sleep(Unknown Source)
+ org.glowroot.agent.impl.StackTraceCollector$InternalRunnable.run(StackTraceCollector.java:129)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Notification Thread"  Id=24  Java.lang.Thread.State: RUNNABLE
+
+"Glowroot-Background-0"  Id=25  Java.lang.Thread.State: WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@40618d59
+ java.base@17.0.17/jdk.internal.misc.Unsafe.park(Native Method)
+ java.base@17.0.17/java.util.concurrent.locks.LockSupport.park(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionNode.block(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ForkJoinPool.unmanagedBlock(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ForkJoinPool.managedBlock(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.getTask(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Glowroot-Trace-Collector"  Id=26  Java.lang.Thread.State: BLOCKED waiting to lock java.lang.Object@73853f10
+ LockName: java.lang.Object@73853f10 Owner Id: 28 Owner Name: Glowroot-Aggregate-Flushing
+ org.glowroot.agent.embedded.util.DataSource.update(DataSource.java:359)
+ org.glowroot.agent.embedded.repo.TraceDao.store(TraceDao.java:185)
+ org.glowroot.agent.embedded.init.EmbeddedCollector.collectTrace(EmbeddedCollector.java:144)
+ org.glowroot.agent.init.CollectorProxy.collectTrace(CollectorProxy.java:77)
+ org.glowroot.agent.impl.TraceCollector$TraceCollectorLoop.collectCompleted(TraceCollector.java:321)
+ org.glowroot.agent.impl.TraceCollector$TraceCollectorLoop.run(TraceCollector.java:296)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Glowroot-Aggregate-Processing"  Id=27  Java.lang.Thread.State: TIMED_WAITING
+ java.base@17.0.17/java.lang.Thread.sleep(Native Method)
+ java.base@17.0.17/java.lang.Thread.sleep(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.TimeUnit.sleep(Unknown Source)
+ org.glowroot.agent.impl.TransactionProcessor$TransactionProcessorLoop.processOne(TransactionProcessor.java:208)
+ org.glowroot.agent.impl.TransactionProcessor$TransactionProcessorLoop.run(TransactionProcessor.java:193)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Glowroot-Aggregate-Flushing"  Id=28  Java.lang.Thread.State: RUNNABLE
+ java.base@17.0.17/java.io.FileDescriptor.sync(Native Method)
+ org.glowroot.agent.embedded.shaded.org.h2.store.fs.FileDisk.force(FilePathDisk.java:410)
+ org.glowroot.agent.embedded.shaded.org.h2.store.FileStore.sync(FileStore.java:419)
+ org.glowroot.agent.embedded.shaded.org.h2.store.PageStore.writeVariableHeader(PageStore.java:982)
+ org.glowroot.agent.embedded.shaded.org.h2.store.PageStore.setLogFirstPage(PageStore.java:976)
+ org.glowroot.agent.embedded.shaded.org.h2.store.PageLog.removeUntil(PageLog.java:726)
+ org.glowroot.agent.embedded.shaded.org.h2.store.PageStore.checkpoint(PageStore.java:441)
+ - locked org.glowroot.agent.embedded.shaded.org.h2.store.PageStore@3c7fccd4
+ org.glowroot.agent.embedded.shaded.org.h2.store.PageStore.commit(PageStore.java:1481)
+ - locked org.glowroot.agent.embedded.shaded.org.h2.store.PageStore@3c7fccd4
+ org.glowroot.agent.embedded.shaded.org.h2.engine.Database.commit(Database.java:1926)
+ - locked org.glowroot.agent.embedded.shaded.org.h2.engine.Database@32b8352b
+ org.glowroot.agent.embedded.shaded.org.h2.engine.Session.commit(Session.java:494)
+ org.glowroot.agent.embedded.shaded.org.h2.command.Command.stop(Command.java:152)
+ org.glowroot.agent.embedded.shaded.org.h2.command.Command.executeUpdate(Command.java:284)
+ - locked org.glowroot.agent.embedded.shaded.org.h2.engine.Database@32b8352b
+ org.glowroot.agent.embedded.shaded.org.h2.jdbc.JdbcPreparedStatement.executeUpdateInternal(JdbcPreparedStatement.java:158)
+ - locked org.glowroot.agent.embedded.shaded.org.h2.engine.Session@3687a7a4
+ org.glowroot.agent.embedded.shaded.org.h2.jdbc.JdbcPreparedStatement.executeUpdate(JdbcPreparedStatement.java:144)
+ org.glowroot.agent.embedded.util.DataSource.update(DataSource.java:366)
+ - locked java.lang.Object@73853f10
+ org.glowroot.agent.embedded.util.DataSource.update(DataSource.java:338)
+ org.glowroot.agent.embedded.repo.FullQueryTextDao.updateLastCaptureTime(FullQueryTextDao.java:77)
+ - locked java.lang.Object@315e54d8
+ org.glowroot.agent.embedded.repo.AggregateDao$1.addToTruncatedQueryTexts(AggregateDao.java:228)
+ org.glowroot.agent.embedded.repo.AggregateDao$1.visitOverallAggregate(AggregateDao.java:207)
+ org.glowroot.agent.impl.AggregateIntervalCollector$AggregateReaderImpl.accept(AggregateIntervalCollector.java:318)
+ org.glowroot.agent.embedded.repo.AggregateDao.store(AggregateDao.java:203)
+ org.glowroot.agent.embedded.init.EmbeddedCollector.collectAggregates(EmbeddedCollector.java:82)
+ org.glowroot.agent.init.CollectorProxy.collectAggregates(CollectorProxy.java:55)
+ org.glowroot.agent.impl.AggregateIntervalCollector.flush(AggregateIntervalCollector.java:215)
+ org.glowroot.agent.impl.TransactionProcessor$AggregateFlushingLoop.run(TransactionProcessor.java:298)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Log4j2-TF-1-AsyncLogger[AsyncContext@60e53b93]-1"  Id=31  Java.lang.Thread.State: RUNNABLE
+ java.base@17.0.17/java.lang.Object.wait(Native Method)
+ java.base@17.0.17/java.lang.Object.wait(Unknown Source)
+ app//org.apache.logging.log4j.core.async.TimeoutBlockingWaitStrategy.awaitNanos(TimeoutBlockingWaitStrategy.java:108)
+ app//org.apache.logging.log4j.core.async.TimeoutBlockingWaitStrategy.waitFor(TimeoutBlockingWaitStrategy.java:67)
+ app//com.lmax.disruptor.ProcessingSequenceBarrier.waitFor(ProcessingSequenceBarrier.java:56)
+ app//com.lmax.disruptor.BatchEventProcessor.processEvents(BatchEventProcessor.java:159)
+ app//com.lmax.disruptor.BatchEventProcessor.run(BatchEventProcessor.java:125)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Log4j2-TF-48-Scheduled-2"  Id=32  Java.lang.Thread.State: TIMED_WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@204e7216
+ java.base@17.0.17/jdk.internal.misc.Unsafe.park(Native Method)
+ java.base@17.0.17/java.util.concurrent.locks.LockSupport.parkNanos(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.awaitNanos(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.getTask(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Glowroot-Gauge-Flushing"  Id=33  Java.lang.Thread.State: BLOCKED waiting to lock java.lang.Object@73853f10
+ LockName: java.lang.Object@73853f10 Owner Id: 28 Owner Name: Glowroot-Aggregate-Flushing
+ org.glowroot.agent.embedded.util.DataSource.batchUpdate(DataSource.java:378)
+ org.glowroot.agent.embedded.repo.GaugeValueDao.store(GaugeValueDao.java:142)
+ org.glowroot.agent.embedded.init.EmbeddedCollector.collectGaugeValues(EmbeddedCollector.java:116)
+ org.glowroot.agent.init.CollectorProxy.collectGaugeValues(CollectorProxy.java:66)
+ org.glowroot.agent.init.GaugeCollector$GaugeFlushingLoop.run(GaugeCollector.java:372)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Glowroot-Gauge-Collection"  Id=34  Java.lang.Thread.State: TIMED_WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@52ad5ae3
+ java.base@17.0.17/jdk.internal.misc.Unsafe.park(Native Method)
+ java.base@17.0.17/java.util.concurrent.locks.LockSupport.parkNanos(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.awaitNanos(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.getTask(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Glowroot-Background-1"  Id=35  Java.lang.Thread.State: TIMED_WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@40618d59
+ java.base@17.0.17/jdk.internal.misc.Unsafe.park(Native Method)
+ java.base@17.0.17/java.util.concurrent.locks.LockSupport.parkNanos(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.awaitNanos(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ScheduledThreadPoolExecutor$DelayedWorkQueue.take(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.getTask(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Glowroot-H2 File Lock Watchdog C:/Program Files/ManageEngine/ServiceDesk/glowroot/data/data.lock.db"  Id=38  Java.lang.Thread.State: TIMED_WAITING
+ java.base@17.0.17/java.lang.Thread.sleep(Native Method)
+ org.glowroot.agent.embedded.shaded.org.h2.store.FileLock.run(FileLock.java:517)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Glowroot-H2 Log Writer DATA"  Id=39  Java.lang.Thread.State: BLOCKED waiting to lock org.glowroot.agent.embedded.shaded.org.h2.engine.Database@32b8352b
+ LockName: org.glowroot.agent.embedded.shaded.org.h2.engine.Database@32b8352b Owner Id: 28 Owner Name: Glowroot-Aggregate-Flushing
+ org.glowroot.agent.embedded.shaded.org.h2.engine.Database.flush(Database.java:1958)
+ org.glowroot.agent.embedded.shaded.org.h2.store.WriterThread.run(WriterThread.java:87)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Wrapper-Control-Event-Monitor"  Id=48  Java.lang.Thread.State: TIMED_WAITING
+ java.base@17.0.17/java.lang.Thread.sleep(Native Method)
+ app//org.tanukisoftware.wrapper.WrapperManager$3.run(WrapperManager.java:1074)
+
+"Java2D Disposer"  Id=50  Java.lang.Thread.State: WAITING on java.lang.ref.ReferenceQueue$Lock@24002ef1
+ java.base@17.0.17/java.lang.Object.wait(Native Method)
+ java.base@17.0.17/java.lang.ref.ReferenceQueue.remove(Unknown Source)
+ java.base@17.0.17/java.lang.ref.ReferenceQueue.remove(Unknown Source)
+ java.desktop@17.0.17/sun.java2d.Disposer.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"AWT-Windows"  Id=52  Java.lang.Thread.State: RUNNABLE
+ java.desktop@17.0.17/sun.awt.windows.WToolkit.eventLoop(Native Method)
+ java.desktop@17.0.17/sun.awt.windows.WToolkit.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"Wrapper-Connection"  Id=54  Java.lang.Thread.State: RUNNABLE
+ java.base@17.0.17/sun.nio.ch.SocketDispatcher.read0(Native Method)
+ java.base@17.0.17/sun.nio.ch.SocketDispatcher.read(Unknown Source)
+ java.base@17.0.17/sun.nio.ch.NioSocketImpl.tryRead(Unknown Source)
+ java.base@17.0.17/sun.nio.ch.NioSocketImpl.implRead(Unknown Source)
+ java.base@17.0.17/sun.nio.ch.NioSocketImpl.read(Unknown Source)
+ java.base@17.0.17/sun.nio.ch.NioSocketImpl$1.read(Unknown Source)
+ java.base@17.0.17/java.net.Socket$SocketInputStream.read(Unknown Source)
+ java.base@17.0.17/java.net.Socket$SocketInputStream.read(Unknown Source)
+ java.base@17.0.17/java.io.DataInputStream.readUnsignedByte(Unknown Source)
+ java.base@17.0.17/java.io.DataInputStream.readByte(Unknown Source)
+ app//org.tanukisoftware.wrapper.WrapperManager.handleBackend(WrapperManager.java:5872)
+ app//org.tanukisoftware.wrapper.WrapperManager.run(WrapperManager.java:6312)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+
+"DestroyJavaVM"  Id=55  Java.lang.Thread.State: RUNNABLE
+"#;
+    let dump = ThreadDump::try_from(input);
+    assert!(dump.is_ok(), "Got Error: {dump:?}");
+    let dump = dump?;
+    assert_eq!(dump.snapshot, 1);
+    assert_eq!(dump.threads.len(), 23);
     Ok(())
 }
