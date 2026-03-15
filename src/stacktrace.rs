@@ -17,15 +17,15 @@ impl<'a> TryFrom<&'a str> for StackTrace<'a> {
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
-        scanner.expect("java.lang.Throwable").map_err(|e| Parse::ThrowableNotFound)?;
+        scanner.expect("java.lang.Throwable").map_err(|_| Parse::ThrowableNotFound)?;
         scanner.skip_whitespace();
 
         let mut st = StackTrace::default();
         while !scanner.is_empty() {
-            scanner.expect("at").map_err(|e| Parse::AtNotFound)?;
+            scanner.expect("at").map_err(|_| Parse::AtNotFound)?;
             let line = match scanner.take_until_inclusive("\n") {
-                Ok(line) => line,
-                Err(_) => break,
+                Some(line) => line,
+                None => break,
             };
             scanner.skip_whitespace();
 
@@ -58,8 +58,8 @@ impl<'a> TryFrom<&'a str> for StackTraceElement<'a> {
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
         scanner.skip_whitespace();
-        let function_name = scanner.take_until_inclusive("(")?;
-        let raw_source = scanner.take_within("(", ")")?;
+        let function_name = scanner.take_until_inclusive("(").ok_or(Parse::ParenNotFound)?;
+        let raw_source = scanner.take_within("(", ")").map_err(|_| Parse::ParenNotFound)?;
         let parsed_source = StackTraceSource::try_from(raw_source)?;
         Ok(StackTraceElement::new(function_name, parsed_source))
     }

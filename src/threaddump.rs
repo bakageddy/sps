@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{error::threaddump::Parse, scanner::Scanner};
 
-#[derive(Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Default)]
 pub struct Object<'a> {
     pub class: &'a str,
     pub identity: u64,
@@ -108,10 +108,10 @@ impl<'a> TryFrom<&'a str> for Object<'a> {
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
         scanner.skip_whitespace();
-        let class = scanner.take_until("@").map_err(|e| Parse::MissingCommat)?;
+        let class = scanner.take_until("@").ok_or(Parse::MissingCommat)?;
         Ok(Object {
             class,
-            identity: Object::hex_to_u64(scanner.data)?
+            identity: Object::hex_to_u64(scanner.remaining())?,
         })
     }
 }
@@ -147,12 +147,16 @@ impl<'a> TryFrom<&'a str> for Element<'a> {
         if scanner.peek_expect("- locked") {
             scanner.expect("- locked").expect("SAFETY: CHECKED");
             scanner.skip_whitespace();
-            let result = Object::try_from(scanner.data)?;
+            let result = Object::try_from(scanner.remaining())?;
             return Ok(Element::Lock(result));
         }
 
-        let frame = scanner.take_until_inclusive("(").map_err(|e| Parse::OpenParenNotFound)?;
-        let source = scanner.take_within("(", ")").map_err(|e| Parse::CloseParenNotFound)?;
+        let frame = scanner
+            .take_until_inclusive("(")
+            .ok_or(Parse::OpenParenNotFound)?;
+        let source = scanner
+            .take_within("(", ")")
+            .map_err(|e| Parse::CloseParenNotFound)?;
         let source = Source::try_from(source)?;
         Ok(Element::Elem { frame, source })
     }
@@ -183,30 +187,53 @@ impl<'a> TryFrom<&'a str> for ThreadState<'a> {
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
         scanner.skip_whitespace();
-        scanner.expect(ThreadState::PREAMBLE).map_err(|e| Parse::ExpectedPreamble)?;
+        scanner
+            .expect(ThreadState::PREAMBLE)
+            .map_err(|e| Parse::ExpectedPreamble)?;
         scanner.skip_whitespace();
 
-        let state = scanner.take_until(" ")?;
+        let mut state: &'a str;
 
-        match value.split_once("on") {
-            Some((state, object)) => {
-                let state = state.trim();
-                let object = Object::try_from(object)?;
-                return match state {
-                    "WAITING" => Ok(ThreadState::Waiting(object)),
-                    "TIMED_WAITING" => Ok(ThreadState::TimedWaiting(object)),
-                    // "BLOCKED" => Ok(ThreadState::Blocked(object)),
-                    _ => Err(Parse::UnexpectedThreadState),
-                };
+        if let Some(raw_state) = scanner.peek_until("on") {
+            match raw_state.trim() {
+                "WAITING" => {
+                    _ = scanner.take_until("on").expect("SAFETY: CHECKED");
+                    scanner.skip_whitespace();
+                    let object = scanner
+                        .take_until_inclusive("\n")
+                        .ok_or(Parse::ExpectedValidLockInformation)?;
+                    let object = Object::try_from(object)?;
+                    return Ok(ThreadState::Waiting(object));
+                }
+                "TIMED_WAITING" => {
+                    _ = scanner.take_until("on").expect("SAFETY: CHECKED");
+                    scanner.skip_whitespace();
+                    let object = scanner
+                        .take_until_inclusive("\n")
+                        .ok_or(Parse::ExpectedValidLockInformation)?;
+                    let object = Object::try_from(object)?;
+                    return Ok(ThreadState::TimedWaiting(object));
+                }
+                _ => return Err(Parse::UnexpectedThreadState),
+            };
+        } else if let Some(raw_state) = scanner.peek_until("waiting to lock") {
+            let raw_state = raw_state.trim();
+            if raw_state.trim() != "BLOCKED" {
+                return Err(Parse::UnexpectedThreadState);
             }
-            None => {
-                return match value {
-                    "NEW" => Ok(ThreadState::New),
-                    "TERMINATED" => Ok(ThreadState::Terminated),
-                    "RUNNABLE" => Ok(ThreadState::Runnable),
-                    _ => Err(Parse::UnexpectedThreadState),
-                };
-            }
+            return Ok(ThreadState::Blocked {
+                owner_id: 0,
+                owner_name: None,
+                object: Object::default(),
+            });
+        } else {
+            return match scanner.remaining().trim() {
+                "NEW" => Ok(ThreadState::New),
+                "TERMINATED" => Ok(ThreadState::Terminated),
+                "RUNNABLE" => Ok(ThreadState::Runnable),
+                _ => Err(Parse::UnexpectedThreadState),
+            };
+            return Err(Parse::UnexpectedThreadState);
         }
     }
 }
@@ -215,38 +242,84 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
     type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        let mut sc = Scanner::new(value);
-        sc.skip_whitespace();
-        let header = sc.take_until("\n").map_err(Parse::ThreadHeaderExtraction)?;
-
-        let value = value.trim_start();
-        let (header, optional) = value
-            .split_once('\n')
-            .ok_or(Parse::ThreadHeaderExtraction)?;
-
-        let (value, stack) = value.split_once("\n").ok_or(Parse::ExpectedPreamble)?;
-        let (_, rest) = value.split_once("\"").ok_or(Parse::DoubleQuoteNotFound)?;
-        let (name, rest) = rest.split_once("\"").ok_or(Parse::DoubleQuoteNotFound)?;
-
-        let thread_name = if name.is_empty() { None } else { Some(name) };
-
-        let rest = rest.trim();
-        let (id, rest) = rest.split_once(" ").ok_or(Parse::ThreadIDExtraction)?;
-
-        let (_, id) = id.split_once("=").ok_or(Parse::EqualsNotFound)?;
-        let thread_id = id.parse::<i64>().map_err(|e| Parse::ThreadIdParse(e))?;
-
-        let state = ThreadState::try_from(rest)?;
-        let stacktrace = if stack.is_empty() {
+        let mut scanner = Scanner::new(value);
+        scanner.skip_whitespace();
+        let thread_name = scanner
+            .take_within("\"", "\"")
+            .map_err(|_| Parse::ThreadNameExtraction)?
+            .trim();
+        let thread_name = if thread_name.is_empty() {
             None
         } else {
-            Some(StackTrace::try_from(stack)?)
+            Some(thread_name)
         };
+
+        scanner.skip_whitespace();
+        scanner
+            .expect("Id=")
+            .map_err(|_| Parse::ThreadIdExtraction)?;
+
+        let id = scanner
+            .take_until_inclusive(" ")
+            .ok_or(Parse::ThreadIdExtraction)?;
+        let thread_id: i64 = id.parse().map_err(|e| Parse::ThreadIdParse(e))?;
+        scanner.skip_whitespace();
+
+        let header = scanner
+            .take_until("\n")
+            .ok_or(Parse::ThreadHeaderExtraction)?;
+        let state = ThreadState::try_from(header)?;
+        let state = match state {
+            ThreadState::Blocked {
+                owner_id,
+                owner_name,
+                object,
+            } => {
+                scanner.skip_whitespace();
+                scanner
+                    .expect("LockName: ")
+                    .map_err(|_| Parse::ExpectedLockName)?;
+                let object = scanner.take_until(" ").ok_or(Parse::ExpectedLockName)?;
+                let object = Object::try_from(object)?;
+
+                scanner.skip_whitespace();
+                scanner
+                    .expect("Owner Id: ")
+                    .map_err(|_| Parse::ExpectedOwnerId)?;
+                let owner_id = scanner.take_until(" ").ok_or(Parse::ExpectedOwnerId)?;
+                let owner_id: i64 = owner_id.parse().map_err(|e| Parse::ThreadIdParse(e))?;
+
+                scanner.skip_whitespace();
+                scanner
+                    .expect("Owner Name: ")
+                    .map_err(|_| Parse::ExpectedOwnerName)?;
+                let owner_name = scanner
+                    .take_until("\n")
+                    .ok_or(Parse::ExpectedNewline)?;
+                let owner_name = if owner_name.trim().is_empty() {
+                    None
+                } else {
+                    Some(owner_name.trim())
+                };
+                ThreadState::Blocked {
+                    owner_id,
+                    owner_name,
+                    object,
+                }
+            }
+            _ => state,
+        };
+
+        let data = scanner.remaining();
+        let mut stack: Option<StackTrace<'a>> = None;
+        if !data.is_empty() {
+            stack = Some(StackTrace::try_from(data)?);
+        }
 
         Ok(Thread {
             thread_id,
             thread_name,
-            stacktrace,
+            stacktrace: stack,
             state,
         })
     }

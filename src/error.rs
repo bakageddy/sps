@@ -70,9 +70,23 @@ pub mod threaddump {
         #[error("Error during parsing thread id: {0:?}")]
         ThreadIdParse(std::num::ParseIntError),
         #[error("Error during extracting thread id")]
-        ThreadIDExtraction,
+        ThreadIdExtraction,
+        #[error("Error during extracting thread name")]
+        ThreadNameExtraction,
         #[error("Error during extracting thread header")]
         ThreadHeaderExtraction,
+        #[error("Error during extracting thread state")]
+        ThreadStateExtraction,
+        #[error("Error during extracting thread lock name")]
+        ExpectedLockName,
+        #[error("Error during extracting thread owner id")]
+        ExpectedOwnerId,
+        #[error("Error during extracting thread owner name")]
+        ExpectedOwnerName,
+        #[error("Error during extracting thread lock information")]
+        ExpectedValidLockInformation,
+        #[error("Error during parsing thread: Expected newline")]
+        ExpectedNewline
     }
 }
 
@@ -154,8 +168,8 @@ pub mod stacktrace {
         ThrowableNotFound,
         #[error("Error during stacktrace element parsing: at not found")]
         AtNotFound,
-        #[error("Error during stacktrace element parsing: {0:?}")]
-        ParenNotFound(#[from] scanner::Error),
+        #[error("Error during stacktrace element parsing: parenthesis not found")]
+        ParenNotFound,
         #[error("Error during stacktrace element parsing: ) not found)")]
         CloseParenNotFound,
         #[error("Error during stacktrace element source parsing: Source type not recognized")]

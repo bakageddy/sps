@@ -8,7 +8,7 @@ use crate::{error::scanner, scanner::Scanner};
 fn scanner_skip_whitespace() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("      Hello");
     s.skip_whitespace();
-    assert_eq!(s.data, "Hello");
+    assert_eq!(s.remaining(), "Hello");
     Ok(())
 }
 
@@ -16,7 +16,7 @@ fn scanner_skip_whitespace() -> Result<(), scanner::Error> {
 fn scanner_skip_whitespace_ascii() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("\t\t\n\n\r\r      Hello");
     s.skip_whitespace();
-    assert_eq!(s.data, "Hello");
+    assert_eq!(s.remaining(), "Hello");
     Ok(())
 }
 
@@ -24,7 +24,7 @@ fn scanner_skip_whitespace_ascii() -> Result<(), scanner::Error> {
 fn scanner_skip_whitespace_no_whitespace() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("Hello");
     s.skip_whitespace();
-    assert_eq!(s.data, "Hello");
+    assert_eq!(s.remaining(), "Hello");
     Ok(())
 }
 
@@ -32,7 +32,7 @@ fn scanner_skip_whitespace_no_whitespace() -> Result<(), scanner::Error> {
 fn scanner_skip_whitespace_empty_string() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("");
     s.skip_whitespace();
-    assert_eq!(s.data, "");
+    assert_eq!(s.remaining(), "");
     Ok(())
 }
 
@@ -40,7 +40,7 @@ fn scanner_skip_whitespace_empty_string() -> Result<(), scanner::Error> {
 fn scanner_skip_whitespace_all_whitespace() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("   \t\n  ");
     s.skip_whitespace();
-    assert_eq!(s.data, "");
+    assert_eq!(s.remaining(), "");
     Ok(())
 }
 
@@ -49,7 +49,7 @@ fn scanner_skip_whitespace_unicode() -> Result<(), scanner::Error> {
     // Japanese text after whitespace — trim_start handles it fine
     let mut s = Scanner::new("   処理スレッド");
     s.skip_whitespace();
-    assert_eq!(s.data, "処理スレッド");
+    assert_eq!(s.remaining(), "処理スレッド");
     Ok(())
 }
 
@@ -61,7 +61,7 @@ fn scanner_skip_whitespace_unicode() -> Result<(), scanner::Error> {
 fn scanner_expect_success() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("Id=25 rest");
     s.expect("Id=")?;
-    assert_eq!(s.data, "25 rest");
+    assert_eq!(s.remaining(), "25 rest");
     Ok(())
 }
 
@@ -69,7 +69,7 @@ fn scanner_expect_success() -> Result<(), scanner::Error> {
 fn scanner_expect_entire_input() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("EOF");
     s.expect("EOF")?;
-    assert_eq!(s.data, "");
+    assert_eq!(s.remaining(), "");
     Ok(())
 }
 
@@ -77,7 +77,7 @@ fn scanner_expect_entire_input() -> Result<(), scanner::Error> {
 fn scanner_expect_empty_prefix() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("Hello");
     s.expect("")?;
-    assert_eq!(s.data, "Hello");
+    assert_eq!(s.remaining(), "Hello");
     Ok(())
 }
 
@@ -87,7 +87,7 @@ fn scanner_expect_wrong_prefix() {
     let result = s.expect("Xd=");
     assert!(result.is_err());
     // data should not have advanced
-    assert_eq!(s.data, "Id=25");
+    assert_eq!(s.remaining(), "Id=25");
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn scanner_expect_chained() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("Java.lang.Thread.State: WAITING");
     s.expect("Java.lang.Thread.State:")?;
     s.skip_whitespace();
-    assert_eq!(s.data, "WAITING");
+    assert_eq!(s.remaining(), "WAITING");
     Ok(())
 }
 
@@ -128,9 +128,9 @@ fn scanner_expect_chained() -> Result<(), scanner::Error> {
 #[test]
 fn scanner_take_until() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("Hello, world");
-    let result = s.take_until(",")?;
+    let result = s.take_until(",").unwrap();
     assert_eq!("Hello", result);
-    assert_eq!(" world", s.data);
+    assert_eq!(" world", s.remaining());
     Ok(())
 }
 
@@ -148,44 +148,41 @@ fn scanner_take_until_pattern_entire_string() -> Result<(), scanner::Error> {
     let result = s.take_until("Hello::World");
     assert!(result.is_some(), "GOT: {result:?}");
     assert_eq!(result, Some(""));
-    assert_eq!(s.data, "");
+    assert_eq!(s.remaining(), "");
     Ok(())
 }
 
 #[test]
-fn scanner_take_until_pattern_empty_string() -> Option<()> {
+fn scanner_take_until_pattern_empty_string() {
     let mut s = Scanner::new("Hello::World");
     let result = s.take_until("");
     assert!(result.is_some(), "GOT: {result:?}");
     assert_eq!(result, Some(""));
-    assert_eq!(s.data, "Hello::World");
-    Some(())
+    assert_eq!(s.remaining(), "Hello::World");
 }
 
 #[test]
-fn scanner_take_until_multi_char_delimiter() -> Option<()> {
+fn scanner_take_until_multi_char_delimiter() {
     let mut s = Scanner::new("key::value::rest");
-    let result = s.take_until("::")?;
+    let result = s.take_until("::").unwrap();
     assert_eq!(result, "key");
-    assert_eq!(s.data, "value::rest");
-    Some(())
+    assert_eq!(s.remaining(), "value::rest");
 }
 
 #[test]
-fn scanner_take_until_delimiter_at_start() -> Option<()> {
+fn scanner_take_until_delimiter_at_start() {
     let mut s = Scanner::new(",hello");
-    let result = s.take_until(",")?;
+    let result = s.take_until(",").unwrap();
     assert_eq!(result, "");
-    assert_eq!(s.data, "hello");
-    Some(())
+    assert_eq!(s.remaining(), "hello");
 }
 
 #[test]
 fn scanner_take_until_delimiter_at_end() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("hello,");
-    let result = s.take_until(",")?;
+    let result = s.take_until(",").unwrap();
     assert_eq!(result, "hello");
-    assert_eq!(s.data, "");
+    assert_eq!(s.remaining(), "");
     Ok(())
 }
 
@@ -193,9 +190,9 @@ fn scanner_take_until_delimiter_at_end() -> Result<(), scanner::Error> {
 fn scanner_take_until_first_occurrence() -> Result<(), scanner::Error> {
     // Should stop at the FIRST delimiter, not the last
     let mut s = Scanner::new("a@b@c");
-    let result = s.take_until("@")?;
+    let result = s.take_until("@").unwrap();
     assert_eq!(result, "a");
-    assert_eq!(s.data, "b@c");
+    assert_eq!(s.remaining(), "b@c");
     Ok(())
 }
 
@@ -203,7 +200,7 @@ fn scanner_take_until_first_occurrence() -> Result<(), scanner::Error> {
 fn scanner_take_until_on_empty_input() {
     let mut s = Scanner::new("");
     let result = s.take_until(",");
-    assert!(result.is_err());
+    assert!(result.is_none());
 }
 
 #[test]
@@ -211,9 +208,9 @@ fn scanner_take_until_unicode_content() -> Result<(), scanner::Error> {
     // Unicode content between ASCII delimiters
     let mut s = Scanner::new("\"処理スレッド\" rest");
     s.expect("\"")?;
-    let name = s.take_until("\"")?;
+    let name = s.take_until("\"").unwrap();
     assert_eq!(name, "処理スレッド");
-    assert_eq!(s.data, " rest");
+    assert_eq!(s.remaining(), " rest");
     Ok(())
 }
 
@@ -226,7 +223,7 @@ fn scanner_take_basic() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("abcdef");
     let result = s.take(3)?;
     assert_eq!(result, "abc");
-    assert_eq!(s.data, "def");
+    assert_eq!(s.remaining(), "def");
     Ok(())
 }
 
@@ -235,7 +232,7 @@ fn scanner_take_zero() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("hello");
     let result = s.take(0)?;
     assert_eq!(result, "");
-    assert_eq!(s.data, "hello");
+    assert_eq!(s.remaining(), "hello");
     Ok(())
 }
 
@@ -268,7 +265,7 @@ fn scanner_take_hex_id() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("73853f10 rest");
     let hex = s.take(8)?;
     assert_eq!(hex, "73853f10");
-    assert_eq!(s.data, " rest");
+    assert_eq!(s.remaining(), " rest");
     Ok(())
 }
 
@@ -282,7 +279,7 @@ fn scanner_peek_until_does_not_advance() {
     let peeked = s.peek_until(",");
     assert_eq!(peeked, Some("Hello"));
     // data should NOT have changed
-    assert_eq!(s.data, "Hello, World");
+    assert_eq!(s.remaining(), "Hello, World");
 }
 
 #[test]
@@ -290,7 +287,7 @@ fn scanner_peek_until_not_found() {
     let mut s = Scanner::new("Hello World");
     let peeked = s.peek_until(",");
     assert_eq!(peeked, None);
-    assert_eq!(s.data, "Hello World");
+    assert_eq!(s.remaining(), "Hello World");
 }
 
 #[test]
@@ -300,9 +297,9 @@ fn scanner_peek_until_then_take_until() -> Result<(), scanner::Error> {
     let peeked = s.peek_until(" on ");
     assert_eq!(peeked, Some("WAITING"));
 
-    let state = s.take_until(" on ")?;
+    let state = s.take_until(" on ").unwrap();
     assert_eq!(state, "WAITING");
-    assert_eq!(s.data, "java.lang.Object@12345678");
+    assert_eq!(s.remaining(), "java.lang.Object@12345678");
     Ok(())
 }
 
@@ -315,7 +312,7 @@ fn scanner_take_within_basic() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("(DataSource.java:359)");
     let result = s.take_within("(", ")")?;
     assert_eq!(result, "DataSource.java:359");
-    assert_eq!(s.data, "");
+    assert_eq!(s.remaining(), "");
     Ok(())
 }
 
@@ -324,7 +321,7 @@ fn scanner_take_within_with_surrounding() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("method(Native Method) rest");
     let result = s.take_within("(", ")")?;
     assert_eq!(result, "Native Method");
-    assert_eq!(s.data, " rest");
+    assert_eq!(s.remaining(), " rest");
     Ok(())
 }
 
@@ -334,7 +331,7 @@ fn scanner_take_within_missing_open() {
     let result = s.take_within("(", ")");
     assert!(result.is_err());
     // data should not advance on error
-    assert_eq!(s.data, "no parens here");
+    assert_eq!(s.remaining(), "no parens here");
 }
 
 #[test]
@@ -349,7 +346,7 @@ fn scanner_take_within_empty_content() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("()rest");
     let result = s.take_within("(", ")")?;
     assert_eq!(result, "");
-    assert_eq!(s.data, "rest");
+    assert_eq!(s.remaining(), "rest");
     Ok(())
 }
 
@@ -358,7 +355,7 @@ fn scanner_take_within_multi_char_delimiters() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("<<value>>rest");
     let result = s.take_within("<<", ">>")?;
     assert_eq!(result, "value");
-    assert_eq!(s.data, "rest");
+    assert_eq!(s.remaining(), "rest");
     Ok(())
 }
 
@@ -367,7 +364,7 @@ fn scanner_take_within_quotes() -> Result<(), scanner::Error> {
     let mut s = Scanner::new("\"Glowroot-Background-0\"  Id=25");
     let name = s.take_within("\"", "\"")?;
     assert_eq!(name, "Glowroot-Background-0");
-    assert_eq!(s.data, "  Id=25");
+    assert_eq!(s.remaining(), "  Id=25");
     Ok(())
 }
 
@@ -378,7 +375,7 @@ fn scanner_take_within_skips_prefix() {
     let mut s = Scanner::new("prefix(value)rest");
     let result = s.take_within("(", ")").unwrap();
     assert_eq!(result, "value");
-    assert_eq!(s.data, "rest");
+    assert_eq!(s.remaining(), "rest");
     // "prefix" was silently consumed — no way to recover it
 }
 
@@ -396,17 +393,17 @@ fn scanner_parse_thread_header_waiting() -> Result<(), scanner::Error> {
 
     s.skip_whitespace();
     s.expect("Id=")?;
-    let id_str = s.take_until(" ")?;
+    let id_str = s.take_until(" ").unwrap();
     assert_eq!(id_str, "25");
 
     s.skip_whitespace();
     s.expect("Java.lang.Thread.State:")?;
     s.skip_whitespace();
 
-    let state = s.take_until(" on ")?;
+    let state = s.take_until(" on ").unwrap();
     assert_eq!(state, "WAITING");
 
-    let object = s.data;
+    let object = s.remaining();
     assert_eq!(
         object,
         "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@40618d59"
@@ -425,17 +422,17 @@ fn scanner_parse_thread_header_blocked() -> Result<(), scanner::Error> {
 
     s.skip_whitespace();
     s.expect("Id=")?;
-    let id_str = s.take_until(" ")?;
+    let id_str = s.take_until(" ").unwrap();
     assert_eq!(id_str, "26");
 
     s.skip_whitespace();
     s.expect("Java.lang.Thread.State:")?;
     s.skip_whitespace();
 
-    let state = s.take_until(" waiting to lock ")?;
+    let state = s.take_until(" waiting to lock ").unwrap();
     assert_eq!(state, "BLOCKED");
 
-    let object = s.data;
+    let object = s.remaining();
     assert_eq!(object, "java.lang.Object@73853f10");
 
     Ok(())
@@ -446,14 +443,14 @@ fn scanner_parse_lock_metadata() {
     let input = "LockName: java.lang.Object@73853f10 Owner Id: 28 Owner Name: Glowroot-Aggregate-Flushing";
     let mut s = Scanner::new(input);
 
-    s.expect("LockName: ").ok()?;
-    let lock_obj = s.take_until(" Owner Id: ")?;
+    s.expect("LockName: ").unwrap();
+    let lock_obj = s.take_until(" Owner Id: ").unwrap();
     assert_eq!(lock_obj, "java.lang.Object@73853f10");
 
-    let owner_id = s.take_until(" Owner Name: ")?;
+    let owner_id = s.take_until(" Owner Name: ").unwrap();
     assert_eq!(owner_id, "28");
 
-    let owner_name = s.data;
+    let owner_name = s.remaining();
     assert_eq!(owner_name, "Glowroot-Aggregate-Flushing");
 }
 
@@ -462,7 +459,7 @@ fn scanner_parse_stack_frame_with_module() -> Result<(), scanner::Error> {
     let input = "java.base@17.0.17/jdk.internal.misc.Unsafe.park(Native Method)";
     let mut s = Scanner::new(input);
 
-    let frame = s.take_until_inclusive("(")?;
+    let frame = s.take_until_inclusive("(").unwrap();
     assert_eq!(frame, "java.base@17.0.17/jdk.internal.misc.Unsafe.park");
 
     let source = s.take_within("(", ")")?;
@@ -476,7 +473,7 @@ fn scanner_parse_stack_frame_with_source() -> Result<(), scanner::Error> {
     let input = "org.glowroot.agent.embedded.util.DataSource.update(DataSource.java:359)";
     let mut s = Scanner::new(input);
 
-    let frame = s.take_until_inclusive("(")?;
+    let frame = s.take_until_inclusive("(").unwrap();
     assert_eq!(frame, "org.glowroot.agent.embedded.util.DataSource.update");
 
     let source = s.take_within("(", ")")?;

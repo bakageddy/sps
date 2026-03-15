@@ -192,7 +192,7 @@ fn test_stacktrace_with_locks() -> Result<(), Parse> {
 
 #[test]
 fn test_thread_state_new() -> Result<(), Parse> {
-    let input = "Java.lang.Thread.State: NEW";
+    let input = "Java.lang.Thread.State: NEW\n";
     let result = ThreadState::try_from(input);
     assert!(result.is_ok(), "Got error: {result:?}");
     assert_eq!(Result::Ok(ThreadState::New), result);
@@ -201,7 +201,7 @@ fn test_thread_state_new() -> Result<(), Parse> {
 
 #[test]
 fn test_thread_state_terminated() -> Result<(), Parse> {
-    let input = "Java.lang.Thread.State: TERMINATED";
+    let input = "Java.lang.Thread.State: TERMINATED\n";
     let result = ThreadState::try_from(input);
     assert!(result.is_ok(), "Got error: {result:?}");
     assert_eq!(Result::Ok(ThreadState::Terminated), result);
@@ -210,7 +210,7 @@ fn test_thread_state_terminated() -> Result<(), Parse> {
 
 #[test]
 fn test_thread_state_runnable() -> Result<(), Parse> {
-    let input = "Java.lang.Thread.State: RUNNABLE";
+    let input = "Java.lang.Thread.State: RUNNABLE\n";
     let result = ThreadState::try_from(input);
     assert!(result.is_ok(), "Got error: {result:?}");
     assert_eq!(Result::Ok(ThreadState::Runnable), result);
@@ -219,7 +219,7 @@ fn test_thread_state_runnable() -> Result<(), Parse> {
 
 #[test]
 fn test_thread_state_waiting() -> Result<(), Parse> {
-    let input = "Java.lang.Thread.State: WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@586806fa";
+    let input = "Java.lang.Thread.State: WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@586806fa\n";
     let result = ThreadState::try_from(input);
     assert!(result.is_ok(), "Got error: {result:?}");
     assert_eq!(result, Result::Ok(ThreadState::Waiting(Object {
@@ -231,26 +231,13 @@ fn test_thread_state_waiting() -> Result<(), Parse> {
 
 #[test]
 fn test_thread_state_timed_waiting() -> Result<(), Parse> {
-    let input = "Java.lang.Thread.State: TIMED_WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@586806fa";
+    let input = "Java.lang.Thread.State: TIMED_WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@586806fa\n";
     let result = ThreadState::try_from(input);
     assert!(result.is_ok(), "Got error: {result:?}");
     assert_eq!(result, Result::Ok(ThreadState::TimedWaiting(Object {
         class: "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject",
         identity: 1483212538
     })));
-    Ok(())
-}
-
-// #[test]
-// TODO: This test is not factually correct.
-fn test_thread_state_blocked() -> Result<(), Parse> {
-    let input = "Java.lang.Thread.State: BLOCKED on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@586806fa";
-    let result = ThreadState::try_from(input);
-    // assert!(result.is_ok(), "Got error: {result:?}");
-    // assert_eq!(result, Result::Ok(ThreadState::Blocked(Object {
-    //     class: "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject",
-    //     identity: 1483212538
-    // })));
     Ok(())
 }
 
@@ -265,20 +252,25 @@ fn test_thread_state_unrecognized() -> Result<(), Parse> {
 
 #[test]
 fn test_thread() -> Result<(), Parse> {
-    let input = r#""Thread-10"  Id=60  Java.lang.Thread.State: WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@586806fa
- java.base@17.0.17/jdk.internal.misc.Unsafe.park(Native Method)
- java.base@17.0.17/java.util.concurrent.locks.LockSupport.park(Unknown Source)
- java.base@17.0.17/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionNode.block(Unknown Source)
- java.base@17.0.17/java.util.concurrent.ForkJoinPool.unmanagedBlock(Unknown Source)
- java.base@17.0.17/java.util.concurrent.ForkJoinPool.managedBlock(Unknown Source)
- java.base@17.0.17/java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(Unknown Source)
- java.base@17.0.17/java.util.concurrent.LinkedBlockingDeque.takeFirst(Unknown Source)
- java.base@17.0.17/java.util.concurrent.LinkedBlockingDeque.take(Unknown Source)
- java.base@17.0.17/sun.nio.fs.AbstractWatchService.take(Unknown Source)
- app//com.zoho.conf.WatchFile.run(WatchFile.java:39)"#;
+    let input = r#"
+"Glowroot-Trace-Collector"  Id=26  Java.lang.Thread.State: BLOCKED waiting to lock java.lang.Object@73853f10
+ LockName: java.lang.Object@73853f10 Owner Id: 28 Owner Name: Glowroot-Aggregate-Flushing
+ org.glowroot.agent.embedded.util.DataSource.update(DataSource.java:359)
+ org.glowroot.agent.embedded.repo.TraceDao.store(TraceDao.java:185)
+ org.glowroot.agent.embedded.init.EmbeddedCollector.collectTrace(EmbeddedCollector.java:144)
+ org.glowroot.agent.init.CollectorProxy.collectTrace(CollectorProxy.java:77)
+ org.glowroot.agent.impl.TraceCollector$TraceCollectorLoop.collectCompleted(TraceCollector.java:321)
+ org.glowroot.agent.impl.TraceCollector$TraceCollectorLoop.run(TraceCollector.java:296)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+ java.base@17.0.17/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+ java.base@17.0.17/java.lang.Thread.run(Unknown Source)
+ "#;
     let result = Thread::try_from(input);
     assert!(result.is_ok(), "Got error: {result:?}");
-    println!("{result:?}");
+    let result = result.unwrap();
+    assert!(result.stacktrace.is_some(), "Got None stacktrace");
+    assert_eq!(result.state, ThreadState::Blocked { owner_id: 28, owner_name: Some("Glowroot-Aggregate-Flushing"), object: Object { class: "java.lang.Object", identity: 1938112272}});
+    assert_eq!(result.stacktrace.unwrap().elem.len(), 9);
     Ok(())
 }
 

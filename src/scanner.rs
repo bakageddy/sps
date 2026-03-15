@@ -1,7 +1,7 @@
 use crate::error::scanner::Error;
 
 pub struct Scanner<'a> {
-    pub data: &'a str,
+    data: &'a str,
 }
 
 impl<'a> Scanner<'a> {
@@ -58,14 +58,11 @@ impl<'a> Scanner<'a> {
         Ok(before)
     }
 
-    pub fn take_until_inclusive(&mut self, delimiter: &str) -> Result<&'a str, Error> {
-        let pos = self.data.find(delimiter).ok_or(Error::DelimiterNotFound {
-            delimiter: String::from(delimiter),
-            data: String::from(self.data),
-        })?;
+    pub fn take_until_inclusive(&mut self, delimiter: &str) -> Option<&'a str> {
+        let pos = self.data.find(delimiter)?;
         let before = &self.data[..pos];
         self.data = &self.data[pos..];
-        Ok(before)
+        Some(before)
     }
 
     pub fn take_until(&mut self, delimiter: &str) -> Option<&'a str> {
@@ -93,5 +90,9 @@ impl<'a> Scanner<'a> {
 
         self.data = rest;
         Ok(within)
+    }
+
+    pub fn remaining(self) -> &'a str {
+        self.data
     }
 }

@@ -103,13 +103,13 @@ impl<'a> TryFrom<&'a str> for StuckThread<'a> {
 
         let meta = scanner
             .take_until("\n")
-            .map_err(|_| Parse::MetaExtractionError)?;
+            .ok_or(Parse::MetaExtractionError)?;
 
         let stuck_thread_meta = StuckThreadMeta::try_from(meta)?;
         match stuck_thread_meta {
             StuckThreadMeta::Begin(_) => {
                 let stacktrace =
-                    StackTrace::try_from(scanner.data).map_err(|e| Parse::StackParseError(e))?;
+                    StackTrace::try_from(scanner.remaining()).map_err(|e| Parse::StackParseError(e))?;
 
                 return Ok(Self {
                     st: Some(stacktrace),
@@ -130,11 +130,9 @@ impl<'a> TryFrom<&'a str> for StuckThread<'a> {
 impl<'a> StuckThreadMeta<'a> {
     fn extract_bracket_groups<'b>(input: &'b str) -> Result<Vec<&'b str>, Parse> {
         let mut scanner = Scanner::new(input);
-        let mut iter_count: usize = 0;
         let mut groups = Vec::with_capacity(8);
         while let Ok(group) = scanner.take_within("[", "]") {
             groups.push(group);
-            iter_count += 1;
         }
         Ok(groups)
     }
@@ -182,10 +180,10 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
         let mut scanner = Scanner::new(value);
         let header = scanner
             .take_until("::")
-            .map_err(|_| Parse::DoubleColonAbsent)?;
+            .ok_or(Parse::DoubleColonAbsent)?;
 
         let headers = StuckThreadMeta::extract_bracket_groups(header)?;
-        let message = StuckThreadMeta::extract_bracket_groups(scanner.data)?;
+        let message = StuckThreadMeta::extract_bracket_groups(scanner.remaining())?;
 
         let [time, date, _, _, _] = headers.as_slice() else {
             return Err(Parse::IncorrectHeaderInfoCount {
