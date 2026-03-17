@@ -1,7 +1,11 @@
+use std::collections::HashMap;
+use std::{fs::{self}, path::PathBuf};
+use std::process::exit;
+
 use time::PrimitiveDateTime;
 
 use crate::error::threaddump::Parse;
-use crate::threaddump::{Element, Object, Source, StackTrace, Thread, ThreadDump, ThreadState};
+use crate::threaddump::{Element, LockInfo, Object, Source, StackTrace, Thread, ThreadDump, ThreadState};
 #[test]
 fn test_object_id_parse() -> Result<(), Parse> {
     let input = "199d244d";
@@ -211,10 +215,13 @@ fn test_thread_state_waiting() -> Result<(), Parse> {
     let input = "Java.lang.Thread.State: WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@586806fa\n";
     let result = ThreadState::try_from(input);
     assert!(result.is_ok(), "Got error: {result:?}");
-    assert_eq!(result, Result::Ok(ThreadState::Waiting(Object {
-        class: "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject",
-        identity: 1483212538
-    })));
+    assert_eq!(
+        result,
+        Result::Ok(ThreadState::WaitingOn(Object {
+            class: "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject",
+            identity: 1483212538
+        }))
+    );
     Ok(())
 }
 
@@ -223,10 +230,13 @@ fn test_thread_state_timed_waiting() -> Result<(), Parse> {
     let input = "Java.lang.Thread.State: TIMED_WAITING on java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@586806fa\n";
     let result = ThreadState::try_from(input);
     assert!(result.is_ok(), "Got error: {result:?}");
-    assert_eq!(result, Result::Ok(ThreadState::TimedWaiting(Object {
-        class: "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject",
-        identity: 1483212538
-    })));
+    assert_eq!(
+        result,
+        Result::Ok(ThreadState::TimedWaitingOn(Object {
+            class: "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject",
+            identity: 1483212538
+        }))
+    );
     Ok(())
 }
 
@@ -258,7 +268,17 @@ fn test_thread() -> Result<(), Parse> {
     assert!(result.is_ok(), "Got error: {result:?}");
     let result = result.unwrap();
     assert!(result.stacktrace.is_some(), "Got None stacktrace");
-    assert_eq!(result.state, ThreadState::Blocked { owner_id: 28, owner_name: Some("Glowroot-Aggregate-Flushing"), object: Object { class: "java.lang.Object", identity: 1938112272}});
+    assert_eq!(
+        result.state,
+        ThreadState::BlockedToLock(Some(LockInfo {
+            owner_id: 28,
+            owner_name: Some("Glowroot-Aggregate-Flushing"),
+            object: Object {
+                class: "java.lang.Object",
+                identity: 1938112272
+            }
+        }))
+    );
     assert_eq!(result.stacktrace.unwrap().elem.len(), 9);
     Ok(())
 }
@@ -329,7 +349,13 @@ fn test_thread_no_stacktrace_waiting() -> Result<(), Parse> {
     let thread = Thread::try_from(input);
     assert!(thread.is_ok(), "Got error: {thread:?}");
     let thread = thread?;
-    assert_eq!(thread.state, ThreadState::Waiting(Object { class: "java.lang.ref.ReferenceQueue$Lock", identity: 22841186}));
+    assert_eq!(
+        thread.state,
+        ThreadState::WaitingOn(Object {
+            class: "java.lang.ref.ReferenceQueue$Lock",
+            identity: 22841186
+        })
+    );
     assert_eq!(thread.thread_name, Some("Finalizer"));
     assert_eq!(thread.thread_id, 3);
     assert_eq!(thread.stacktrace, None);
@@ -361,7 +387,7 @@ Thread dump : 1 : 2026-02-25 18:20:16.093
 }
 
 #[test]
-fn test_threaddump() -> Result<(), Parse> {
+fn test_threaddump_partial() -> Result<(), Parse> {
     let input = r#"
 Thread dump : 1 : 2026-02-25 18:20:16.093
 
@@ -573,4 +599,32 @@ Thread dump : 1 : 2026-02-25 18:20:16.093
     assert_eq!(dump.snapshot, 1);
     assert_eq!(dump.threads.len(), 23);
     Ok(())
+}
+
+#[test]
+fn test_threaddump_full() {
+    let path = PathBuf::from("test/");
+    if !path.is_dir() {
+        exit(1);
+    }
+
+    let result_map: HashMap<&str, usize> = HashMap::from([
+        ("threaddump0_only_1.txt", 347),
+        ("threaddump0_only_2.txt", 324),
+    ]);
+
+    for entry in path.read_dir().unwrap() {
+        let path = entry.unwrap().path();
+        let filename = path.file_name().unwrap().to_string_lossy().to_string();
+        if !filename.starts_with("threaddump0_only") {
+            continue;
+        }
+        println!("{filename:?}");
+        let input = fs::read_to_string(path).unwrap();
+        let dump = ThreadDump::try_from(input.as_str());
+        assert!(dump.is_ok(), "Got Error: {dump:?}");
+        let dump = dump.unwrap();
+        let expected_thread_count = result_map.get(filename.as_str()).unwrap();
+        assert_eq!(dump.threads.len(), *expected_thread_count);
+    }
 }

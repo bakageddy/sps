@@ -2,15 +2,14 @@ use std::collections::HashMap;
 
 use crate::{error::threaddump::Parse, scanner::Scanner, util::ToUnixMillis};
 use time::{PrimitiveDateTime, format_description::FormatItem, macros::format_description};
-use tracing::warn;
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct Object<'a> {
     pub class: &'a str,
     pub identity: u64,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Source<'a> {
     NativeMethod,
     UnknownSource,
@@ -18,41 +17,40 @@ pub enum Source<'a> {
     Filename { file: &'a str, line_number: i64 },
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Element<'a> {
     Lock(Object<'a>),
     Elem { frame: &'a str, source: Source<'a> },
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StackTrace<'a> {
     pub elem: Vec<Element<'a>>,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, PartialEq, Eq)]
+pub struct LockInfo<'a> {
+    pub owner_id: ThreadID,
+    pub owner_name: Option<&'a str>,
+    pub object: Object<'a>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum ThreadState<'a> {
     New,
     Terminated,
     Runnable,
-    Blocked {
-        owner_id: ThreadID,
-        owner_name: Option<&'a str>,
-        object: Object<'a>,
-    },
-    TimedWaiting(Object<'a>),
-    Waiting(Object<'a>),
-}
-
-#[derive(Debug, PartialEq, PartialOrd, Eq)]
-pub struct ThreadHeader<'a> {
-    thread_name: Option<&'a str>,
-    thread_id: ThreadID,
-    state: ThreadState<'a>,
+    BlockedToLock(Option<LockInfo<'a>>),
+    TimedWaiting,
+    TimedWaitingOn(Object<'a>),
+    Waiting,
+    WaitingOn(Object<'a>),
+    WaitingToLock(LockInfo<'a>),
 }
 
 pub type ThreadID = i64;
 
-#[derive(Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Thread<'a> {
     pub thread_id: ThreadID,
     pub state: ThreadState<'a>,
@@ -97,6 +95,48 @@ impl Object<'_> {
         }
 
         Ok(result)
+    }
+}
+
+impl<'a> TryFrom<&'a str> for LockInfo<'a> {
+    type Error = Parse;
+
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        let mut scanner = Scanner::new(value);
+        scanner.skip_whitespace();
+        scanner
+            .expect("LockName: ")
+            .map_err(|_| Parse::ExpectedLockName)?;
+        let object = scanner.take_until(" ").ok_or(Parse::ExpectedLockObject)?;
+        let object = Object::try_from(object)?;
+
+        scanner.skip_whitespace();
+        scanner
+            .expect("Owner Id: ")
+            .map_err(|_| Parse::ExpectedOwnerId)?;
+
+        let owner_id: ThreadID = scanner
+            .take_until(" ")
+            .ok_or(Parse::ExpectedOwnerId)?
+            .parse()
+            .map_err(|e| Parse::ThreadIdParse(e))?;
+
+        scanner.skip_whitespace();
+        scanner
+            .expect("Owner Name: ")
+            .map_err(|_| Parse::ExpectedOwnerName)?;
+        let owner_name = scanner.remaining().trim();
+        let owner_name = if owner_name.is_empty() {
+            None
+        } else {
+            Some(owner_name)
+        };
+
+        Ok(LockInfo {
+            owner_id,
+            owner_name,
+            object,
+        })
     }
 }
 
@@ -154,7 +194,7 @@ impl<'a> TryFrom<&'a str> for Element<'a> {
             .ok_or(Parse::OpenParenNotFound)?;
         let source = scanner
             .take_within("(", ")")
-            .map_err(|e| Parse::CloseParenNotFound)?;
+            .map_err(|_| Parse::CloseParenNotFound)?;
         let source = Source::try_from(source)?;
         Ok(Element::Elem { frame, source })
     }
@@ -187,44 +227,43 @@ impl<'a> TryFrom<&'a str> for ThreadState<'a> {
         scanner.skip_whitespace();
         scanner
             .expect(ThreadState::PREAMBLE)
-            .map_err(|e| Parse::ExpectedPreamble)?;
+            .map_err(|_| Parse::ExpectedPreamble)?;
         scanner.skip_whitespace();
 
-        let mut state: &'a str;
-
-        if let Some(raw_state) = scanner.peek_until("on") {
+        if let Some(raw_state) = scanner.peek_until(" waiting to lock ") {
+            let raw_state = raw_state.trim();
+            if raw_state.trim() != "BLOCKED" {
+                return Err(Parse::ExpectedLockObject);
+            }
+            return Ok(ThreadState::BlockedToLock(None));
+        } else if let Some(raw_state) = scanner.peek_until(" on ") {
             match raw_state.trim() {
                 "WAITING" => {
                     _ = scanner.take_until("on").expect("SAFETY: CHECKED");
                     scanner.skip_whitespace();
                     let object = scanner.remaining();
                     let object = Object::try_from(object)?;
-                    return Ok(ThreadState::Waiting(object));
+                    return Ok(ThreadState::WaitingOn(object));
                 }
                 "TIMED_WAITING" => {
                     _ = scanner.take_until("on").expect("SAFETY: CHECKED");
                     scanner.skip_whitespace();
                     let object = scanner.remaining();
                     let object = Object::try_from(object)?;
-                    return Ok(ThreadState::TimedWaiting(object));
+                    return Ok(ThreadState::TimedWaitingOn(object));
                 }
-                _ => return Err(Parse::UnexpectedThreadState),
+                _ => {
+                    println!("STATE: {raw_state}");
+                    return Err(Parse::ExpectedWaitObject);
+                }
             };
-        } else if let Some(raw_state) = scanner.peek_until("waiting to lock") {
-            let raw_state = raw_state.trim();
-            if raw_state.trim() != "BLOCKED" {
-                return Err(Parse::UnexpectedThreadState);
-            }
-            return Ok(ThreadState::Blocked {
-                owner_id: 0,
-                owner_name: None,
-                object: Object::default(),
-            });
         } else {
             return match scanner.remaining().trim() {
                 "NEW" => Ok(ThreadState::New),
                 "TERMINATED" => Ok(ThreadState::Terminated),
                 "RUNNABLE" => Ok(ThreadState::Runnable),
+                "TIMED_WAITING" => Ok(ThreadState::TimedWaiting),
+                "WAITING" => Ok(ThreadState::Waiting),
                 _ => Err(Parse::UnexpectedThreadState),
             };
         }
@@ -261,49 +300,24 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
         let header = scanner
             .take_until("\n")
             .ok_or(Parse::ThreadHeaderExtraction)?;
+
         let state = ThreadState::try_from(header)?;
-        let state = match state {
-            ThreadState::Blocked {
-                owner_id,
-                owner_name,
-                object,
-            } => {
-                scanner.skip_whitespace();
-                scanner
-                    .expect("LockName: ")
-                    .map_err(|_| Parse::ExpectedLockName)?;
-                let object = scanner.take_until(" ").ok_or(Parse::ExpectedLockName)?;
-                let object = Object::try_from(object)?;
-
-                scanner.skip_whitespace();
-                scanner
-                    .expect("Owner Id: ")
-                    .map_err(|_| Parse::ExpectedOwnerId)?;
-                let owner_id = scanner.take_until(" ").ok_or(Parse::ExpectedOwnerId)?;
-                let owner_id: i64 = owner_id.parse().map_err(|e| Parse::ThreadIdParse(e))?;
-
-                scanner.skip_whitespace();
-                scanner
-                    .expect("Owner Name: ")
-                    .map_err(|_| Parse::ExpectedOwnerName)?;
-                let owner_name = scanner.take_until("\n").ok_or(Parse::ExpectedNewline)?;
-                let owner_name = if owner_name.trim().is_empty() {
-                    None
-                } else {
-                    Some(owner_name.trim())
-                };
-                ThreadState::Blocked {
-                    owner_id,
-                    owner_name,
-                    object,
-                }
+        scanner.skip_whitespace();
+        let state = if scanner.peek_expect("LockName: ") {
+            let lock_info = scanner.take_until("\n").ok_or(Parse::ExpectedValidLockInformation)?;
+            let lock_info = LockInfo::try_from(lock_info)?;
+            match state {
+                ThreadState::WaitingOn(_) => ThreadState::WaitingToLock(lock_info),
+                ThreadState::BlockedToLock(None) => ThreadState::BlockedToLock(Some(lock_info)),
+                _ => return Err(Parse::UnexpectedThreadState),
             }
-            _ => state,
+        } else {
+            state
         };
 
-        let data = scanner.remaining();
+        let data = scanner.remaining().trim();
         let mut stack: Option<StackTrace<'a>> = None;
-        if !data.trim().is_empty() {
+        if !data.is_empty() {
             stack = Some(StackTrace::try_from(data)?);
         }
 
@@ -324,16 +338,26 @@ impl<'a> ThreadDump<'a> {
 impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
     type Error = Parse;
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        let (header, rest) = value.trim_start().split_once("\n").ok_or(Parse::ExpectedNewline)?;
+        let (header, rest) = value
+            .trim_start()
+            .split_once("\n")
+            .ok_or(Parse::ExpectedNewline)?;
         let snapshot: u8;
         let timestamp: i64;
-        match header.split(" : ").into_iter().collect::<Vec<&str>>().as_slice() {
+        match header
+            .split(" : ")
+            .into_iter()
+            .collect::<Vec<&str>>()
+            .as_slice()
+        {
             ["Thread dump", raw_snapshot, raw_timestamp] => {
                 snapshot = raw_snapshot.parse().map_err(|_| Parse::DumpSnapshot)?;
                 let time = PrimitiveDateTime::parse(*raw_timestamp, ThreadDump::FORMAT)
                     .map_err(|e| Parse::SnapshotTimestampParsing(e))?;
-                timestamp = time.to_unix_millis().ok_or(Parse::SnapshotTimestampConversion)?;
-            },
+                timestamp = time
+                    .to_unix_millis()
+                    .ok_or(Parse::SnapshotTimestampConversion)?;
+            }
             _ => return Err(Parse::ThreadDumpExtraction),
         };
 
@@ -352,9 +376,9 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
                 let thread = Thread::try_from(contents);
                 match thread {
                     Ok(thread) => threads.insert(thread.thread_id, thread),
-                    Err(e) => {
-                        eprintln!("Error during parsing thread dump: {e:?}");
-                        continue;
+                    Err(_) => {
+                        println!("Error during parsing thread dump, thread: {contents}");
+                        None
                     }
                 };
 

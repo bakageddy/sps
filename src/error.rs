@@ -95,6 +95,10 @@ pub mod threaddump {
         SnapshotTimestampParsing(#[from] time::error::Parse),
         #[error("Error during parsing thread dump: Snapshot Unix Time stamp conversion")]
         SnapshotTimestampConversion,
+        #[error("Error during parsing thread state: Expected Wait Object")]
+        ExpectedWaitObject,
+        #[error("Error during parsing thread state: Expected Lock Object")]
+        ExpectedLockObject,
     }
 }
 
