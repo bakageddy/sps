@@ -5,7 +5,8 @@ use std::process::exit;
 use time::PrimitiveDateTime;
 
 use crate::error::threaddump::Parse;
-use crate::threaddump::{Element, LockInfo, Object, Source, StackTrace, Thread, ThreadDump, ThreadState};
+use crate::threaddump::{Element, LockInfo, Object, Source, StackTrace, Thread, ThreadDump, ThreadDumpStreamer, ThreadState};
+use crate::util;
 #[test]
 fn test_object_id_parse() -> Result<(), Parse> {
     let input = "199d244d";
@@ -627,4 +628,35 @@ fn test_threaddump_full() {
         let expected_thread_count = result_map.get(filename.as_str()).unwrap();
         assert_eq!(dump.threads.len(), *expected_thread_count);
     }
+}
+
+#[test]
+fn test_threaddump_extraction_singular() {
+    let input = util::map_file("test/threaddump0_extraction.txt").unwrap();
+    let mut iter = ThreadDumpStreamer(&input);
+    let result = iter.next();
+    assert!(result.is_some(), "Could not extract dump");
+    let result = result.unwrap();
+    let dump = ThreadDump::try_from(result);
+    assert!(dump.is_ok(), "Got Error during parsing dump: {dump:?}");
+    let dump = dump.unwrap();
+    assert_eq!(dump.threads.len(), 2);
+    assert_eq!(dump.snapshot, 1);
+}
+
+#[test]
+fn test_threaddump_realworld_parsing() {
+    let input = util::map_file("test/threaddump0.txt").unwrap();
+    let mut count = 0;
+    for chunk in ThreadDumpStreamer(&input) {
+        let dump = ThreadDump::try_from(chunk);
+        if let Err(Parse::EndOfData) = dump {
+            break;
+        }
+        assert!(dump.is_ok(), "Got Error during parsing dump: {dump:?}");
+        let dump = dump.unwrap();
+        count += 1;
+        println!("Dump Len: {:?}, Dump Snapshot: {:?}, Dump Triggered Unix MS: {:?}", dump.threads.len(), dump.snapshot, dump.triggered_unix_ms);
+    }
+    assert_eq!(count, 6);
 }

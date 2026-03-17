@@ -65,6 +65,8 @@ pub struct ThreadDump<'a> {
     pub snapshot: u8,
 }
 
+pub struct ThreadDumpStreamer<'a>(pub &'a [u8]);
+
 impl Object<'_> {
     pub fn hex_to_u64(value: &str) -> Result<u64, Parse> {
         let value = value.trim();
@@ -304,7 +306,9 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
         let state = ThreadState::try_from(header)?;
         scanner.skip_whitespace();
         let state = if scanner.peek_expect("LockName: ") {
-            let lock_info = scanner.take_until("\n").ok_or(Parse::ExpectedValidLockInformation)?;
+            let lock_info = scanner
+                .take_until("\n")
+                .ok_or(Parse::ExpectedValidLockInformation)?;
             let lock_info = LockInfo::try_from(lock_info)?;
             match state {
                 ThreadState::WaitingOn(_) => ThreadState::WaitingToLock(lock_info),
@@ -316,15 +320,15 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
         };
 
         let data = scanner.remaining().trim();
-        let mut stack: Option<StackTrace<'a>> = None;
+        let mut stacktrace: Option<StackTrace<'a>> = None;
         if !data.is_empty() {
-            stack = Some(StackTrace::try_from(data)?);
+            stacktrace = Some(StackTrace::try_from(data)?);
         }
 
         Ok(Thread {
             thread_id,
             thread_name,
-            stacktrace: stack,
+            stacktrace,
             state,
         })
     }
@@ -338,6 +342,9 @@ impl<'a> ThreadDump<'a> {
 impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
     type Error = Parse;
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        if value.trim().is_empty() {
+            return Err(Parse::EndOfData);
+        }
         let (header, rest) = value
             .trim_start()
             .split_once("\n")
@@ -393,5 +400,29 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
             triggered_unix_ms: timestamp,
             snapshot,
         })
+    }
+}
+
+impl<'a> Iterator for ThreadDumpStreamer<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut iter = self.0.split_inclusive(|c| *c == b'\n').peekable();
+        let mut start = 0;
+        let mut offset = 0;
+        while let Some(line) = iter.next() {
+            if !line.starts_with(b"Thread dump") {
+                start += line.len();
+                continue;
+            }
+            offset += line.len();
+            while let Some(line) = iter.next_if(|l| !l.trim_ascii().starts_with(b"TriggeredTime")) {
+                offset += line.len();
+            }
+            break;
+        }
+        let contents = &self.0[start..start + offset];
+        self.0 = &self.0[start + offset..];
+        std::str::from_utf8(contents).ok()
     }
 }

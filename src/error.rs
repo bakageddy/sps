@@ -99,6 +99,8 @@ pub mod threaddump {
         ExpectedWaitObject,
         #[error("Error during parsing thread state: Expected Lock Object")]
         ExpectedLockObject,
+        #[error("Error during parsing thread dump: EOF")]
+        EndOfData,
     }
 }
 
@@ -164,8 +166,6 @@ pub mod stuckthread {
 }
 
 pub mod stacktrace {
-    use crate::error::scanner;
-
     // use std::path::PathBuf;
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
