@@ -407,6 +407,10 @@ impl<'a> Iterator for ThreadDumpStreamer<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.0.trim_ascii().is_empty() {
+            return None;
+        }
+
         let mut iter = self.0.split_inclusive(|c| *c == b'\n').peekable();
         let mut start = 0;
         let mut offset = 0;
