@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS stuckthread_stack(
 
 -- TODO: Better naming!
 CREATE TABLE IF NOT EXISTS threaddump_group(
-	group_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	group_id INTEGER PRIMARY KEY AUTOINCREMENT
 );
 
 CREATE TABLE IF NOT EXISTS threaddump(
@@ -49,7 +49,6 @@ CREATE TABLE IF NOT EXISTS threaddump_threads(
 
 	UNIQUE (thread_id, thread_stack_id),
 
-	FOREIGN KEY (group_id) REFERENCES threaddump(group_id) DEFERRABLE INITIALLY DEFERRED,
 	FOREIGN KEY (thread_stack_id) REFERENCES threaddump_stack(thread_stack_id) DEFERRABLE INITIALLY DEFERRED,
 	FOREIGN KEY (wait_object_id) REFERENCES threaddump_objects(object_id) DEFERRABLE INITIALLY DEFERRED,
 	FOREIGN KEY (lock_object_id) REFERENCES threaddump_objects(object_id) DEFERRABLE INITIALLY DEFERRED
