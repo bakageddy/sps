@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS threaddump_stack(
 	line_number INTEGER NULL,
 
 	-- LOCK
-	object_id NULL,
+	object_id INTEGER NULL,
 	PRIMARY KEY (thread_stack_id, frame_idx),
 	FOREIGN KEY (object_id) REFERENCES threaddump_objects(object_id) DEFERRABLE INITIALLY DEFERRED
 );
