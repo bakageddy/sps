@@ -342,9 +342,6 @@ impl<'a> ThreadDump<'a> {
 impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
     type Error = Parse;
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        if value.trim().is_empty() {
-            return Err(Parse::EndOfData);
-        }
         let (header, rest) = value
             .trim_start()
             .split_once("\n")

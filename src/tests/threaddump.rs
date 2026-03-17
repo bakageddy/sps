@@ -650,9 +650,6 @@ fn test_threaddump_realworld_parsing() {
     let mut count = 0;
     for chunk in ThreadDumpStreamer(&input) {
         let dump = ThreadDump::try_from(chunk);
-        // if let Err(Parse::EndOfData) = dump {
-        //     break;
-        // }
         assert!(dump.is_ok(), "Got Error during parsing dump: {dump:?}");
         let dump = dump.unwrap();
         count += 1;
