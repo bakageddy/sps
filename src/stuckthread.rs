@@ -22,12 +22,12 @@ pub struct StuckThread<'a> {
 
 #[derive(Debug)]
 pub enum StuckThreadMeta<'a> {
-    Begin(StuckThreadMetaBegin<'a>),
-    End(StuckThreadMetaEnd<'a>),
+    Begin(MetaBegin<'a>),
+    End(MetaEnd<'a>),
 }
 
 #[derive(Debug)]
-pub struct StuckThreadMetaBegin<'a> {
+pub struct MetaBegin<'a> {
     pub start: time::PrimitiveDateTime,
     pub thread_id: u32,
     pub thread_name: &'a str,
@@ -37,7 +37,7 @@ pub struct StuckThreadMetaBegin<'a> {
 }
 
 #[derive(Debug)]
-pub struct StuckThreadMetaEnd<'a> {
+pub struct MetaEnd<'a> {
     pub start: time::PrimitiveDateTime,
     pub thread_id: u32,
     pub thread_name: &'a str,
@@ -213,9 +213,9 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
         let mut meta: StuckThreadMeta;
         let message_len = message.len();
         if message_len == 7 {
-            meta = StuckThreadMeta::Begin(StuckThreadMetaBegin::try_from(message)?);
+            meta = StuckThreadMeta::Begin(MetaBegin::try_from(message)?);
         } else if message_len == 4 || message_len == 3 {
-            meta = StuckThreadMeta::End(StuckThreadMetaEnd::try_from(message)?);
+            meta = StuckThreadMeta::End(MetaEnd::try_from(message)?);
         } else {
             return Err(Parse::IncorrectMessageInfoCount {
                 got: message.iter().map(|s| (*s).to_string()).collect(),
@@ -240,7 +240,7 @@ impl<'a> TryFrom<&'a str> for StuckThreadMeta<'a> {
     }
 }
 
-impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaBegin<'a> {
+impl<'a> TryFrom<Vec<&'a str>> for MetaBegin<'a> {
     type Error = Parse;
 
     fn try_from(value: Vec<&'a str>) -> Result<Self, Self::Error> {
@@ -264,7 +264,7 @@ impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaBegin<'a> {
         let active_duration = StuckThreadMeta::parse_comma_separate_i64(*active_duration)?;
         let active_thread_count = StuckThreadMeta::parse_i64(*active_thread_count)?;
 
-        Ok(StuckThreadMetaBegin {
+        Ok(MetaBegin {
             start: datetime!(1970-01-01 00:00:00.0),
             active_duration_ms: active_duration,
             active_monitor_count: active_thread_count,
@@ -275,7 +275,7 @@ impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaBegin<'a> {
     }
 }
 
-impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaEnd<'a> {
+impl<'a> TryFrom<Vec<&'a str>> for MetaEnd<'a> {
     type Error = Parse;
 
     fn try_from(value: Vec<&'a str>) -> Result<Self, Self::Error> {
@@ -313,7 +313,7 @@ impl<'a> TryFrom<Vec<&'a str>> for StuckThreadMetaEnd<'a> {
             active_monitor_count = StuckThreadMeta::parse_i64(active_thread_count)?;
         }
 
-        Ok(StuckThreadMetaEnd {
+        Ok(MetaEnd {
             start: datetime!(1970-01-01 00:00:00.0),
             thread_name: thread_name,
             thread_id,

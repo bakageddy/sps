@@ -1,6 +1,6 @@
 use crate::error::stuckthread::Parse;
 use crate::stuckthread::{
-    StuckThread, StuckThreadMeta, StuckThreadMetaBegin, StuckThreadMetaEnd, StuckThreadStream,
+    StuckThread, StuckThreadMeta, MetaBegin, MetaEnd, StuckThreadStream,
 };
 
 // ============================================================
@@ -191,7 +191,7 @@ fn meta_begin_from_groups() {
         "10",
         "3",
     ];
-    let result = StuckThreadMetaBegin::try_from(groups);
+    let result = MetaBegin::try_from(groups);
     assert!(result.is_ok(), "failed: {result:?}");
     let b = result.unwrap();
     assert_eq!(b.thread_name, "my-thread-1");
@@ -204,7 +204,7 @@ fn meta_begin_from_groups() {
 #[test]
 fn meta_begin_from_groups_wrong_count() {
     let groups = vec!["only", "three", "items"];
-    let result = StuckThreadMetaBegin::try_from(groups);
+    let result = MetaBegin::try_from(groups);
     assert!(result.is_err());
     assert!(matches!(
         result,
@@ -223,7 +223,7 @@ fn meta_begin_comma_in_duration() {
         "10",
         "60",
     ];
-    let result = StuckThreadMetaBegin::try_from(groups).unwrap();
+    let result = MetaBegin::try_from(groups).unwrap();
     assert_eq!(result.active_duration_ms, 21982);
 }
 
@@ -234,7 +234,7 @@ fn meta_begin_comma_in_duration() {
 #[test]
 fn meta_end_from_3_groups() {
     let groups = vec!["", "226293", "27,650"];
-    let result = StuckThreadMetaEnd::try_from(groups);
+    let result = MetaEnd::try_from(groups);
     assert!(result.is_ok(), "failed: {result:?}");
     let e = result.unwrap();
     assert_eq!(e.thread_name, "");
@@ -246,7 +246,7 @@ fn meta_end_from_3_groups() {
 #[test]
 fn meta_end_from_4_groups() {
     let groups = vec!["", "226293", "27,650", "78"];
-    let result = StuckThreadMetaEnd::try_from(groups);
+    let result = MetaEnd::try_from(groups);
     assert!(result.is_ok(), "failed: {result:?}");
     let e = result.unwrap();
     assert_eq!(e.thread_id, 226293);
@@ -257,7 +257,7 @@ fn meta_end_from_4_groups() {
 #[test]
 fn meta_end_from_groups_wrong_count() {
     let groups = vec!["too", "many", "items", "here", "extra"];
-    let result = StuckThreadMetaEnd::try_from(groups);
+    let result = MetaEnd::try_from(groups);
     assert!(result.is_err());
     assert!(matches!(
         result,
@@ -402,7 +402,7 @@ fn parse_comma_separated_i64() {
         "10",
         "100",
     ];
-    let result = StuckThreadMetaBegin::try_from(groups).unwrap();
+    let result = MetaBegin::try_from(groups).unwrap();
     assert_eq!(result.active_duration_ms, 1234567);
     assert_eq!(result.thread_id, 999999);
 }
@@ -418,7 +418,7 @@ fn parse_duration_no_comma() {
         "10",
         "1",
     ];
-    let result = StuckThreadMetaBegin::try_from(groups).unwrap();
+    let result = MetaBegin::try_from(groups).unwrap();
     assert_eq!(result.active_duration_ms, 500);
 }
 
@@ -426,7 +426,7 @@ fn parse_duration_no_comma() {
 fn end_with_empty_thread_name() {
     // Real end records have empty thread names []
     let groups = vec!["", "42", "1,000", "5"];
-    let result = StuckThreadMetaEnd::try_from(groups).unwrap();
+    let result = MetaEnd::try_from(groups).unwrap();
     assert_eq!(result.thread_name, "");
     assert_eq!(result.thread_id, 42);
 }
@@ -494,7 +494,7 @@ fn meta_begin_start_is_before_header_time() {
 #[test]
 fn meta_end_from_2_groups_fails() {
     let groups = vec!["name", "123"];
-    let result = StuckThreadMetaEnd::try_from(groups);
+    let result = MetaEnd::try_from(groups);
     assert!(result.is_err());
     assert!(matches!(result, Err(Parse::IncorrectMessageInfoCount { .. })));
 }
@@ -502,7 +502,7 @@ fn meta_end_from_2_groups_fails() {
 #[test]
 fn meta_end_from_5_groups_fails() {
     let groups = vec!["a", "1", "100", "5", "extra"];
-    let result = StuckThreadMetaEnd::try_from(groups);
+    let result = MetaEnd::try_from(groups);
     assert!(result.is_err());
     assert!(matches!(result, Err(Parse::IncorrectMessageInfoCount { .. })));
 }

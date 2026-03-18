@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use crate::{
-    stacktrace::{self, StackTrace}, stuckthread::{StuckThreadMetaBegin, StuckThreadMetaEnd}, util::{self, ToUnixMillis}
+    stacktrace::{self, StackTrace}, stuckthread::{MetaBegin, MetaEnd}, util::{self, ToUnixMillis}
 };
 
 pub struct Persistence;
@@ -25,9 +25,9 @@ impl Persistence {
 
     pub fn insert_stuckthread(
         tx: &rusqlite::Transaction,
-        begin: &StuckThreadMetaBegin,
+        begin: &MetaBegin,
         stacktrace: &StackTrace,
-        end: Option<&StuckThreadMetaEnd>,
+        end: Option<&MetaEnd>,
     ) -> util::Result<()> {
         let mut pstmt = tx.prepare(
             "INSERT INTO stuckthread_meta(thread_id, start, thread_name, api_request, active_duration_ms, active_monitor_count_start, active_monitor_count_end) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING stack_id"

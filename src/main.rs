@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use clap::Parser;
-use sps::stuckthread::{StuckThread, StuckThreadMeta, StuckThreadMetaBegin, StuckThreadStream};
+use sps::stuckthread::{StuckThread, StuckThreadMeta, MetaBegin, StuckThreadStream};
 use sps::util;
 use sps::{database::Persistence, stacktrace::StackTrace};
 use tracing::{Level, event, info, warn};
@@ -31,11 +31,12 @@ fn main() -> util::Result<()> {
     }
 
     let tx = cnx.transaction()?;
-    let mut buffer: HashMap<u32, (StuckThreadMetaBegin, StackTrace)> = HashMap::new();
+    let mut buffer: HashMap<u32, (MetaBegin, StackTrace)> = HashMap::new();
     for (ref map, entry) in std::iter::zip(&contents, &sorted_stuckthreads) {
         info!("Parsing file {:?}", &entry);
 
         for chunk in StuckThreadStream(&map) {
+            // PARSE: Chunk
             let event = StuckThread::try_from(chunk);
             let event = match event {
                 Ok(event) => event,
@@ -48,6 +49,7 @@ fn main() -> util::Result<()> {
                 }
             };
 
+            // AGGREGATE: stuckthread bi-events
             match event.meta {
                 StuckThreadMeta::Begin(begin) => {
                     buffer.insert(
@@ -57,8 +59,8 @@ fn main() -> util::Result<()> {
                 }
                 StuckThreadMeta::End(ref end) => {
                     if !buffer.contains_key(&end.thread_id) {
-                        warn!(
-                            "Error during aggregation, cannot find matching entry for event {end:?}"
+                        info!(
+                            "Cannot find start during aggregation, cannot find matching entry for event {end:?}"
                         );
                         continue;
                     }
