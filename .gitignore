@@ -1,7 +1,7 @@
 /target
 stuckthreads*.txt
 # sample/*.txt
-output.txt
+output.*
 *.db
 *.db-journal
 /test

@@ -1,5 +1,7 @@
 use crate::error::stuckthread::Parse;
-use crate::stuckthread::{StuckThread, StuckThreadMeta, StuckThreadMetaBegin, StuckThreadMetaEnd, StuckThreadStream};
+use crate::stuckthread::{
+    StuckThread, StuckThreadMeta, StuckThreadMetaBegin, StuckThreadMetaEnd, StuckThreadStream,
+};
 
 // ============================================================
 // Helper: Build meta lines
@@ -31,11 +33,17 @@ fn meta_begin_fields() {
     let meta = StuckThreadMeta::try_from(BEGIN_META).unwrap();
     match meta {
         StuckThreadMeta::Begin(b) => {
-            assert_eq!(b.thread_name, "/api/v3/requests/3472132/request_detail-1771237317720_###_");
+            assert_eq!(
+                b.thread_name,
+                "/api/v3/requests/3472132/request_detail-1771237317720_###_"
+            );
             assert_eq!(b.thread_id, 226300);
             assert_eq!(b.active_duration_ms, 19273);
             assert_eq!(b.active_monitor_count, 79);
-            assert!(b.request.starts_with("http://sdp-loadt-3:8080/api/v3/requests/3472132/request_detail"));
+            assert!(
+                b.request
+                    .starts_with("http://sdp-loadt-3:8080/api/v3/requests/3472132/request_detail")
+            );
         }
         _ => panic!("expected Begin"),
     }
@@ -127,16 +135,23 @@ fn meta_wrong_header_group_count() {
     let input = "[15:52:17.284]|[16-02-2026]|[class]| :: Thread [name] (id=[1]) has been active for [100] milliseconds (since [now]) to serve the same request for [url] and may be stuck (configured threshold for this StuckThreadDetectionValve is [10] seconds). There is/are [1] thread(s) in total that are monitored by this Valve and may be stuck.";
     let result = StuckThreadMeta::try_from(input);
     assert!(result.is_err());
-    assert!(matches!(result, Err(Parse::IncorrectHeaderInfoCount { .. })));
+    assert!(matches!(
+        result,
+        Err(Parse::IncorrectHeaderInfoCount { .. })
+    ));
 }
 
 #[test]
 fn meta_wrong_message_group_count() {
     // Only 2 message groups — not enough for Begin (7) or End (3-4)
-    let input = "[15:52:17.284]|[16-02-2026]|[class]|[WARN]|[90]| :: Thread [name] only [2] groups.";
+    let input =
+        "[15:52:17.284]|[16-02-2026]|[class]|[WARN]|[90]| :: Thread [name] only [2] groups.";
     let result = StuckThreadMeta::try_from(input);
     assert!(result.is_err());
-    assert!(matches!(result, Err(Parse::IncorrectMessageInfoCount { .. })));
+    assert!(matches!(
+        result,
+        Err(Parse::IncorrectMessageInfoCount { .. })
+    ));
 }
 
 #[test]
@@ -191,7 +206,10 @@ fn meta_begin_from_groups_wrong_count() {
     let groups = vec!["only", "three", "items"];
     let result = StuckThreadMetaBegin::try_from(groups);
     assert!(result.is_err());
-    assert!(matches!(result, Err(Parse::IncorrectMessageInfoCount { .. })));
+    assert!(matches!(
+        result,
+        Err(Parse::IncorrectMessageInfoCount { .. })
+    ));
 }
 
 #[test]
@@ -241,7 +259,10 @@ fn meta_end_from_groups_wrong_count() {
     let groups = vec!["too", "many", "items", "here", "extra"];
     let result = StuckThreadMetaEnd::try_from(groups);
     assert!(result.is_err());
-    assert!(matches!(result, Err(Parse::IncorrectMessageInfoCount { .. })));
+    assert!(matches!(
+        result,
+        Err(Parse::IncorrectMessageInfoCount { .. })
+    ));
 }
 
 // ============================================================
@@ -303,50 +324,66 @@ fn stuckthread_end_fields_preserved() {
 #[test]
 fn stream_parse_single_end_record() {
     let input = format!("{}\n", END_META_4_GROUPS);
-    let result = StuckThreadStream::parse(input.as_bytes());
-    assert!(result.is_ok(), "failed: {result:?}");
-    let events = result.unwrap();
-    assert_eq!(events.len(), 1);
-    assert!(events[0].is_ok());
+    let mut iter = StuckThreadStream(input.as_bytes()).into_iter();
+    let result = iter.next();
+    assert!(result.is_some(), "failed: {result:?}");
+    let chunk = result.unwrap();
+    let event = StuckThread::try_from(chunk);
+    assert!(event.is_ok(), "Error parsing chunk {chunk:?} : {event:?}");
+    let event = event.unwrap();
+    println!("{event:?}");
+    match event.meta {
+        StuckThreadMeta::End(e) => {
+            assert_eq!(e.thread_id, 226293);
+            assert_eq!(e.active_monitor_count, 78);
+            assert_eq!(e.active_duration_ms, 27650);
+            assert_eq!(e.thread_name, "");
+        }
+        _ => {
+            panic!("Expected StuckThreadMetaEnd")
+        }
+    };
 }
 
 #[test]
 fn stream_parse_multiple_end_records() {
-    let input = format!("{}\n{}\n{}\n", END_META_4_GROUPS, END_META_4_GROUPS_B,
+    let input = format!(
+        "{}\n{}\n{}\n",
+        END_META_4_GROUPS,
+        END_META_4_GROUPS_B,
         "[15:52:17.907]|[16-02-2026]|[org.apache.catalina.valves.StuckThreadDetectionValve]|[WARN]|[90]| :: Thread [] (id=[4099]) was previously reported to be stuck but has completed. It was active for approximately [26,330] milliseconds. There is/are still [76] thread(s) that are monitored by this Valve and may be stuck."
     );
-    let result = StuckThreadStream::parse(input.as_bytes());
-    assert!(result.is_ok(), "failed: {result:?}");
-    let events = result.unwrap();
-    assert_eq!(events.len(), 3);
-    for (i, event) in events.iter().enumerate() {
-        assert!(event.is_ok(), "event {i} failed: {event:?}");
+    let mut count = 0;
+    for chunk in StuckThreadStream(input.as_bytes()) {
+        let event = StuckThread::try_from(chunk);
+        assert!(event.is_ok());
+        let event = event.unwrap();
+        let StuckThreadMeta::End(_) = event.meta else {
+            panic!("Expected StuckThreadMetaEnd")
+        };
+
+        count += 1;
     }
+    assert_eq!(count, 3);
 }
 
 #[test]
 fn stream_parse_begin_then_end() {
-    let input = format!("{}\n{}\n{}\n", BEGIN_META, SMALL_STACKTRACE, END_META_4_GROUPS);
-    let result = StuckThreadStream::parse(input.as_bytes());
-    assert!(result.is_ok(), "failed: {result:?}");
-    let events = result.unwrap();
-    // Should have at least the begin and end records
-    assert!(events.len() >= 2, "expected >=2 events, got {}", events.len());
+    let input = format!("{}{}{}\n", BEGIN_META, SMALL_STACKTRACE, END_META_4_GROUPS);
+    let mut count = 0;
+    for chunk in StuckThreadStream(input.as_bytes()) {
+        let event = StuckThread::try_from(chunk);
+        assert!(event.is_ok(), "Parsing {chunk} failed due to : {event:?}");
+        let _ = event.unwrap();
+        count += 1;
+    }
+    assert_eq!(count, 2);
 }
 
 #[test]
 fn stream_parse_empty_input() {
-    let result = StuckThreadStream::parse(b"");
-    assert!(result.is_ok());
-    let events = result.unwrap();
-    assert_eq!(events.len(), 0);
-}
-
-#[test]
-fn stream_parse_invalid_utf8() {
-    let bad_bytes: &[u8] = &[0xFF, 0xFE, 0xFD];
-    let result = StuckThreadStream::parse(bad_bytes);
-    assert!(result.is_err());
+    let result = StuckThreadStream(b"").into_iter().collect::<Vec<_>>().len();
+    assert!(result == 0);
 }
 
 // ============================================================
