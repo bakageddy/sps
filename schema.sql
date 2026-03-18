@@ -8,8 +8,7 @@ CREATE TABLE IF NOT EXISTS stuckthread_meta(
 	active_monitor_count_start INTEGER NULL,
 	active_monitor_count_end INTEGER NULL,
 	thread_name TEXT NULL,
-	api_request TEXT NULL,
-	FOREIGN KEY (stack_id) REFERENCES stuckthread_stack(stack_id) DEFERRABLE INITIALLY DEFERRED
+	api_request TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS stuckthread_stack(
@@ -18,7 +17,8 @@ CREATE TABLE IF NOT EXISTS stuckthread_stack(
 	line_number INTEGER NULL,
 	method TEXT NOT NULL,
 	frame_source TEXT NOT NULL,
-	PRIMARY KEY (stack_id, frame_idx)
+	PRIMARY KEY (stack_id, frame_idx),
+	FOREIGN KEY (stack_id) REFERENCES stuckthread_meta(stack_id) DEFERRABLE INITIALLY DEFERRED
 );
 
 -- TODO: Better naming!

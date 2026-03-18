@@ -3,9 +3,8 @@ use time::{
     macros::{datetime, format_description},
 };
 
-use crate::util::ToUnixMillis;
 use crate::{
-    error::stuckthread::{Error, Parse},
+    error::stuckthread::Parse,
     scanner::Scanner,
     stacktrace::StackTrace,
 };
@@ -46,43 +45,71 @@ pub struct StuckThreadMetaEnd<'a> {
     pub active_monitor_count: i64,
 }
 
-pub struct StuckThreadStream;
+pub struct StuckThreadStream<'a>(pub &'a [u8]);
 
-impl StuckThreadStream {
-    pub fn parse<'a>(contents: &'a [u8]) -> Result<Vec<Result<StuckThread<'a>, Parse>>, Error> {
-        let contents = str::from_utf8(contents)?;
-        let mut iter = contents.split_inclusive('\n').into_iter().peekable();
+impl<'a> Iterator for StuckThreadStream<'a> {
+    type Item = &'a str;
 
-        let mut lno = 0;
-        let mut start = 0;
-        let mut offset = 0;
-
-        let mut output = Vec::new();
-        while let Some(line) = iter.next() {
-            lno += 1;
-            if line.starts_with('[') {
-                offset += line.len();
-                while let Some(line) = iter.next_if(|s| !s.starts_with('[')) {
-                    offset += line.len();
-                    lno += 1;
-                }
-                let record = &contents[start..start + offset];
-                let result = StuckThread::try_from(record);
-                match result {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Error during parsing around line {lno} {e:?}");
-                    }
-                }
-
-                output.push(StuckThread::try_from(record));
-
-                start = start + offset;
-                offset = 0;
-            }
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0.trim_ascii_start().is_empty() {
+            return None;
         }
-        Ok(output)
+
+        let start = 0; 
+        let mut offset = 0;
+        let mut iter = self.0.split_inclusive(|b| *b == b'\n').peekable();
+        if let Some(line) = iter.next() {
+            if !line.starts_with(b"[") {
+                return None
+            }
+            offset += line.len();
+        }
+
+        while let Some(line) = iter.next_if(|l| !l.starts_with(b"[")) {
+            offset += line.len();
+        }
+
+        let contents = &self.0[start..start+offset];
+        self.0 = &self.0[start + offset..];
+        let contents = std::str::from_utf8(contents).ok();
+        contents
     }
+
+
+    // pub fn parse() -> Result<Vec<Result<StuckThread<'a>, Parse>>, Error> {
+    //     let contents = str::from_utf8(contents)?;
+    //     let mut iter = contents.split_inclusive('\n').into_iter().peekable();
+    //
+    //     let mut lno = 0;
+    //     let mut start = 0;
+    //     let mut offset = 0;
+    //
+    //     let mut output = Vec::new();
+    //     while let Some(line) = iter.next() {
+    //         lno += 1;
+    //         if line.starts_with('[') {
+    //             offset += line.len();
+    //             while let Some(line) = iter.next_if(|s| !s.starts_with('[')) {
+    //                 offset += line.len();
+    //                 lno += 1;
+    //             }
+    //             let record = &contents[start..start + offset];
+    //             let result = StuckThread::try_from(record);
+    //             match result {
+    //                 Ok(_) => {}
+    //                 Err(e) => {
+    //                     eprintln!("Error during parsing around line {lno} {e:?}");
+    //                 }
+    //             }
+    //
+    //             output.push(StuckThread::try_from(record));
+    //
+    //             start = start + offset;
+    //             offset = 0;
+    //         }
+    //     }
+    //     Ok(output)
+    // }
 }
 
 impl<'a> TryFrom<&'a str> for StuckThread<'a> {

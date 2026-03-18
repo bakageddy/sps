@@ -1,7 +1,7 @@
-use std::{collections::HashMap, fs};
+use std::collections::HashMap;
 
 use clap::Parser;
-use sps::stuckthread::{StuckThreadMeta, StuckThreadMetaBegin, StuckThreadStream};
+use sps::stuckthread::{StuckThread, StuckThreadMeta, StuckThreadMetaBegin, StuckThreadStream};
 use sps::util;
 use sps::{database::Persistence, stacktrace::StackTrace};
 use tracing::{Level, event, info, warn};
@@ -17,7 +17,6 @@ fn main() -> util::Result<()> {
 
     let sorted_stuckthreads = util::get_sorted_stuckthreads(&args.path)?;
     let mut contents = vec![];
-    let mut buffer: HashMap<u32, (StuckThreadMetaBegin, StackTrace)> = HashMap::new();
     for entry in &sorted_stuckthreads {
         let map = util::map_file(&entry);
         let map = match map {
@@ -32,47 +31,47 @@ fn main() -> util::Result<()> {
     }
 
     let tx = cnx.transaction()?;
+    let mut buffer: HashMap<u32, (StuckThreadMetaBegin, StackTrace)> = HashMap::new();
     for (ref map, entry) in std::iter::zip(&contents, &sorted_stuckthreads) {
         info!("Parsing file {:?}", &entry);
 
-        let events = match StuckThreadStream::parse(&map) {
-            Ok(events) => events,
-            Err(e) => {
-                eprintln!("Error during parsing {:?} : {e:?}", &entry);
-                continue;
-            }
-        };
-
-        info!("Finished parsing file {:?}", &entry);
-
-        info!("Started Persisting stuckthread events for {:?}", &entry);
-        for event in events {
+        for chunk in StuckThreadStream(&map) {
+            let event = StuckThread::try_from(chunk);
             let event = match event {
                 Ok(event) => event,
                 Err(e) => {
-                    warn!("Error during parsing {:?}: {e}", &entry);
+                    warn!(
+                        "Error during parsing chunk {:?} in {:?} : {e:?}",
+                        chunk, entry
+                    );
                     continue;
                 }
             };
 
             match event.meta {
-                StuckThreadMeta::Begin(e) => {
-                    buffer.insert(e.thread_id, (e, event.st.expect("SAFETY: match")));
+                StuckThreadMeta::Begin(begin) => {
+                    buffer.insert(
+                        begin.thread_id,
+                        (begin, event.st.expect("SAFETY: match in begin")),
+                    );
                 }
-
-                StuckThreadMeta::End(ref e) => {
-                    if !buffer.contains_key(&e.thread_id) {
+                StuckThreadMeta::End(ref end) => {
+                    if !buffer.contains_key(&end.thread_id) {
+                        warn!(
+                            "Error during aggregation, cannot find matching entry for event {end:?}"
+                        );
                         continue;
                     }
-                    let (begin, st) = buffer.get(&e.thread_id).expect("SAFETY: checked");
-
-                    match Persistence::insert_stuckthread(&tx, begin, st, Some(e)) {
+                    let (begin, st) = buffer
+                        .get(&end.thread_id)
+                        .expect("SAFETY: checked in if statement above");
+                    match Persistence::insert_stuckthread(&tx, &begin, &st, Some(end)) {
                         Ok(_) => {}
-                        Err(e) => warn!("Error during insert: {e:?}"),
+                        Err(e) => warn!("Error during inserting stuckthread event: {e:?}"),
                     }
-                    _ = buffer.remove(&e.thread_id);
+                    buffer.remove(&end.thread_id);
                 }
-            }
+            };
         }
         info!("Finished Persisting stuckthread events for {:?}", &entry);
     }
