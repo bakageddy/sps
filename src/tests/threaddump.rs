@@ -657,3 +657,272 @@ fn test_threaddump_realworld_parsing() {
     }
     assert_eq!(count, 6);
 }
+
+// ============================================================
+// Object::try_from — direct parse via @ separator
+// ============================================================
+
+#[test]
+fn test_object_try_from_basic() -> Result<(), Parse> {
+    let input = "java.lang.Object@73853f10";
+    let result = Object::try_from(input)?;
+    assert_eq!(result.class, "java.lang.Object");
+    assert_eq!(result.identity, 0x73853f10);
+    Ok(())
+}
+
+#[test]
+fn test_object_try_from_inner_class() -> Result<(), Parse> {
+    let input = "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@586806fa";
+    let result = Object::try_from(input)?;
+    assert_eq!(
+        result.class,
+        "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject"
+    );
+    assert_eq!(result.identity, 0x586806fa);
+    Ok(())
+}
+
+#[test]
+fn test_object_try_from_missing_at() {
+    let input = "java.lang.Object-73853f10";
+    let result = Object::try_from(input);
+    assert_eq!(result.unwrap_err(), Parse::MissingCommat);
+}
+
+#[test]
+fn test_object_try_from_leading_whitespace() -> Result<(), Parse> {
+    let input = "  java.lang.Object@00000001";
+    let result = Object::try_from(input)?;
+    assert_eq!(result.class, "java.lang.Object");
+    assert_eq!(result.identity, 1);
+    Ok(())
+}
+
+// ============================================================
+// LockInfo::try_from — direct parse
+// ============================================================
+
+#[test]
+fn test_lockinfo_basic() -> Result<(), Parse> {
+    let input = "LockName: java.lang.Object@73853f10 Owner Id: 28 Owner Name: Glowroot-Aggregate-Flushing";
+    let result = LockInfo::try_from(input)?;
+    assert_eq!(result.owner_id, 28);
+    assert_eq!(result.owner_name, Some("Glowroot-Aggregate-Flushing"));
+    assert_eq!(result.object.class, "java.lang.Object");
+    assert_eq!(result.object.identity, 0x73853f10);
+    Ok(())
+}
+
+#[test]
+fn test_lockinfo_empty_owner_name() -> Result<(), Parse> {
+    // Owner Name is present but blank after trimming
+    let input = "LockName: java.lang.Object@00000001 Owner Id: 5 Owner Name: ";
+    let result = LockInfo::try_from(input)?;
+    assert_eq!(result.owner_id, 5);
+    assert_eq!(result.owner_name, None);
+    Ok(())
+}
+
+#[test]
+fn test_lockinfo_missing_lockname_prefix() {
+    let input = "NotALock: java.lang.Object@00000001 Owner Id: 5 Owner Name: X";
+    let result = LockInfo::try_from(input);
+    assert_eq!(result.unwrap_err(), Parse::ExpectedLockName);
+}
+
+#[test]
+fn test_lockinfo_missing_owner_id_prefix() {
+    let input = "LockName: java.lang.Object@00000001 BadOwner 5 Owner Name: X";
+    let result = LockInfo::try_from(input);
+    assert_eq!(result.unwrap_err(), Parse::ExpectedOwnerId);
+}
+
+#[test]
+fn test_lockinfo_missing_owner_name_prefix() {
+    let input = "LockName: java.lang.Object@00000001 Owner Id: 5 BadName X";
+    let result = LockInfo::try_from(input);
+    assert_eq!(result.unwrap_err(), Parse::ExpectedOwnerName);
+}
+
+// ============================================================
+// ThreadState — plain WAITING / TIMED_WAITING (no object)
+// ============================================================
+
+#[test]
+fn test_thread_state_plain_waiting() -> Result<(), Parse> {
+    let input = "Java.lang.Thread.State: WAITING\n";
+    let result = ThreadState::try_from(input)?;
+    assert_eq!(result, ThreadState::Waiting);
+    Ok(())
+}
+
+#[test]
+fn test_thread_state_plain_timed_waiting() -> Result<(), Parse> {
+    let input = "Java.lang.Thread.State: TIMED_WAITING\n";
+    let result = ThreadState::try_from(input)?;
+    assert_eq!(result, ThreadState::TimedWaiting);
+    Ok(())
+}
+
+#[test]
+fn test_thread_state_blocked_no_lock_info() -> Result<(), Parse> {
+    // BLOCKED without a following LockName line — BlockedToLock(None)
+    let input = "Java.lang.Thread.State: BLOCKED waiting to lock java.lang.Object@73853f10\n";
+    let result = ThreadState::try_from(input)?;
+    assert!(matches!(result, ThreadState::BlockedToLock(None)));
+    Ok(())
+}
+
+#[test]
+fn test_thread_state_missing_preamble() {
+    let input = "Thread.State: RUNNABLE\n";
+    let result = ThreadState::try_from(input);
+    assert_eq!(result.unwrap_err(), Parse::ExpectedPreamble);
+}
+
+// ============================================================
+// Thread — additional edge cases
+// ============================================================
+
+#[test]
+fn test_thread_empty_name_becomes_none() -> Result<(), Parse> {
+    // An empty quoted name should become thread_name = None
+    let input = "\"\"  Id=99  Java.lang.Thread.State: RUNNABLE\r\n";
+    let thread = Thread::try_from(input)?;
+    assert_eq!(thread.thread_name, None);
+    assert_eq!(thread.thread_id, 99);
+    assert_eq!(thread.state, ThreadState::Runnable);
+    Ok(())
+}
+
+#[test]
+fn test_thread_waiting_to_lock_via_lockname_line() -> Result<(), Parse> {
+    // A WAITING thread that is actually waiting to acquire a lock (has LockName line)
+    let input = r#"
+"some-thread"  Id=10  Java.lang.Thread.State: WAITING on java.lang.Object@73853f10
+ LockName: java.lang.Object@73853f10 Owner Id: 28 Owner Name: owner-thread
+"#;
+    let thread = Thread::try_from(input)?;
+    assert!(
+        matches!(thread.state, ThreadState::WaitingToLock(_)),
+        "expected WaitingToLock, got {:?}",
+        thread.state
+    );
+    if let ThreadState::WaitingToLock(lock) = &thread.state {
+        assert_eq!(lock.owner_id, 28);
+        assert_eq!(lock.owner_name, Some("owner-thread"));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_thread_plain_waiting_no_stacktrace() -> Result<(), Parse> {
+    let input = "\"idle-thread\"  Id=7  Java.lang.Thread.State: WAITING\n";
+    let thread = Thread::try_from(input)?;
+    assert_eq!(thread.state, ThreadState::Waiting);
+    assert_eq!(thread.stacktrace, None);
+    Ok(())
+}
+
+#[test]
+fn test_thread_plain_timed_waiting_no_stacktrace() -> Result<(), Parse> {
+    let input = "\"timer-thread\"  Id=8  Java.lang.Thread.State: TIMED_WAITING\n";
+    let thread = Thread::try_from(input)?;
+    assert_eq!(thread.state, ThreadState::TimedWaiting);
+    assert_eq!(thread.stacktrace, None);
+    Ok(())
+}
+
+// ============================================================
+// ThreadDump — header parsing errors
+// ============================================================
+
+#[test]
+fn test_threaddump_invalid_header_no_thread_dump_prefix() {
+    let input = "Not a thread dump\n\n";
+    let result = ThreadDump::try_from(input);
+    assert_eq!(result.unwrap_err(), Parse::ThreadDumpExtraction);
+}
+
+#[test]
+fn test_threaddump_invalid_header_bad_snapshot() {
+    let input = "Thread dump : not_a_number : 2026-02-25 18:20:16.093\n\n";
+    let result = ThreadDump::try_from(input);
+    assert_eq!(result.unwrap_err(), Parse::DumpSnapshot);
+}
+
+#[test]
+fn test_threaddump_invalid_header_bad_timestamp() {
+    let input = "Thread dump : 1 : NOT-A-TIMESTAMP\n\n";
+    let result = ThreadDump::try_from(input);
+    assert!(result.is_err());
+    // Should be a timestamp parse error wrapped in SnapshotTimestampParsing
+    assert!(matches!(result.unwrap_err(), Parse::SnapshotTimestampParsing(_)));
+}
+
+#[test]
+fn test_threaddump_no_newline() {
+    let result = ThreadDump::try_from("no newline here");
+    assert_eq!(result.unwrap_err(), Parse::ExpectedNewline);
+}
+
+#[test]
+fn test_threaddump_empty_threads_section() -> Result<(), Parse> {
+    let input = "Thread dump : 2 : 2026-03-01 10:00:00.000\n\n";
+    let dump = ThreadDump::try_from(input)?;
+    assert_eq!(dump.snapshot, 2);
+    assert!(dump.threads.is_empty());
+    Ok(())
+}
+
+// ============================================================
+// ThreadDumpStreamer — edge cases
+// ============================================================
+
+#[test]
+fn test_threaddump_streamer_empty_input() {
+    let input = b"";
+    let results: Vec<_> = ThreadDumpStreamer(input).collect();
+    assert!(results.is_empty());
+}
+
+#[test]
+fn test_threaddump_streamer_whitespace_only() {
+    let input = b"   \n\n\t\n   ";
+    let results: Vec<_> = ThreadDumpStreamer(input).collect();
+    assert!(results.is_empty());
+}
+
+// ============================================================
+// StackTrace (threaddump) — error paths
+// ============================================================
+
+#[test]
+fn test_threaddump_stacktrace_empty_input() -> Result<(), Parse> {
+    // Empty string → no lines → empty element list
+    let result = StackTrace::try_from("")?;
+    assert!(result.elem.is_empty());
+    Ok(())
+}
+
+#[test]
+fn test_threaddump_stacktrace_only_locks() -> Result<(), Parse> {
+    let input = "- locked java.io.BufferedInputStream@50ef4efc\n- locked java.lang.Object@73853f10";
+    let result = StackTrace::try_from(input)?;
+    assert_eq!(result.elem.len(), 2);
+    assert!(matches!(result.elem[0], Element::Lock(_)));
+    assert!(matches!(result.elem[1], Element::Lock(_)));
+    Ok(())
+}
+
+#[test]
+fn test_threaddump_stacktrace_mixed_frames_and_locks() -> Result<(), Parse> {
+    let input = "org.glowroot.agent.embedded.util.DataSource.update(DataSource.java:366)\n- locked java.lang.Object@73853f10\norg.glowroot.agent.embedded.util.DataSource.update(DataSource.java:338)";
+    let result = StackTrace::try_from(input)?;
+    assert_eq!(result.elem.len(), 3);
+    assert!(matches!(result.elem[0], Element::Elem { .. }));
+    assert!(matches!(result.elem[1], Element::Lock(_)));
+    assert!(matches!(result.elem[2], Element::Elem { .. }));
+    Ok(())
+}

@@ -454,3 +454,66 @@ java.lang.Throwable
         other => panic!("expected FileName, got {other:?}"),
     }
 }
+
+// ============================================================
+// StackTraceSource — $ in .java filename becomes Generated
+// ============================================================
+
+#[test]
+fn source_dollar_in_java_filename_is_generated() {
+    // A filename like "Outer$Inner.java:10" contains '$' so it is Generated,
+    // not FileName — the '$' check fires before the colon check.
+    let result = StackTraceSource::try_from("Outer$Inner.java:10").unwrap();
+    assert!(matches!(result, StackTraceSource::Generated { .. }));
+}
+
+#[test]
+fn source_lambda_class_no_colon_is_generated() {
+    // Lambda class descriptors with '$' but no ':' are still Generated
+    let result = StackTraceSource::try_from("BeanProxy$$Lambda$395/0x000001cf92566e40").unwrap();
+    assert!(matches!(result, StackTraceSource::Generated { .. }));
+}
+
+// ============================================================
+// StackTrace — error: content after Throwable but no "at" prefix
+// ============================================================
+
+#[test]
+fn stacktrace_at_not_found_error() {
+    // The line after Throwable does not start with "at" → AtNotFound
+    let input = "java.lang.Throwable\nsome random line without at prefix\n";
+    let result = StackTrace::try_from(input);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(Parse::AtNotFound)));
+}
+
+#[test]
+fn stacktrace_at_not_found_after_whitespace_skip() {
+    // Whitespace is skipped, then a non-"at" line → AtNotFound
+    let input = "java.lang.Throwable\n   \n  not_at_prefix(SomeFile.java:1)\n";
+    let result = StackTrace::try_from(input);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(Parse::AtNotFound)));
+}
+
+// ============================================================
+// StackTraceElement — close-paren missing
+// ============================================================
+
+#[test]
+fn element_missing_close_paren() {
+    // Has open paren but no close paren → ParseError
+    let result = StackTraceElement::try_from("some.method(Native Method");
+    assert!(result.is_err());
+}
+
+// ============================================================
+// StackTrace — empty input
+// ============================================================
+
+#[test]
+fn stacktrace_only_whitespace() {
+    let result = StackTrace::try_from("   ");
+    assert!(result.is_err());
+    assert!(matches!(result, Err(Parse::ThrowableNotFound)));
+}

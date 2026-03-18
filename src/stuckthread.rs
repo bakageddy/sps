@@ -52,8 +52,11 @@ impl<'a> Iterator for StuckThreadStream<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.trim_ascii_start().is_empty() {
+            self.0 = b"";
             return None;
         }
+
+        self.0 = self.0.trim_ascii_start();
 
         let start = 0; 
         let mut offset = 0;

@@ -430,3 +430,79 @@ fn end_with_empty_thread_name() {
     assert_eq!(result.thread_name, "");
     assert_eq!(result.thread_id, 42);
 }
+
+// ============================================================
+// StuckThread::try_from — input without a newline
+// ============================================================
+
+#[test]
+fn stuckthread_no_newline_fails() {
+    // A record with no '\n' at all → MetaExtractionError (take_until returns None)
+    let result = StuckThread::try_from("[no][newline][here]");
+    assert!(result.is_err());
+    assert!(matches!(result, Err(Parse::MetaExtractionError)));
+}
+
+// ============================================================
+// StuckThreadStream — leading blank lines are skipped
+// ============================================================
+
+#[test]
+fn stream_leading_blank_lines_skipped() {
+    // blank lines before the first '[' bracket record should yield nothing
+    // (the stream returns None when the first non-blank line doesn't start with '[')
+    let input = format!("\n\n\n{}", END_META_4_GROUPS);
+    let chunks: Vec<_> = StuckThreadStream(input.as_bytes()).collect();
+    // The impl trims leading whitespace; the first real line starts with '['
+    // so we expect exactly one chunk.
+    assert_eq!(chunks.len(), 1);
+}
+
+#[test]
+fn stream_empty_bytes_yields_nothing() {
+    let chunks: Vec<_> = StuckThreadStream(b"").collect();
+    assert!(chunks.is_empty());
+}
+
+#[test]
+fn stream_whitespace_only_yields_nothing() {
+    let chunks: Vec<_> = StuckThreadStream(b"   \n\t\n  ").collect();
+    assert!(chunks.is_empty());
+}
+
+// ============================================================
+// StuckThreadMetaBegin — start time calculation cross-check
+// ============================================================
+
+#[test]
+fn meta_begin_start_is_before_header_time() {
+    // For any Begin record, start must be strictly before (or equal to at 0ms) the header ts.
+    // BEGIN_META has duration 19,273 ms so start must be before 15:52:17.284.
+    let meta = StuckThreadMeta::try_from(BEGIN_META).unwrap();
+    let StuckThreadMeta::Begin(b) = meta else {
+        panic!("expected Begin");
+    };
+    // header: 15:52:17 → start ≈ 15:51:58, so hour must still be 15 and minute 51
+    assert!(b.start.hour() <= 15);
+    assert!(b.start.minute() < 52 || (b.start.minute() == 52 && b.start.second() <= 17));
+}
+
+// ============================================================
+// StuckThreadMetaEnd — wrong group counts (under / over)
+// ============================================================
+
+#[test]
+fn meta_end_from_2_groups_fails() {
+    let groups = vec!["name", "123"];
+    let result = StuckThreadMetaEnd::try_from(groups);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(Parse::IncorrectMessageInfoCount { .. })));
+}
+
+#[test]
+fn meta_end_from_5_groups_fails() {
+    let groups = vec!["a", "1", "100", "5", "extra"];
+    let result = StuckThreadMetaEnd::try_from(groups);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(Parse::IncorrectMessageInfoCount { .. })));
+}
