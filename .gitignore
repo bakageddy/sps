@@ -4,3 +4,4 @@ stuckthreads*.txt
 output.txt
 *.db
 *.db-journal
+/test
