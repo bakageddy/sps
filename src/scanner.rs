@@ -78,12 +78,12 @@ impl<'a> Scanner<'a> {
     }
 
     pub fn take_within(&mut self, open: &str, close: &str) -> Result<&'a str, Error> {
-        let (_, rest) = self.data.split_once(open).ok_or(Error::DelimiterNotFound {
+        let (_, rest) = self.data.split_once(open).ok_or_else(|| Error::DelimiterNotFound {
             delimiter: String::from(open),
             data: String::from(self.data),
         })?;
 
-        let (within, rest) = rest.split_once(close).ok_or(Error::DelimiterNotFound {
+        let (within, rest) = rest.split_once(close).ok_or_else(|| Error::DelimiterNotFound {
             delimiter: String::from(close),
             data: String::from(rest),
         })?;

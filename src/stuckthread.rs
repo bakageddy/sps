@@ -63,6 +63,7 @@ impl<'a> Iterator for StuckThreadStream<'a> {
         let mut iter = self.0.split_inclusive(|b| *b == b'\n').peekable();
         if let Some(line) = iter.next() {
             if !line.starts_with(b"[") {
+                eprintln!("Unreachable");
                 return None
             }
             offset += line.len();
@@ -77,42 +78,6 @@ impl<'a> Iterator for StuckThreadStream<'a> {
         let contents = std::str::from_utf8(contents).ok();
         contents
     }
-
-
-    // pub fn parse() -> Result<Vec<Result<StuckThread<'a>, Parse>>, Error> {
-    //     let contents = str::from_utf8(contents)?;
-    //     let mut iter = contents.split_inclusive('\n').into_iter().peekable();
-    //
-    //     let mut lno = 0;
-    //     let mut start = 0;
-    //     let mut offset = 0;
-    //
-    //     let mut output = Vec::new();
-    //     while let Some(line) = iter.next() {
-    //         lno += 1;
-    //         if line.starts_with('[') {
-    //             offset += line.len();
-    //             while let Some(line) = iter.next_if(|s| !s.starts_with('[')) {
-    //                 offset += line.len();
-    //                 lno += 1;
-    //             }
-    //             let record = &contents[start..start + offset];
-    //             let result = StuckThread::try_from(record);
-    //             match result {
-    //                 Ok(_) => {}
-    //                 Err(e) => {
-    //                     eprintln!("Error during parsing around line {lno} {e:?}");
-    //                 }
-    //             }
-    //
-    //             output.push(StuckThread::try_from(record));
-    //
-    //             start = start + offset;
-    //             offset = 0;
-    //         }
-    //     }
-    //     Ok(output)
-    // }
 }
 
 impl<'a> TryFrom<&'a str> for StuckThread<'a> {

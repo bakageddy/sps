@@ -35,7 +35,7 @@ fn test_object_id_overflow() -> Result<(), Parse> {
 fn test_object_id_hex_invalid_digit() {
     let input = "199d244x";
     let result = Object::hex_to_u64(input);
-    assert_eq!(result.unwrap_err(), Parse::HexUnexpectedChar { got: 'x' });
+    assert_eq!(result.unwrap_err(), Parse::HexUnexpectedInput { got: String::from("199d244x") });
 }
 
 #[test]
@@ -280,7 +280,7 @@ fn test_thread() -> Result<(), Parse> {
             }
         }))
     );
-    assert_eq!(result.stacktrace.unwrap().elem.len(), 9);
+    assert_eq!(result.stacktrace.unwrap().elems.len(), 9);
     Ok(())
 }
 
@@ -902,7 +902,7 @@ fn test_threaddump_streamer_whitespace_only() {
 fn test_threaddump_stacktrace_empty_input() -> Result<(), Parse> {
     // Empty string → no lines → empty element list
     let result = StackTrace::try_from("")?;
-    assert!(result.elem.is_empty());
+    assert!(result.elems.is_empty());
     Ok(())
 }
 
@@ -910,9 +910,9 @@ fn test_threaddump_stacktrace_empty_input() -> Result<(), Parse> {
 fn test_threaddump_stacktrace_only_locks() -> Result<(), Parse> {
     let input = "- locked java.io.BufferedInputStream@50ef4efc\n- locked java.lang.Object@73853f10";
     let result = StackTrace::try_from(input)?;
-    assert_eq!(result.elem.len(), 2);
-    assert!(matches!(result.elem[0], Element::Lock(_)));
-    assert!(matches!(result.elem[1], Element::Lock(_)));
+    assert_eq!(result.elems.len(), 2);
+    assert!(matches!(result.elems[0], Element::Lock(_)));
+    assert!(matches!(result.elems[1], Element::Lock(_)));
     Ok(())
 }
 
@@ -920,9 +920,9 @@ fn test_threaddump_stacktrace_only_locks() -> Result<(), Parse> {
 fn test_threaddump_stacktrace_mixed_frames_and_locks() -> Result<(), Parse> {
     let input = "org.glowroot.agent.embedded.util.DataSource.update(DataSource.java:366)\n- locked java.lang.Object@73853f10\norg.glowroot.agent.embedded.util.DataSource.update(DataSource.java:338)";
     let result = StackTrace::try_from(input)?;
-    assert_eq!(result.elem.len(), 3);
-    assert!(matches!(result.elem[0], Element::Elem { .. }));
-    assert!(matches!(result.elem[1], Element::Lock(_)));
-    assert!(matches!(result.elem[2], Element::Elem { .. }));
+    assert_eq!(result.elems.len(), 3);
+    assert!(matches!(result.elems[0], Element::Elem { .. }));
+    assert!(matches!(result.elems[1], Element::Lock(_)));
+    assert!(matches!(result.elems[2], Element::Elem { .. }));
     Ok(())
 }

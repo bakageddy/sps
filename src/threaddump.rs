@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{error::threaddump::Parse, scanner::Scanner, util::ToUnixMillis};
 use time::{PrimitiveDateTime, format_description::FormatItem, macros::format_description};
+use tracing::warn;
 
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct Object<'a> {
@@ -25,7 +26,7 @@ pub enum Element<'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct StackTrace<'a> {
-    pub elem: Vec<Element<'a>>,
+    pub elems: Vec<Element<'a>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -69,34 +70,10 @@ pub struct ThreadDumpStreamer<'a>(pub &'a [u8]);
 
 impl Object<'_> {
     pub fn hex_to_u64(value: &str) -> Result<u64, Parse> {
-        let value = value.trim();
-        let mut result = 0;
-        let mut i = 1;
-        for char in value.chars().rev() {
-            let weight = match char {
-                '0' => 0,
-                '1' => 1,
-                '2' => 2,
-                '3' => 3,
-                '4' => 4,
-                '5' => 5,
-                '6' => 6,
-                '7' => 7,
-                '8' => 8,
-                '9' => 9,
-                'a' => 10,
-                'b' => 11,
-                'c' => 12,
-                'd' => 13,
-                'e' => 14,
-                'f' => 15,
-                c => return Err(Parse::HexUnexpectedChar { got: c }),
-            };
-            result += weight * i;
-            i *= 16;
-        }
-
-        Ok(result)
+        let result = u64::from_str_radix(value.trim(), 16);
+        result.map_err(|_| Parse::HexUnexpectedInput {
+            got: value.to_string(),
+        })
     }
 }
 
@@ -166,7 +143,7 @@ impl<'a> TryFrom<&'a str> for Source<'a> {
             _ => {}
         };
 
-        if value.contains("$") {
+        if value.contains("$") || !value.contains(":") {
             return Ok(Source::Generated(value));
         }
 
@@ -213,7 +190,7 @@ impl<'a> TryFrom<&'a str> for StackTrace<'a> {
             frames.push(result);
         }
 
-        Ok(StackTrace { elem: frames })
+        Ok(StackTrace { elems: frames })
     }
 }
 
@@ -299,10 +276,18 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
         let thread_id: i64 = id.parse().map_err(|e| Parse::ThreadIdParse(e))?;
         scanner.skip_whitespace();
 
-        let header = scanner
-            .take_until("\n")
-            .ok_or(Parse::ThreadHeaderExtraction)?;
+        if let None = scanner.peek_until("\n") {
+            let header = scanner.remaining();
+            let state = ThreadState::try_from(header)?;
+            return Ok(Thread {
+                thread_id,
+                state,
+                thread_name,
+                stacktrace: None
+            })
+        }
 
+        let header = scanner.take_until("\n").ok_or_else(|| Parse::ThreadHeaderExtraction)?;
         let state = ThreadState::try_from(header)?;
         scanner.skip_whitespace();
         let state = if scanner.peek_expect("LockName: ") {
@@ -372,7 +357,7 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
         while let Some(line) = dump.next() {
             if line.starts_with("\"") {
                 offset += line.len();
-                while let Some(line) = dump.next_if(|l| !l.starts_with("\"")) {
+                while let Some(line) = dump.next_if(|l| !l.trim().starts_with("\"")) {
                     offset += line.len();
                 }
 
@@ -380,8 +365,8 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
                 let thread = Thread::try_from(contents);
                 match thread {
                     Ok(thread) => threads.insert(thread.thread_id, thread),
-                    Err(_) => {
-                        println!("Error during parsing thread dump, thread: {contents}");
+                    Err(e) => {
+                        warn!("Error during parsing thread dump: {e:?}, thread: {contents}");
                         None
                     }
                 };

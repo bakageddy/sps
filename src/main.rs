@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use clap::Parser;
-use sps::stuckthread::{StuckThread, StuckThreadMeta, MetaBegin, StuckThreadStream};
-use sps::util;
+use sps::stuckthread::{MetaBegin, StuckThread, StuckThreadMeta, StuckThreadStream};
+use sps::threaddump::{ThreadDump, ThreadDumpStreamer};
+use sps::util::{self, map_file};
 use sps::{database::Persistence, stacktrace::StackTrace};
 use tracing::{Level, event, info, warn};
 
@@ -13,7 +14,7 @@ fn main() -> util::Result<()> {
     let args = sps::arg::AppArgs::parse();
 
     // TODO: Bake in schema into the executable
-    let mut cnx = Persistence::init_db(args.db, "./schema.sql")?;
+    let mut cnx = Persistence::init_db(args.db)?;
 
     let sorted_stuckthreads = util::get_sorted_stuckthreads(&args.path)?;
     let mut contents = vec![];
@@ -31,7 +32,8 @@ fn main() -> util::Result<()> {
     }
 
     let tx = cnx.transaction()?;
-    let mut buffer: HashMap<u32, (MetaBegin, StackTrace)> = HashMap::new();
+    let mut buffer: HashMap<u32, StuckThread> = HashMap::new();
+    let mut insert_count = 0;
     for (ref map, entry) in std::iter::zip(&contents, &sorted_stuckthreads) {
         info!("Parsing file {:?}", &entry);
 
@@ -50,27 +52,25 @@ fn main() -> util::Result<()> {
             };
 
             // AGGREGATE: stuckthread bi-events
-            match event.meta {
+            match &event.meta {
                 StuckThreadMeta::Begin(begin) => {
-                    buffer.insert(
-                        begin.thread_id,
-                        (begin, event.st.expect("SAFETY: match in begin")),
-                    );
+                    buffer.insert(begin.thread_id, event);
                 }
-                StuckThreadMeta::End(ref end) => {
+                StuckThreadMeta::End(end) => {
                     if !buffer.contains_key(&end.thread_id) {
-                        info!(
+                        warn!(
                             "Cannot find start during aggregation, cannot find matching entry for event {end:?}"
                         );
                         continue;
                     }
-                    let (begin, st) = buffer
+                    let begin = buffer
                         .get(&end.thread_id)
                         .expect("SAFETY: checked in if statement above");
-                    match Persistence::insert_stuckthread(&tx, &begin, &st, Some(end)) {
+                    match Persistence::insert_stuckthread(&tx, &begin, Some(&event)) {
                         Ok(_) => {}
                         Err(e) => warn!("Error during inserting stuckthread event: {e:?}"),
                     }
+                    insert_count += 1;
                     buffer.remove(&end.thread_id);
                 }
             };
@@ -79,16 +79,48 @@ fn main() -> util::Result<()> {
     }
 
     info!("Started Persisting leftover stuckthread events");
-    for (_, (begin, st)) in buffer {
-        match Persistence::insert_stuckthread(&tx, &begin, &st, None) {
+    for (_, event) in buffer {
+        match Persistence::insert_stuckthread(&tx, &event, None) {
             Ok(_) => {}
             Err(e) => {
                 warn!("Error during insert: {e:?}");
             }
         }
+        insert_count += 1;
     }
     info!("Finished Persisting leftover stuckthread events");
+    info!("Persisted {insert_count} stuckthread events");
 
-    let _ = tx.commit()?;
+    let threaddump_entries = util::get_sorted_threaddumps(&args.path)?;
+
+    for entry in threaddump_entries {
+        let map = map_file(&entry)?;
+        info!("Parsing Thread Dumps from {entry:?}");
+        for chunk in ThreadDumpStreamer(&map) {
+            let chunk = chunk.trim();
+            if chunk.is_empty() {
+                continue;
+            }
+
+
+            let dump = match ThreadDump::try_from(chunk) {
+                Ok(dump) => dump,
+                Err(e) => {
+                    warn!("Cannot parse {} due to {e:?}", &chunk[0..100]);
+                    continue;
+                }
+            };
+
+            match Persistence::insert_threaddump(&tx, &dump) {
+                Ok(_) => {},
+                Err(e) => warn!("ERROR during Persisting Threaddump: {e}"),
+            };
+        }
+        info!("Finished Parsing and Persisting Thread Dumps from {entry:?}");
+    }
+
+    if let Err(e) = tx.commit() {
+        warn!("Error during committing transaction: {e:?}");
+    }
     Ok(())
 }
