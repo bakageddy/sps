@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use clap::Parser;
-use sps::stuckthread::{MetaBegin, StuckThread, StuckThreadMeta, StuckThreadStream};
+use sps::stuckthread::{StuckThread, StuckThreadMeta, StuckThreadStream};
 use sps::threaddump::{ThreadDump, ThreadDumpStreamer};
 use sps::util::{self, map_file};
-use sps::{database::Persistence, stacktrace::StackTrace};
-use tracing::{Level, event, info, warn};
+use sps::{database::Persistence};
+use tracing::{Level, debug, event, info, warn};
 
 fn main() -> util::Result<()> {
     tracing_subscriber::fmt().init();
@@ -16,10 +16,16 @@ fn main() -> util::Result<()> {
     // TODO: Bake in schema into the executable
     let mut cnx = Persistence::init_db(args.db)?;
 
+
+    let tx = cnx.transaction()?;
+
+    // WARN: Do not merge this and the following loop.
+    // Lifetimes of Binary Stuckthread events can be tied to different maps
+
     let sorted_stuckthreads = util::get_sorted_stuckthreads(&args.path)?;
     let mut contents = vec![];
     for entry in &sorted_stuckthreads {
-        let map = util::map_file(&entry);
+        let map = util::map_file(entry);
         let map = match map {
             Ok(map) => map,
             Err(e) => {
@@ -31,13 +37,12 @@ fn main() -> util::Result<()> {
         contents.push(map);
     }
 
-    let tx = cnx.transaction()?;
     let mut buffer: HashMap<u32, StuckThread> = HashMap::new();
     let mut insert_count = 0;
-    for (ref map, entry) in std::iter::zip(&contents, &sorted_stuckthreads) {
+    for (map, entry) in std::iter::zip(&contents, &sorted_stuckthreads) {
         info!("Parsing file {:?}", &entry);
 
-        for chunk in StuckThreadStream(&map) {
+        for chunk in StuckThreadStream(map) {
             // PARSE: Chunk
             let event = StuckThread::try_from(chunk);
             let event = match event {
@@ -58,7 +63,7 @@ fn main() -> util::Result<()> {
                 }
                 StuckThreadMeta::End(end) => {
                     if !buffer.contains_key(&end.thread_id) {
-                        warn!(
+                        debug!(
                             "Cannot find start during aggregation, cannot find matching entry for event {end:?}"
                         );
                         continue;
@@ -66,7 +71,7 @@ fn main() -> util::Result<()> {
                     let begin = buffer
                         .get(&end.thread_id)
                         .expect("SAFETY: checked in if statement above");
-                    match Persistence::insert_stuckthread(&tx, &begin, Some(&event)) {
+                    match Persistence::insert_stuckthread(&tx, begin, Some(&event)) {
                         Ok(_) => {}
                         Err(e) => warn!("Error during inserting stuckthread event: {e:?}"),
                     }
@@ -102,7 +107,6 @@ fn main() -> util::Result<()> {
                 continue;
             }
 
-
             let dump = match ThreadDump::try_from(chunk) {
                 Ok(dump) => dump,
                 Err(e) => {
@@ -112,7 +116,7 @@ fn main() -> util::Result<()> {
             };
 
             match Persistence::insert_threaddump(&tx, &dump) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => warn!("ERROR during Persisting Threaddump: {e}"),
             };
         }

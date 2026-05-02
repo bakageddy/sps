@@ -22,8 +22,7 @@ where
         ));
     }
 
-    let mut entries = Vec::new();
-    entries.reserve(10);
+    let mut entries = Vec::with_capacity(10);
     for entry in root.read_dir()? {
         let path = entry?.path();
         let filename = path
@@ -50,8 +49,6 @@ where
     });
 
     entries.reverse();
-    info!("{entries:?}");
-
     Ok(entries)
 }
 
@@ -100,8 +97,7 @@ pub fn map_file<P>(path: P) -> self::Result<Mmap>
 where
     P: AsRef<Path>,
 {
-    let path = path.as_ref();
-    let handle = fs::File::open(&path)?;
+    let handle = fs::File::open(path)?;
     let map = unsafe { memmap2::Mmap::map(&handle)? };
     Ok(map)
 }

@@ -75,8 +75,8 @@ impl<'a> Iterator for StuckThreadStream<'a> {
 
         let contents = &self.0[start..start+offset];
         self.0 = &self.0[start + offset..];
-        let contents = std::str::from_utf8(contents).ok();
-        contents
+        
+        std::str::from_utf8(contents).ok()
     }
 }
 
@@ -92,26 +92,26 @@ impl<'a> TryFrom<&'a str> for StuckThread<'a> {
         match stuck_thread_meta {
             StuckThreadMeta::Begin(_) => {
                 let stacktrace = StackTrace::try_from(scanner.remaining())
-                    .map_err(|e| Parse::StackParseError(e))?;
+                    .map_err(Parse::StackParseError)?;
 
-                return Ok(Self {
+                Ok(Self {
                     st: Some(stacktrace),
                     meta: stuck_thread_meta,
-                });
+                })
             }
 
             StuckThreadMeta::End(_) => {
-                return Ok(Self {
+                Ok(Self {
                     st: None,
                     meta: stuck_thread_meta,
-                });
+                })
             }
         }
     }
 }
 
 impl<'a> StuckThreadMeta<'a> {
-    fn extract_bracket_groups<'b>(input: &'b str) -> Result<Vec<&'b str>, Parse> {
+    fn extract_bracket_groups(input: &str) -> Result<Vec<&str>, Parse> {
         let mut scanner = Scanner::new(input);
         let mut groups = Vec::with_capacity(8);
         while let Ok(group) = scanner.take_within("[", "]") {
@@ -147,9 +147,9 @@ impl<'a> StuckThreadMeta<'a> {
     }
 
     fn parse_date_time(date: &'a str, time: &'a str) -> Result<PrimitiveDateTime, Parse> {
-        let time = Time::parse(time, TIME_FORMAT).map_err(|e| Parse::InvalidDateTimeFormat(e))?;
+        let time = Time::parse(time, TIME_FORMAT).map_err(Parse::InvalidDateTimeFormat)?;
 
-        let date = Date::parse(date, DATE_FORMAT).map_err(|e| Parse::InvalidDateTimeFormat(e))?;
+        let date = Date::parse(date, DATE_FORMAT).map_err(Parse::InvalidDateTimeFormat)?;
 
         let datetime = PrimitiveDateTime::new(date, time);
         Ok(datetime)
@@ -225,17 +225,17 @@ impl<'a> TryFrom<Vec<&'a str>> for MetaBegin<'a> {
             });
         };
 
-        let thread_id = StuckThreadMeta::parse_thread_id(*thread_id)?;
-        let active_duration = StuckThreadMeta::parse_comma_separate_i64(*active_duration)?;
-        let active_thread_count = StuckThreadMeta::parse_i64(*active_thread_count)?;
+        let thread_id = StuckThreadMeta::parse_thread_id(thread_id)?;
+        let active_duration = StuckThreadMeta::parse_comma_separate_i64(active_duration)?;
+        let active_thread_count = StuckThreadMeta::parse_i64(active_thread_count)?;
 
         Ok(MetaBegin {
             start: datetime!(1970-01-01 00:00:00.0),
             active_duration_ms: active_duration,
             active_monitor_count: active_thread_count,
             thread_id,
-            thread_name: *thread_name,
-            request: *api_request,
+            thread_name,
+            request: api_request,
         })
     }
 }
@@ -280,10 +280,10 @@ impl<'a> TryFrom<Vec<&'a str>> for MetaEnd<'a> {
 
         Ok(MetaEnd {
             start: datetime!(1970-01-01 00:00:00.0),
-            thread_name: thread_name,
+            thread_name,
             thread_id,
             active_duration_ms: active_duration,
-            active_monitor_count: active_monitor_count,
+            active_monitor_count,
         })
     }
 }

@@ -98,7 +98,7 @@ impl<'a> TryFrom<&'a str> for LockInfo<'a> {
             .take_until(" ")
             .ok_or(Parse::ExpectedOwnerId)?
             .parse()
-            .map_err(|e| Parse::ThreadIdParse(e))?;
+            .map_err(Parse::ThreadIdParse)?;
 
         scanner.skip_whitespace();
         scanner
@@ -148,10 +148,10 @@ impl<'a> TryFrom<&'a str> for Source<'a> {
         }
 
         let (file, lineno) = value.split_once(":").ok_or(Parse::ColonNotFound)?;
-        return Ok(Source::Filename {
+        Ok(Source::Filename {
             file,
             line_number: lineno.parse::<i64>()?,
-        });
+        })
     }
 }
 
@@ -214,7 +214,7 @@ impl<'a> TryFrom<&'a str> for ThreadState<'a> {
             if raw_state.trim() != "BLOCKED" {
                 return Err(Parse::ExpectedLockObject);
             }
-            return Ok(ThreadState::BlockedToLock(None));
+            Ok(ThreadState::BlockedToLock(None))
         } else if let Some(raw_state) = scanner.peek_until(" on ") {
             match raw_state.trim() {
                 "WAITING" => {
@@ -222,29 +222,29 @@ impl<'a> TryFrom<&'a str> for ThreadState<'a> {
                     scanner.skip_whitespace();
                     let object = scanner.remaining();
                     let object = Object::try_from(object)?;
-                    return Ok(ThreadState::WaitingOn(object));
+                    Ok(ThreadState::WaitingOn(object))
                 }
                 "TIMED_WAITING" => {
                     _ = scanner.take_until("on").expect("SAFETY: CHECKED");
                     scanner.skip_whitespace();
                     let object = scanner.remaining();
                     let object = Object::try_from(object)?;
-                    return Ok(ThreadState::TimedWaitingOn(object));
+                    Ok(ThreadState::TimedWaitingOn(object))
                 }
                 _ => {
                     println!("STATE: {raw_state}");
-                    return Err(Parse::ExpectedWaitObject);
+                    Err(Parse::ExpectedWaitObject)
                 }
-            };
+            }
         } else {
-            return match scanner.remaining().trim() {
+            match scanner.remaining().trim() {
                 "NEW" => Ok(ThreadState::New),
                 "TERMINATED" => Ok(ThreadState::Terminated),
                 "RUNNABLE" => Ok(ThreadState::Runnable),
                 "TIMED_WAITING" => Ok(ThreadState::TimedWaiting),
                 "WAITING" => Ok(ThreadState::Waiting),
                 _ => Err(Parse::UnexpectedThreadState),
-            };
+            }
         }
     }
 }
@@ -273,10 +273,10 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
         let id = scanner
             .take_until_inclusive(" ")
             .ok_or(Parse::ThreadIdExtraction)?;
-        let thread_id: i64 = id.parse().map_err(|e| Parse::ThreadIdParse(e))?;
+        let thread_id: i64 = id.parse().map_err(Parse::ThreadIdParse)?;
         scanner.skip_whitespace();
 
-        if let None = scanner.peek_until("\n") {
+        if scanner.peek_until("\n").is_none() {
             let header = scanner.remaining();
             let state = ThreadState::try_from(header)?;
             return Ok(Thread {
@@ -287,7 +287,7 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
             })
         }
 
-        let header = scanner.take_until("\n").ok_or_else(|| Parse::ThreadHeaderExtraction)?;
+        let header = scanner.take_until("\n").ok_or(Parse::ThreadHeaderExtraction)?;
         let state = ThreadState::try_from(header)?;
         scanner.skip_whitespace();
         let state = if scanner.peek_expect("LockName: ") {
@@ -335,14 +335,13 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
         let timestamp: i64;
         match header
             .split(" : ")
-            .into_iter()
             .collect::<Vec<&str>>()
             .as_slice()
         {
             ["Thread dump", raw_snapshot, raw_timestamp] => {
                 snapshot = raw_snapshot.parse().map_err(|_| Parse::DumpSnapshot)?;
-                let time = PrimitiveDateTime::parse(*raw_timestamp, ThreadDump::FORMAT)
-                    .map_err(|e| Parse::SnapshotTimestampParsing(e))?;
+                let time = PrimitiveDateTime::parse(raw_timestamp, ThreadDump::FORMAT)
+                    .map_err(Parse::SnapshotTimestampParsing)?;
                 timestamp = time
                     .to_unix_millis()
                     .ok_or(Parse::SnapshotTimestampConversion)?;
@@ -350,7 +349,7 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
             _ => return Err(Parse::ThreadDumpExtraction),
         };
 
-        let mut dump = rest.split_inclusive('\n').into_iter().peekable();
+        let mut dump = rest.split_inclusive('\n').peekable();
         let mut start = 0;
         let mut offset = 0;
         let mut threads = HashMap::new();

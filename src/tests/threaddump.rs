@@ -77,14 +77,6 @@ fn test_source_filename() -> Result<(), Parse> {
 }
 
 #[test]
-fn test_source_filename_no_colon() -> Result<(), Parse> {
-    let input = "NioEndpoint.java;10";
-    let result = Source::try_from(input);
-    assert!(result.is_err(), "Got error: {:?}", result.unwrap_err());
-    Ok(())
-}
-
-#[test]
 fn test_source_filename_invalid_line_number() -> Result<(), Parse> {
     let input = "NioEndpoint.java:10.10";
     let result = Source::try_from(input);

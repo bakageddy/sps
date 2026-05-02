@@ -2,15 +2,11 @@ use crate::error::stacktrace::Parse;
 use crate::scanner::Scanner;
 
 #[derive(Debug)]
+#[derive(Default)]
 pub struct StackTrace<'a> {
     pub traces: Vec<StackTraceElement<'a>>,
 }
 
-impl Default for StackTrace<'_> {
-    fn default() -> Self {
-        Self { traces: Vec::new() }
-    }
-}
 
 impl<'a> TryFrom<&'a str> for StackTrace<'a> {
     type Error = Parse;

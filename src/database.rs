@@ -1,9 +1,9 @@
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 
 use tracing::warn;
 
 use crate::{
-    stacktrace::{self, StackTrace, StackTraceSource},
+    stacktrace::{self},
     stuckthread::{StuckThread, StuckThreadMeta},
     threaddump::{self, Object, Thread, ThreadDump, ThreadState},
     util::{self, ToUnixMillis},
@@ -16,14 +16,13 @@ impl Persistence {
     pub fn init_db(path: Option<PathBuf>) -> util::Result<rusqlite::Connection> {
         let schema = include_str!("../schema.sql");
 
-        let cnx;
-        if path.is_some() {
-            cnx = rusqlite::Connection::open(path.expect("SAFETY: checked"))?;
+        let cnx = if let Some(path) = path {
+            rusqlite::Connection::open(path)?
         } else {
-            cnx = rusqlite::Connection::open_in_memory()?;
-        }
+            rusqlite::Connection::open_in_memory()?
+        };
 
-        cnx.execute_batch(&schema)?;
+        cnx.execute_batch(schema)?;
         cnx.execute_batch(
             r#"PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -64000; PRAGMA temp_store = MEMORY;"#,
         )?;
@@ -93,11 +92,7 @@ impl Persistence {
         let mut active_monitor_count_end = 0;
         let mut active_duration_count = begin.active_duration_ms;
 
-        if end.is_some() {
-            let end = match &end.expect("UNREACHABLE: Checked").meta {
-                StuckThreadMeta::End(e) => e,
-                _ => panic!("UNREACHABLE: Expect StuckThreadMetaEnd not StuckThreadMetaBegin"),
-            };
+        if let Some(end) = end && let StuckThreadMeta::End(end) = &end.meta {
             active_monitor_count_end = end.active_monitor_count;
             active_duration_count = end.active_duration_ms;
         }
@@ -124,7 +119,7 @@ impl Persistence {
             "INSERT INTO threaddump(snapshot, triggered_unix_ms) VALUES(?, ?) RETURNING id;"
         )?;
         let threaddump_id: i64 = stmt.query_one((item.snapshot, item.triggered_unix_ms), |r| r.get(0))?;
-        for (_, thread) in &item.threads {
+        for thread in item.threads.values() {
             if let Err(e) = Persistence::insert_thread(tx, thread, threaddump_id) {
                 warn!(
                     "Error persisting thread {thread:?} for snapshot {}: {e:?}",
@@ -170,13 +165,13 @@ impl Persistence {
                 "BLOCKED"
             }
             ThreadState::TimedWaitingOn(object) => {
-                let object_id = Persistence::insert_thread_object(tx, &object)?;
+                let object_id = Persistence::insert_thread_object(tx, object)?;
                 wait_object_id = Some(object_id);
                 "TIMED_WAITING"
             }
             ThreadState::Waiting => "WAITING",
             ThreadState::WaitingOn(object) => {
-                let object_id = Persistence::insert_thread_object(tx, &object)?;
+                let object_id = Persistence::insert_thread_object(tx, object)?;
                 wait_object_id = Some(object_id);
                 "WAITING"
             }
@@ -226,11 +221,10 @@ impl Persistence {
         let stackid = Persistence::insert_stacktrace(tx)?;
 
         let mut stmt = tx.prepare_cached("INSERT INTO stacktrace_elements(id, frame_idx, method, frame_source, line_number, object_id) VALUES(?, ?, ?, ?, ?, ?);")?;
-        let mut idx = 0;
-        for elem in &item.elems {
+        for (idx, elem) in std::iter::zip(0.., item.elems.iter()) {
             match elem {
                 threaddump::Element::Lock(object) => {
-                    let object_id = Persistence::insert_thread_object(tx, &object)?;
+                    let object_id = Persistence::insert_thread_object(tx, object)?;
                     let _ = stmt.insert((
                         stackid,
                         idx,
@@ -259,8 +253,6 @@ impl Persistence {
                     ));
                 }
             };
-
-            idx += 1;
         }
         Ok(stackid)
     }

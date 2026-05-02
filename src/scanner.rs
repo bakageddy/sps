@@ -18,7 +18,7 @@ impl<'a> Scanner<'a> {
             return false;
         }
 
-        return self.data.starts_with(expected);
+        self.data.starts_with(expected)
     }
 
     pub fn expect(&mut self, expected: &str) -> Result<(), Error> {
