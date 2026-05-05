@@ -959,6 +959,8 @@ dependencies = [
  "memmap2",
  "rmcp",
  "rusqlite",
+ "serde",
+ "serde_json",
  "thiserror",
  "time",
  "tokio",

@@ -7,5 +7,7 @@ pub mod database;
 pub mod util;
 pub mod error;
 
+pub mod analysis;
+
 #[cfg(test)]
 mod tests;

@@ -34,7 +34,7 @@ impl Persistence {
         let id: i64 = stmt.query_one([], |r| r.get(0))?;
         Ok(id)
     }
- 
+
     pub fn insert_stuckthread_stacktrace(
         tx: &rusqlite::Transaction,
         stack: &crate::stacktrace::StackTrace,
@@ -92,7 +92,9 @@ impl Persistence {
         let mut active_monitor_count_end = 0;
         let mut active_duration_count = begin.active_duration_ms;
 
-        if let Some(end) = end && let StuckThreadMeta::End(end) = &end.meta {
+        if let Some(end) = end
+            && let StuckThreadMeta::End(end) = &end.meta
+        {
             active_monitor_count_end = end.active_monitor_count;
             active_duration_count = end.active_duration_ms;
         }
@@ -116,9 +118,10 @@ impl Persistence {
         item: &ThreadDump,
     ) -> rusqlite::Result<i64> {
         let mut stmt = tx.prepare_cached(
-            "INSERT INTO threaddump(snapshot, triggered_unix_ms) VALUES(?, ?) RETURNING id;"
+            "INSERT INTO threaddump(snapshot, triggered_unix_ms) VALUES(?, ?) RETURNING id;",
         )?;
-        let threaddump_id: i64 = stmt.query_one((item.snapshot, item.triggered_unix_ms), |r| r.get(0))?;
+        let threaddump_id: i64 =
+            stmt.query_one((item.snapshot, item.triggered_unix_ms), |r| r.get(0))?;
         for thread in item.threads.values() {
             if let Err(e) = Persistence::insert_thread(tx, thread, threaddump_id) {
                 warn!(
@@ -133,7 +136,7 @@ impl Persistence {
     pub fn insert_thread(
         tx: &rusqlite::Transaction,
         item: &Thread,
-        threaddump_id: i64
+        threaddump_id: i64,
     ) -> rusqlite::Result<()> {
         let mut stmt = tx.prepare_cached(
             "INSERT INTO thread(id, name, state, wait_object_id, owner_id, owner_name, lock_object_id, stack_id, dump_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);"
@@ -193,7 +196,7 @@ impl Persistence {
             owner_name,
             lock_info,
             stack_id,
-            threaddump_id
+            threaddump_id,
         ))?;
 
         Ok(())
