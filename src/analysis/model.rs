@@ -85,13 +85,63 @@ impl StuckThread {
         row.try_into()
     }
 
+    pub fn extract_rows(
+        cnx: &rusqlite::Connection,
+        rows: Rows<'_>,
+    ) -> rusqlite::Result<Vec<StuckThread>> {
+        let mut events = Vec::new();
+        for row in rows.mapped(StuckThread::row_mapper) {
+            let (
+                id,
+                start,
+                name,
+                request,
+                active_duration_ms,
+                active_count_start,
+                active_count_end,
+                stack_id,
+            ) = row?;
+            let trace = Trace::get_by_id(cnx, stack_id)?
+                .expect("Trace from a stuckthread should always be valid");
+            events.push(Self {
+                trace,
+                name,
+                request,
+                active_duration_ms,
+                id,
+                active_count_start,
+                active_count_end,
+                start,
+            });
+        }
+        Ok(events)
+    }
+
     pub fn get_by_range(
         cnx: &rusqlite::Connection,
         start: i64,
         end: i64,
     ) -> rusqlite::Result<Vec<StuckThread>> {
-        let mut stmt = cnx.prepare_cached("SELECT * FROM stuckthread WHERE start BETWEEN ? AND ? UNION SELECT * FROM stuckthread WHERE start + active_duration_ms BETWEEN ? and ?;")?;
+        let mut stmt = cnx.prepare_cached("SELECT * FROM stuckthread WHERE start BETWEEN ? AND ? UNION SELECT * FROM stuckthread WHERE start + active_duration_ms BETWEEN ? AND ?;")?;
         let rows = stmt.query([start, end, start, end])?;
+        StuckThread::extract_rows(cnx, rows)
+    }
+
+    pub fn get_by_name(
+        cnx: &rusqlite::Connection,
+        name_pattern: String,
+    ) -> rusqlite::Result<Vec<StuckThread>> {
+        let mut stmt = cnx.prepare_cached("SELECT * FROM stuckthread WHERE name LIKE ?")?;
+        let rows = stmt.query([name_pattern])?;
+        StuckThread::extract_rows(cnx, rows)
+    }
+
+    pub fn get_by_request(
+        cnx: &rusqlite::Connection,
+        request_pattern: String,
+    ) -> rusqlite::Result<Vec<StuckThread>> {
+        let mut stmt = cnx.prepare_cached("SELECT * FROM stuckthread WHERE request LIKE ?")?;
+        let rows = stmt.query([request_pattern])?;
         StuckThread::extract_rows(cnx, rows)
     }
 
@@ -134,51 +184,6 @@ impl StuckThread {
         }
     }
 
-    pub fn get_by_name(
-        cnx: &rusqlite::Connection,
-        name_pattern: String,
-    ) -> rusqlite::Result<Vec<StuckThread>> {
-        todo!()
-    }
-
-    pub fn get_by_request(
-        cnx: &rusqlite::Connection,
-        request_pattern: String,
-    ) -> rusqlite::Result<Vec<StuckThread>> {
-        todo!()
-    }
-
-    pub fn extract_rows(
-        cnx: &rusqlite::Connection,
-        rows: Rows<'_>,
-    ) -> rusqlite::Result<Vec<StuckThread>> {
-        let mut events = Vec::new();
-        for row in rows.mapped(StuckThread::row_mapper) {
-            let (
-                id,
-                start,
-                name,
-                request,
-                active_duration_ms,
-                active_count_start,
-                active_count_end,
-                stack_id,
-            ) = row?;
-            let trace = Trace::get_by_id(cnx, stack_id)?
-                .expect("Trace from a stuckthread should always be valid");
-            events.push(Self {
-                trace,
-                name,
-                request,
-                active_duration_ms,
-                id,
-                active_count_start,
-                active_count_end,
-                start,
-            });
-        }
-        Ok(events)
-    }
 }
 
 // Convenience functions all the way down.
