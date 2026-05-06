@@ -1,11 +1,16 @@
-use rusqlite::{MappedRows, OptionalExtension, Rows};
+use rusqlite::{OptionalExtension, Rows};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ThreadDump {
     pub threads: HashMap<i64, Thread>,
     pub triggered_unix_ms: i64,
     pub snapshot: u8,
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct Thread {
     pub trace: Option<Trace>,
     pub name: Option<String>,
@@ -13,6 +18,7 @@ pub struct Thread {
     pub id: i64,
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub enum State {
     New,
     Terminated,
@@ -24,13 +30,16 @@ pub enum State {
     WaitingToLock(Lock),
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct Trace(pub Vec<Frame>);
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub enum Frame {
     Frame { method: String, source: Source },
     Lock(Object),
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub enum Source {
     NativeMethod,
     UnknownSource,
@@ -38,17 +47,20 @@ pub enum Source {
     Filename { file: String, line: i64 },
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct Lock {
     pub name: Option<String>,
     pub object: Object,
     pub thread_id: i64,
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct Object {
     pub class: String,
     pub identity: i64,
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct StuckThread {
     pub trace: Trace,
     pub name: Option<String>,

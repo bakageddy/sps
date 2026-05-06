@@ -9,4 +9,6 @@ pub struct AppArgs {
     pub path: PathBuf,
     #[arg(long("database"), short)]
     pub db: Option<PathBuf>,
+    #[arg(long("bind"), short)]
+    pub bind: Option<String>,
 }

@@ -1,22 +1,29 @@
+use rmcp::transport::{
+    StreamableHttpService,
+    streamable_http_server::session::local::LocalSessionManager,
+};
 use std::collections::HashMap;
+use std::process::exit;
+use tokio::net::TcpListener;
 
 use clap::Parser;
+use rmcp::{ServiceExt, transport};
+use sps::analysis::mcp::{AnalysisServer, init_db};
+use sps::database::Persistence;
 use sps::stuckthread::{StuckThread, StuckThreadMeta, StuckThreadStream};
 use sps::threaddump::{ThreadDump, ThreadDumpStreamer};
 use sps::util::{self, map_file};
-use sps::{database::Persistence};
-use tracing::{Level, debug, event, info, warn};
+use tracing::{debug, error, info, warn};
 
-fn main() -> util::Result<()> {
+#[tokio::main]
+async fn main() -> util::Result<()> {
     tracing_subscriber::fmt().init();
 
-    event!(Level::INFO, "Parsing Application Arguements");
+    info!("Parsing Application Arguements");
     let args = sps::arg::AppArgs::parse();
 
     // TODO: Bake in schema into the executable
     let mut cnx = Persistence::init_db(args.db)?;
-
-
     let tx = cnx.transaction()?;
 
     // WARN: Do not merge this and the following loop.
@@ -125,6 +132,33 @@ fn main() -> util::Result<()> {
 
     if let Err(e) = tx.commit() {
         warn!("Error during committing transaction: {e:?}");
+    }
+
+    init_db(cnx);
+    if let Some(addr) = args.bind {
+        let listener = match TcpListener::bind(&addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                error!("Cannot bind to {addr} due to {e:?}");
+                exit(1);
+            }
+        };
+
+        let mcp_service = StreamableHttpService::new(
+            || Ok(AnalysisServer::new()),
+            LocalSessionManager::default().into(),
+            Default::default(),
+        );
+
+        // let service = StreamableHttpService::new(service_factory, session_manager, )
+        let router = axum::Router::new().route_service("/mcp", mcp_service);
+        info!("Starting MCP Server on {addr}");
+        let _ = axum::serve(listener, router).await.unwrap();
+        info!("Stopped MCP Server on {addr}");
+    } else {
+        info!("Starting MCP Server with stdio");
+        let _ = AnalysisServer::new().serve(transport::stdio()).await;
+        info!("Stopped MCP Server with stdout");
     }
     Ok(())
 }

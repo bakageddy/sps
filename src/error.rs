@@ -10,6 +10,16 @@ pub enum Error {
     Rusqlite(#[from] rusqlite::Error),
     #[error("Error during I/O: {0:?}")]
     IO(#[from] std::io::Error),
+    #[error("Error with MCP communication/configuration/parameters: {0:?}")]
+    MCP(#[from] mcp::Error),
+}
+
+pub mod mcp {
+    #[derive(Debug, thiserror::Error, Eq, PartialEq)]
+    pub enum Error {
+        #[error("Error: Invalid params msg: {msg:?}")]
+        InvalidParams { msg: String },
+    }
 }
 
 pub mod scanner {
