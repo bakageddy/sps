@@ -1,6 +1,5 @@
 use rmcp::transport::{
-    StreamableHttpService,
-    streamable_http_server::session::local::LocalSessionManager,
+    StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
 use std::collections::HashMap;
 use std::process::exit;

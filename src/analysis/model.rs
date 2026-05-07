@@ -1,6 +1,7 @@
 use rusqlite::{OptionalExtension, Rows};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use time::UtcDateTime;
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -33,13 +34,13 @@ pub enum State {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct Trace(pub Vec<Frame>);
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub enum Frame {
     Frame { method: String, source: Source },
     Lock(Object),
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub enum Source {
     NativeMethod,
     UnknownSource,
@@ -47,14 +48,14 @@ pub enum Source {
     Filename { file: String, line: i64 },
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct Lock {
     pub name: Option<String>,
     pub object: Object,
     pub thread_id: i64,
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct Object {
     pub class: String,
     pub identity: i64,
@@ -196,6 +197,52 @@ impl StuckThread {
         }
     }
 
+    pub fn get_most_frequent_by_name(
+        cnx: &rusqlite::Connection,
+    ) -> rusqlite::Result<(Option<String>, i64)> {
+        let mut stmt = cnx.prepare_cached("SELECT name, count(name) AS frequency FROM stuckthread GROUP BY name ORDER BY frequency DESC LIMIT 1")?;
+        stmt.query_row([], |r| r.try_into())
+    }
+
+    pub fn get_longest_stuck_thread(
+        cnx: &rusqlite::Connection,
+    ) -> rusqlite::Result<(
+        Vec<Frame>,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        i64,
+        i64,
+        i64,
+        i64,
+    )> {
+        let mut stmt = cnx.prepare_cached("SELECT name, request, start, active_duration_ms, stack_id, thread_id FROM stuckthread ORDER BY active_duration_ms LIMIT 1")?;
+        let (name, request, start, active_ms, stack_id, thread_id): (
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+            i64,
+        ) = stmt.query_row([], |r| r.try_into())?;
+        let trace = Trace::get_by_id(cnx, stack_id)?.expect("No stacktrace for stuckthread");
+        let peek: Vec<Frame> = trace.0.into_iter().take(5).collect();
+        let start_utc = time::UtcDateTime::from_unix_timestamp(start / 1000)
+            .unwrap_or(UtcDateTime::UNIX_EPOCH)
+            .to_string();
+        let end_utc = time::UtcDateTime::from_unix_timestamp((start + active_ms) / 1000)
+            .unwrap_or(UtcDateTime::UNIX_EPOCH)
+            .to_string();
+        Ok((
+            peek, start_utc, end_utc, name, request, start, active_ms, thread_id, stack_id,
+        ))
+    }
+
+    pub fn get_stuckthread_summary(cnx: &rusqlite::Connection) -> rusqlite::Result<(i64, i64, i64)> {
+        let mut stmt = cnx.prepare_cached("SELECT MIN(start) as first_seen_unix_ms, MAX(start) as last_seen_unix_ms, COUNT(*) as count FROM stuckthread")?;
+        stmt.query_one([], |r| r.try_into())
+    }
 }
 
 // Convenience functions all the way down.

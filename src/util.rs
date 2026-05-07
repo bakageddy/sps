@@ -3,7 +3,6 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use time::PrimitiveDateTime;
-use tracing::info;
 
 use memmap2::Mmap;
 
