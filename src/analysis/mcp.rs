@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::analysis::model::{Frame, StuckThread};
+use crate::analysis::model::{
+    Aggregate, AggregateColumn, Frame, StuckThread, StuckThreadAggregate, Trace,
+};
 use rmcp::{
     Json, ServerHandler, handler::server::wrapper::Parameters, schemars::JsonSchema, tool,
     tool_handler, tool_router,
@@ -9,7 +11,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use time::UtcDateTime;
 use tokio::task::spawn_blocking;
-use tracing::debug;
+use tracing::{debug, info};
 
 pub static DB: OnceLock<Arc<Mutex<Connection>>> = OnceLock::new();
 
@@ -27,6 +29,25 @@ pub struct StuckThreadsRange {
     start: i64,
     end: i64,
 }
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TraceID {
+    id: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TraceIDResponse {
+    trace: Option<Trace>,
+}
+
+// TODO: args:
+//   group_by: "request_path" | "thread_name"
+//   start, end (ms, optional)
+//   min_duration_ms (optional filter)
+//   limit (default 20)
+// returns:
+//   [ { key, count, average_duration_ms, max_ms,
+//       first_seen_unix_ms, last_seen_unix_ms, sample_thread_id, sample_trace_id } ]
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -76,6 +97,11 @@ pub enum StuckThreadSummaryInner {
     Error {
         reason: String,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct Aggregates {
+    inner: Vec<Aggregate>,
 }
 
 impl StuckThreadSummary {
@@ -129,6 +155,12 @@ pub struct LongestRunningThread {
     trace_id: i64,
 }
 
+impl Default for AnalysisServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[tool_handler]
 impl ServerHandler for AnalysisServer {}
 
@@ -179,54 +211,35 @@ impl AnalysisServer {
     pub async fn get_stuckthread_summary(&self) -> Json<StuckThreadSummary> {
         debug!("get_stuckthread_summary invoked");
         let cnx = self.state.clone();
-        let (first_seen_unix, last_seen_unix, summary_count) = match spawn_blocking(move || {
-            let cnx = match cnx.lock() {
-                Ok(cnx) => cnx,
-                Err(e) => e.into_inner(),
-            };
-
-            StuckThread::get_stuckthread_summary(&cnx)
+        let result = spawn_blocking(move || {
+            let guard = cnx.lock().unwrap();
+            let summary = StuckThread::get_stuckthread_summary(&guard);
+            let frequency = StuckThread::get_most_frequent_by_name(&guard);
+            let longest = StuckThread::get_longest_stuck_thread(&guard);
+            (summary, frequency, longest)
         })
-        .await
-        {
-            Ok(Ok(v)) => v,
-            Ok(Err(v)) => return Json(StuckThreadSummary::error(v.to_string())),
+        .await;
+
+        if let Err(e) = result {
+            return Json(StuckThreadSummary::error(e.to_string()));
+        }
+
+        let (summary, frequency, longest) = result.unwrap();
+        let (first_seen_unix, last_seen_unix, summary_count) = match summary {
+            Ok(v) => v,
             Err(e) => return Json(StuckThreadSummary::error(e.to_string())),
         };
 
-        let cnx = self.state.clone();
-        let (name, freq_count) = match spawn_blocking(move || {
-            let cnx = match cnx.lock() {
-                Ok(cnx) => cnx,
-                Err(e) => e.into_inner(),
-            };
-            StuckThread::get_most_frequent_by_name(&cnx)
-        })
-        .await
-        {
-            Ok(Ok(v)) => v,
-            Ok(Err(v)) => return Json(StuckThreadSummary::error(v.to_string())),
+        let (name, count) = match frequency {
+            Ok(v) => v,
             Err(e) => return Json(StuckThreadSummary::error(e.to_string())),
         };
-        let most_freq = FrequentThreadByName {
-            name: name,
-            count: freq_count,
-        };
 
-        let cnx = self.state.clone();
+        let most_freq = FrequentThreadByName { name, count };
+
         let (peek, start_utc, end_utc, name, request, start, active_ms, thread_id, stack_id) =
-            match spawn_blocking(move || {
-                let cnx = match cnx.lock() {
-                    Ok(cnx) => cnx,
-                    Err(e) => e.into_inner(),
-                };
-
-                StuckThread::get_longest_stuck_thread(&cnx)
-            })
-            .await
-            {
-                Ok(Ok(v)) => v,
-                Ok(Err(v)) => return Json(StuckThreadSummary::error(v.to_string())),
+            match longest {
+                Ok(v) => v,
                 Err(e) => return Json(StuckThreadSummary::error(e.to_string())),
             };
 
@@ -242,16 +255,6 @@ impl AnalysisServer {
             trace_id: stack_id,
         };
 
-        debug!(
-            "{:?}",
-            StuckThreadSummary::sucess(
-                first_seen_unix,
-                last_seen_unix,
-                most_freq.clone(),
-                longest_thread.clone(),
-                summary_count
-            )
-        );
         Json(StuckThreadSummary::sucess(
             first_seen_unix,
             last_seen_unix,
@@ -259,5 +262,60 @@ impl AnalysisServer {
             longest_thread,
             summary_count,
         ))
+    }
+
+    #[tool(
+        name = "get_trace_by_id",
+        description = "Retrieves the complete, deep stack trace for a specific thread using its unique
+trace ID. Use this to inspect the exact execution state and method calls of a thread identified in earlier summary or
+search results."
+    )]
+    pub async fn get_trace_by_id(
+        &self,
+        Parameters(params): Parameters<TraceID>,
+    ) -> Json<TraceIDResponse> {
+        let cnx = self.state.clone();
+        let output = spawn_blocking(move || {
+            let guard = cnx.lock().unwrap();
+            Trace::get_by_id(&guard, params.id)
+        })
+        .await;
+        match output {
+            Ok(Ok(v)) => Json(TraceIDResponse { trace: v }),
+            Ok(Err(e)) => {
+                debug!("Failed to fetch trace due to {e:?}");
+                Json(TraceIDResponse { trace: None })
+            }
+            Err(e) => {
+                debug!("Failed to fetch trace due to {e:?}");
+                Json(TraceIDResponse { trace: None })
+            }
+        }
+    }
+
+    #[tool(
+        name = "get_stuckthread_aggregate",
+        description = "Aggregates and groups stuck threads to identify systemic bottlenecks. Groups threads by either 'request_path' or
+'thread_name' to show which endpoints or thread pools are failing most frequently. Returns statistical summaries per
+group, including total count, duration averages, time bounds, and sample IDs for further deep-dive inspection. Supports
+optional filtering by time range and minimum duration."
+    )]
+    pub async fn get_stuckthread_aggregate(
+        &self,
+        Parameters(params): Parameters<StuckThreadAggregate>,
+    ) -> Result<Json<Aggregates>, String> {
+        info!("get_stuckthread_aggregate invoked with {params:?}");
+        let cnx = self.state.clone();
+        spawn_blocking(move || {
+            let guard = cnx.lock().unwrap();
+            match params.group_by {
+                AggregateColumn::Request => StuckThread::get_request_aggregate(&guard, &params),
+                AggregateColumn::Name => StuckThread::get_name_aggregate(&guard, &params),
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|v| Json(Aggregates { inner: v }))
+        .map_err(|e| e.to_string())
     }
 }

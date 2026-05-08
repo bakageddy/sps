@@ -1,8 +1,9 @@
 use rusqlite::{OptionalExtension, Rows};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use time::UtcDateTime;
+use tracing::info;
 use std::collections::HashMap;
+use time::UtcDateTime;
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ThreadDump {
@@ -82,6 +83,35 @@ impl<'a> IntoIterator for &'a Trace {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct StuckThreadAggregate {
+    pub group_by: AggregateColumn,
+    pub start: Option<i64>,
+    pub end: Option<i64>,
+    pub limit: Option<i64>,
+    pub ascending: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct Aggregate {
+    key: Option<String>,
+    count: i64,
+    maximum_duration_ms: i64,
+    minimum_duration_ms: i64,
+    average_duration_ms: f64,
+    first_seen_unix_ms: i64,
+    last_seen_unix_ms: i64,
+    sample_thread_id: i64,
+    sample_trace_id: i64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AggregateColumn {
+    Request,
+    Name,
+}
+
 impl StuckThread {
     pub fn row_mapper(
         row: &rusqlite::Row,
@@ -140,13 +170,106 @@ impl StuckThread {
         StuckThread::extract_rows(cnx, rows)
     }
 
-    pub fn get_by_name(
+    pub fn build_query(params: &StuckThreadAggregate) -> String {
+        let column = match params.group_by {
+            AggregateColumn::Request => "request",
+            AggregateColumn::Name => "name",
+        };
+
+        let mut query = format!(
+            "SELECT {column} as key, COUNT(*) AS count, MAX(active_duration_ms) as maximum_duration_ms, MIN(active_duration_ms) as minimum_duration_ms, AVG(active_duration_ms) as average_duration_ms, MIN(start) as first_seen_ms, MAX(start) as last_seen_ms, thread_id, stack_id FROM stuckthread WHERE {column} IS NOT NULL",
+        );
+
+        if let Some(start) = params.start {
+            query.push_str(&format!(" AND start >= {start}"));
+        }
+
+        if let Some(end) = params.end {
+            query.push_str(&format!(" AND start <= {end}"));
+        }
+
+        query.push_str(&format!(" GROUP BY {column} HAVING 1=1"));
+        query.push_str(" ORDER BY count");
+        if !params.ascending {
+            query.push_str(" DESC");
+        }
+
+        query.push_str(&format!(" LIMIT {}", params.limit.unwrap_or(20)));
+        query
+    }
+
+    pub fn get_name_aggregate(
         cnx: &rusqlite::Connection,
-        name_pattern: String,
-    ) -> rusqlite::Result<Vec<StuckThread>> {
-        let mut stmt = cnx.prepare_cached("SELECT * FROM stuckthread WHERE name LIKE ?")?;
-        let rows = stmt.query([name_pattern])?;
-        StuckThread::extract_rows(cnx, rows)
+        params: &StuckThreadAggregate,
+    ) -> rusqlite::Result<Vec<Aggregate>> {
+        let query = StuckThread::build_query(params);
+        let mut stmt = cnx.prepare_cached(&query)?;
+        let rows = stmt.query([])?;
+        let mut result = Vec::new();
+        let mut iter = rows.mapped(|r| r.try_into()).into_iter();
+        while let Some(Ok((
+            key,
+            count,
+            max_duration_ms,
+            min_duration_ms,
+            average_duration_ms,
+            first_seen_ms,
+            last_seen_ms,
+            sample_id,
+            trace_id,
+        ))) = iter.next()
+        {
+            let row = Aggregate {
+                key,
+                maximum_duration_ms: max_duration_ms,
+                minimum_duration_ms: min_duration_ms,
+                average_duration_ms,
+                first_seen_unix_ms: first_seen_ms,
+                last_seen_unix_ms: last_seen_ms,
+                count,
+                sample_thread_id: sample_id,
+                sample_trace_id: trace_id,
+            };
+            result.push(row);
+        }
+        Ok(result)
+    }
+
+    pub fn get_request_aggregate(
+        cnx: &rusqlite::Connection,
+        params: &StuckThreadAggregate,
+    ) -> rusqlite::Result<Vec<Aggregate>> {
+        let query = StuckThread::build_query(params);
+        let mut stmt = cnx.prepare_cached(&query)?;
+        let rows = stmt.query_map([], |r| r.try_into())?;
+        let mut iter = rows.into_iter();
+        let mut result = Vec::new();
+        while let Some(Ok((
+            key,
+            count,
+            max_duration_ms,
+            min_duration_ms,
+            average_duration_ms,
+            first_seen_ms,
+            last_seen_ms,
+            sample_id,
+            trace_id,
+        ))) = iter.next()
+        {
+            let row = Aggregate {
+                key,
+                maximum_duration_ms: max_duration_ms,
+                minimum_duration_ms: min_duration_ms,
+                average_duration_ms,
+                first_seen_unix_ms: first_seen_ms,
+                last_seen_unix_ms: last_seen_ms,
+                count,
+                sample_thread_id: sample_id,
+                sample_trace_id: trace_id,
+            };
+            result.push(row);
+        }
+        Ok(result)
     }
 
     pub fn get_by_request(
@@ -155,6 +278,15 @@ impl StuckThread {
     ) -> rusqlite::Result<Vec<StuckThread>> {
         let mut stmt = cnx.prepare_cached("SELECT * FROM stuckthread WHERE request LIKE ?")?;
         let rows = stmt.query([request_pattern])?;
+        StuckThread::extract_rows(cnx, rows)
+    }
+
+    pub fn get_by_name(
+        cnx: &rusqlite::Connection,
+        name_pattern: String,
+    ) -> rusqlite::Result<Vec<StuckThread>> {
+        let mut stmt = cnx.prepare_cached("SELECT * FROM stuckthread WHERE name LIKE ?")?;
+        let rows = stmt.query([name_pattern])?;
         StuckThread::extract_rows(cnx, rows)
     }
 
@@ -227,7 +359,7 @@ impl StuckThread {
             i64,
         ) = stmt.query_row([], |r| r.try_into())?;
         let trace = Trace::get_by_id(cnx, stack_id)?.expect("No stacktrace for stuckthread");
-        let peek: Vec<Frame> = trace.0.into_iter().take(5).collect();
+        let peek: Vec<Frame> = trace.0.into_iter().take(10).collect();
         let start_utc = time::UtcDateTime::from_unix_timestamp(start / 1000)
             .unwrap_or(UtcDateTime::UNIX_EPOCH)
             .to_string();
@@ -239,7 +371,9 @@ impl StuckThread {
         ))
     }
 
-    pub fn get_stuckthread_summary(cnx: &rusqlite::Connection) -> rusqlite::Result<(i64, i64, i64)> {
+    pub fn get_stuckthread_summary(
+        cnx: &rusqlite::Connection,
+    ) -> rusqlite::Result<(i64, i64, i64)> {
         let mut stmt = cnx.prepare_cached("SELECT MIN(start) as first_seen_unix_ms, MAX(start) as last_seen_unix_ms, COUNT(*) as count FROM stuckthread")?;
         stmt.query_one([], |r| r.try_into())
     }

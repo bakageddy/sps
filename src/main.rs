@@ -152,11 +152,11 @@ async fn main() -> util::Result<()> {
         // let service = StreamableHttpService::new(service_factory, session_manager, )
         let router = axum::Router::new().route_service("/mcp", mcp_service);
         info!("Starting MCP Server on {addr}");
-        let _ = axum::serve(listener, router).await.unwrap();
+        axum::serve(listener, router).await.unwrap();
         info!("Stopped MCP Server on {addr}");
     } else {
         info!("Starting MCP Server with stdio");
-        let _ = AnalysisServer::new().serve(transport::stdio()).await;
+        AnalysisServer::new().serve(transport::stdio()).await.unwrap();
         info!("Stopped MCP Server with stdout");
     }
     Ok(())
