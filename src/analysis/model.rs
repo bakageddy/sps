@@ -1,7 +1,6 @@
 use rusqlite::{OptionalExtension, Rows};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use std::collections::HashMap;
 use time::UtcDateTime;
 
