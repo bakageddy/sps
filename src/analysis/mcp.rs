@@ -1,11 +1,15 @@
-use std::sync::{Arc, Mutex, OnceLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use crate::analysis::model::{
     Aggregate, AggregateColumn, Frame, StuckThread, StuckThreadAggregate, Trace,
 };
+use rmcp::ServerHandler;
 use rmcp::{
-    Json, ServerHandler, handler::server::wrapper::Parameters, schemars::JsonSchema, tool,
-    tool_handler, tool_router,
+    Json, handler::server::wrapper::Parameters, schemars::JsonSchema, tool, tool_handler,
+    tool_router,
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -40,14 +44,15 @@ pub struct TraceIDResponse {
     trace: Option<Trace>,
 }
 
-// TODO: args:
-//   group_by: "request_path" | "thread_name"
-//   start, end (ms, optional)
-//   min_duration_ms (optional filter)
-//   limit (default 20)
-// returns:
-//   [ { key, count, average_duration_ms, max_ms,
-//       first_seen_unix_ms, last_seen_unix_ms, sample_thread_id, sample_trace_id } ]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TraceBulkGet {
+    ids: Vec<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TraceBulkResponse {
+    response: HashMap<i64, Option<Trace>>,
+}
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -171,6 +176,7 @@ impl AnalysisServer {
         Self { state: cnx.clone() }
     }
 
+    // STUCKTHREAD Tools
     #[tool(
         name = "get_stuckthreads_between_range",
         description = "Fetches all the stuckthreads between the range `start` and `end`. `start` & `end` must be a UNIX timestamp in UTC from epoch in milliseconds, not seconds"
@@ -317,5 +323,28 @@ optional filtering by time range and minimum duration."
         .map_err(|e| e.to_string())?
         .map(|v| Json(Aggregates { inner: v }))
         .map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        name = "get_trace_by_ids",
+        description = "Retrieves the complete, deep stack traces for the array of threads using its unique trace id's. Use this to inspect stacktraces of multiple stuckthreads in a single call"
+    )]
+    pub async fn get_trace_by_ids(
+        &self,
+        Parameters(params): Parameters<TraceBulkGet>,
+    ) -> Result<Json<TraceBulkResponse>, String> {
+        let cnx = self.state.clone();
+        let output = spawn_blocking(move || {
+            let guard = cnx.lock().unwrap();
+            let mut map = HashMap::new();
+            for id in params.ids {
+                let trace = Trace::get_by_id(&guard, id).unwrap_or(None);
+                map.insert(id, trace);
+            }
+            map
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok(Json(TraceBulkResponse { response: output }))
     }
 }
