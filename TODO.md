@@ -15,9 +15,9 @@
 - [x] get_stuckthread_range
 - [x] get_stuckthread_summary
 - [x] get_trace_by_id
-- [] get_stuckthread_aggregate
-- [] compare windows
-- [] stuckthread_summary_range
+- [x] get_stuckthread_aggregate
+- [x] get trace by id(s)
+- [DEFERRED] stuckthread_summary_range
+- [DEFERRED] compare windows
 - [] build flamegraph/waterfall graph (does it even make sense for a flamegraph for the stuckthread data)
-- [] get trace by id(s)
 
