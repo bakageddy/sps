@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS stacktrace_elements(
 	FOREIGN KEY (object_id) REFERENCES object(id) DEFERRABLE INITIALLY DEFERRED
 );
 
+CREATE INDEX stacktrace_elements_id_frame_idx ON stacktrace_elements(id, frame_idx);
+CREATE INDEX stacktrace_elements_object_id ON stacktrace_elements(object_id);
+
 CREATE TABLE IF NOT EXISTS stuckthread(
 	thread_id INTEGER NOT NULL,
 	start INTEGER NOT NULL,
@@ -41,6 +44,8 @@ CREATE TABLE IF NOT EXISTS stuckthread(
 	stack_id INTEGER NOT NULL,
 	FOREIGN KEY (stack_id) REFERENCES stacktrace(id) DEFERRABLE INITIALLY DEFERRED
 );
+
+CREATE INDEX IF NOT EXISTS stuckthread_stack_id ON stuckthread(stack_id);
 
 CREATE TABLE IF NOT EXISTS threaddump(
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,3 +79,8 @@ CREATE TABLE IF NOT EXISTS thread(
 	FOREIGN KEY (wait_object_id) REFERENCES object(id) DEFERRABLE INITIALLY DEFERRED,
 	FOREIGN KEY (lock_object_id) REFERENCES object(id) DEFERRABLE INITIALLY DEFERRED
 );
+
+CREATE INDEX IF NOT EXISTS thread_dump_id ON thread(dump_id);
+CREATE INDEX IF NOT EXISTS thread_stack_id ON thread(stack_id);
+CREATE INDEX IF NOT EXISTS thread_wait_object_id ON thread(wait_object_id);
+CREATE INDEX IF NOT EXISTS thread_lock_object_id ON thread(lock_object_id);
