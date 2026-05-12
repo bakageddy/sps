@@ -30,8 +30,8 @@ CREATE TABLE IF NOT EXISTS stacktrace_elements(
 	FOREIGN KEY (object_id) REFERENCES object(id) DEFERRABLE INITIALLY DEFERRED
 );
 
-CREATE INDEX stacktrace_elements_id_frame_idx ON stacktrace_elements(id, frame_idx);
-CREATE INDEX stacktrace_elements_object_id ON stacktrace_elements(object_id);
+CREATE INDEX IF NOT EXISTS stacktrace_elements_id_frame_idx ON stacktrace_elements(id, frame_idx);
+CREATE INDEX IF NOT EXISTS stacktrace_elements_object_id ON stacktrace_elements(object_id);
 
 CREATE TABLE IF NOT EXISTS stuckthread(
 	thread_id INTEGER NOT NULL,
