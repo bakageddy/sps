@@ -1,6 +1,6 @@
 use sea_query;
 
-#[derive(sea_query::Iden)]
+#[derive(sea_query::Iden, Clone, Copy)]
 pub enum Object {
     #[iden = "object"]
     Table,
@@ -12,19 +12,20 @@ pub enum Object {
     Identity,
 }
 
-#[derive(sea_query::Iden)]
+#[derive(sea_query::Iden, Clone, Copy)]
 pub enum StackTrace {
     #[iden = "stacktrace"]
     Table,
-
     #[iden = "id"]
     ID,
 }
 
-#[derive(sea_query::Iden)]
+#[derive(sea_query::Iden, Clone, Copy)]
 pub enum StackTraceElements {
     #[iden = "stacktrace_elements"]
     Table,
+    #[iden = "id"]
+    ID,
     #[iden = "frame_idx"]
     FrameIndex,
     #[iden = "method"]
@@ -37,14 +38,18 @@ pub enum StackTraceElements {
     ObjectID,
 }
 
-#[derive(sea_query::Iden)]
+#[derive(sea_query::Iden, Clone, Copy)]
 pub enum StuckThread {
     #[iden = "stuckthread"]
     Table,
+    #[iden = "thread_id"]
+    ThreadID,
     #[iden = "start"]
     Start,
     #[iden = "name"]
     Name,
+    #[iden = "request"]
+    Request,
     #[iden = "active_duration_ms"]
     ActiveDurationMS,
     #[iden = "active_monitor_start"]
@@ -55,7 +60,7 @@ pub enum StuckThread {
     StackID,
 }
 
-#[derive(sea_query::Iden)]
+#[derive(sea_query::Iden, Clone, Copy)]
 pub enum ThreadDump {
     #[iden = "threaddump"]
     Table,
@@ -67,7 +72,7 @@ pub enum ThreadDump {
     TriggeredUnixMS,
 }
 
-#[derive(sea_query::Iden)]
+#[derive(sea_query::Iden, Clone, Copy)]
 pub enum Thread {
     #[iden = "thread"]
     Table,

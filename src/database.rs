@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::query::{self};
+use sea_query::{Query, SqliteQueryBuilder};
 use tracing::warn;
 
 use crate::{
@@ -30,7 +32,12 @@ impl Persistence {
     }
 
     pub fn insert_stacktrace(tx: &rusqlite::Transaction) -> rusqlite::Result<i64> {
-        let mut stmt = tx.prepare_cached("INSERT INTO stacktrace DEFAULT VALUES RETURNING id")?;
+        let query = Query::insert()
+            .into_table(query::StackTrace::Table)
+            .or_default_values()
+            .returning_col(query::StackTrace::ID)
+            .to_string(SqliteQueryBuilder);
+        let mut stmt = tx.prepare_cached(&query)?;
         let id: i64 = stmt.query_one([], |r| r.get(0))?;
         Ok(id)
     }
@@ -39,11 +46,20 @@ impl Persistence {
         tx: &rusqlite::Transaction,
         stack: &crate::stacktrace::StackTrace,
     ) -> rusqlite::Result<i64> {
+        let query = Query::insert()
+            .into_table(query::StackTraceElements::Table)
+            .columns([
+                query::StackTraceElements::ID,
+                query::StackTraceElements::FrameIndex,
+                query::StackTraceElements::Method,
+                query::StackTraceElements::FrameSource,
+                query::StackTraceElements::LineNumber,
+            ])
+            .values_panic([0.into(), 0.into(), "".into(), "".into(), "".into()])
+            .build(SqliteQueryBuilder)
+            .0;
         let id = Persistence::insert_stacktrace(tx)?;
-        let mut elems = tx.prepare_cached(
-            "INSERT INTO stacktrace_elements(id, frame_idx, method, frame_source, line_number, object_id) VALUES(?, ?, ?, ?, ?, NULL);"
-        )?;
-
+        let mut elems = tx.prepare_cached(&query)?;
         for (i, elem) in (0..).zip(stack.traces.iter()) {
             let (frame_source, line_number) = match elem.stacktrace_source {
                 stacktrace::StackTraceSource::NativeMethod => ("NativeMethod", None),
@@ -67,9 +83,31 @@ impl Persistence {
             tx,
             begin.st.as_ref().expect("REQUIRE: metabegin in begin"),
         )?;
-        let mut stmt = tx.prepare_cached(
-            "INSERT INTO stuckthread(thread_id, start, name, request, active_duration_ms, active_monitor_start, active_monitor_end, stack_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?);"
-        )?;
+
+        let query = Query::insert()
+            .into_table(query::StuckThread::Table)
+            .columns([
+                query::StuckThread::ThreadID,
+                query::StuckThread::Name,
+                query::StuckThread::Request,
+                query::StuckThread::ActiveDurationMS,
+                query::StuckThread::ActiveMonitorStart,
+                query::StuckThread::ActiveMonitorEnd,
+                query::StuckThread::StackID,
+            ])
+            .values_panic([
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+            ])
+            .build(SqliteQueryBuilder)
+            .0;
+
+        let mut stmt = tx.prepare_cached(&query)?;
 
         let begin = match &begin.meta {
             StuckThreadMeta::Begin(x) => x,
@@ -117,9 +155,17 @@ impl Persistence {
         tx: &rusqlite::Transaction,
         item: &ThreadDump,
     ) -> rusqlite::Result<i64> {
-        let mut stmt = tx.prepare_cached(
-            "INSERT INTO threaddump(snapshot, triggered_unix_ms) VALUES(?, ?) RETURNING id;",
-        )?;
+        let query = Query::insert()
+            .into_table(query::ThreadDump::Table)
+            .columns([
+                query::ThreadDump::Snapshot,
+                query::ThreadDump::TriggeredUnixMS,
+            ])
+            .values_panic(["".into(), "".into()])
+            .returning_col(query::ThreadDump::ID)
+            .build(SqliteQueryBuilder)
+            .0;
+        let mut stmt = tx.prepare_cached(&query)?;
         let threaddump_id: i64 =
             stmt.query_one((item.snapshot, item.triggered_unix_ms), |r| r.get(0))?;
         for thread in item.threads.values() {
@@ -138,9 +184,33 @@ impl Persistence {
         item: &Thread,
         threaddump_id: i64,
     ) -> rusqlite::Result<()> {
-        let mut stmt = tx.prepare_cached(
-            "INSERT INTO thread(id, name, state, wait_object_id, owner_id, owner_name, lock_object_id, stack_id, dump_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);"
-        )?;
+        let query = Query::insert()
+            .into_table(query::Thread::Table)
+            .columns([
+                query::Thread::ID,
+                query::Thread::Name,
+                query::Thread::State,
+                query::Thread::WaitObjectID,
+                query::Thread::OwnerID,
+                query::Thread::OwnerName,
+                query::Thread::LockObjectID,
+                query::Thread::StackID,
+                query::Thread::DumpID,
+            ])
+            .values_panic([
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+            ])
+            .build(SqliteQueryBuilder)
+            .0;
+        let mut stmt = tx.prepare_cached(&query)?;
         let mut lock_info = None;
         let mut owner_id = None;
         let mut owner_name = None;

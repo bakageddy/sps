@@ -1,7 +1,6 @@
-use std::{net::Ipv4Addr, path::PathBuf};
+use std::path::PathBuf;
 
 // TODO: Web Server
-// TODO: Online
 
 #[derive(clap::Parser)]
 pub struct AppArgs {

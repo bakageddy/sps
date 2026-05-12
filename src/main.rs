@@ -159,10 +159,10 @@ async fn main() -> util::Result<()> {
         } else if let Some(raw_addr) = bind {
             let addr = Ipv4Addr::from_str(&raw_addr);
             if let Err(e) = addr {
-                error!("FAILED to parse {raw_addr} due to {}. Exiting", e.to_string());
+                error!("FAILED to parse {raw_addr} due to {}. Defaulting to localhost", e.to_string());
                 exit(1);
             }
-            let addr = addr.unwrap();
+            let addr = addr.unwrap_or(Ipv4Addr::LOCALHOST);
             let port = port.unwrap_or(8080);
 
             let listener = match TcpListener::bind((addr, port)).await {

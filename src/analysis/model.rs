@@ -1,8 +1,11 @@
 use rusqlite::{OptionalExtension, Rows};
 use schemars::JsonSchema;
+use sea_query::{Asterisk, Expr, Func, Order, OrderedStatement, Query, SqliteQueryBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use time::UtcDateTime;
+
+use crate::query;
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ThreadDump {
@@ -171,30 +174,49 @@ impl StuckThread {
 
     pub fn build_query(params: &StuckThreadAggregate) -> String {
         let column = match params.group_by {
-            AggregateColumn::Request => "request",
-            AggregateColumn::Name => "name",
+            AggregateColumn::Request => query::StuckThread::Request,
+            AggregateColumn::Name => query::StuckThread::Name,
         };
 
-        let mut query = format!(
-            "SELECT {column} as key, COUNT(*) AS count, MAX(active_duration_ms) as maximum_duration_ms, MIN(active_duration_ms) as minimum_duration_ms, AVG(active_duration_ms) as average_duration_ms, MIN(start) as first_seen_ms, MAX(start) as last_seen_ms, thread_id, stack_id FROM stuckthread WHERE {column} IS NOT NULL",
-        );
+        let order = if params.ascending {
+            Order::Asc
+        } else {
+            Order::Desc
+        };
 
-        if let Some(start) = params.start {
-            query.push_str(&format!(" AND start >= {start}"));
-        }
-
-        if let Some(end) = params.end {
-            query.push_str(&format!(" AND start <= {end}"));
-        }
-
-        query.push_str(&format!(" GROUP BY {column} HAVING 1=1"));
-        query.push_str(" ORDER BY count");
-        if !params.ascending {
-            query.push_str(" DESC");
-        }
-
-        query.push_str(&format!(" LIMIT {}", params.limit.unwrap_or(20)));
-        query
+        Query::select()
+            .from(query::StuckThread::Table)
+            .expr_as(Expr::col(column), "key")
+            .expr_as(Expr::col(Asterisk).count(), "count")
+            .expr_as(
+                Expr::col(query::StuckThread::ActiveDurationMS).max(),
+                "maximum_duration_ms",
+            )
+            .expr_as(
+                Expr::col(query::StuckThread::ActiveDurationMS).min(),
+                "minimum_duration_ms",
+            )
+            .expr_as(
+                Func::avg(Expr::col(query::StuckThread::ActiveDurationMS)),
+                "average_duration_ms",
+            )
+            .expr_as(Expr::col(query::StuckThread::Start).max(), "first_seen_ms")
+            .expr_as(Expr::col(query::StuckThread::Start).min(), "last_seen_ms")
+            .column(query::StuckThread::ThreadID)
+            .column(query::StuckThread::StackID)
+            .and_where_option(
+                params
+                    .start
+                    .map(|s| Expr::col(query::StuckThread::Start).gte(s)),
+            )
+            .and_where_option(
+                params
+                    .start
+                    .map(|s| Expr::col(query::StuckThread::Start).lte(s)),
+            )
+            .order_by_expr(Expr::custom_keyword("count").into(), order)
+            .limit(params.limit.unwrap_or(20) as u64)
+            .to_string(SqliteQueryBuilder)
     }
 
     pub fn get_name_aggregate(
