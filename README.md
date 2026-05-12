@@ -27,7 +27,7 @@ frame stack traces.
   sps parse --path /path/to/sps/logs --database /path/to/sample1.db
   ```
 
-### 2. Running the MCP Server ( mcp )
+### 2. Running the MCP Server ( `mcp` )
 
 Expose the parsed SQLite database to an AI agent via the Model Context Protocol.
 
