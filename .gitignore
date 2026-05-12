@@ -1,7 +1,32 @@
 /target
+
+# ignore sensitive logs
 stuckthreads*.txt
+threaddump*.txt
+CPUMonitoring*.txt
+CheckDBConnection*.txt
+DiskIO*.txt
+FragmentationRatio*.txt
+cd*.txt
+cpumemstats*.txt
+jfrcollector*.txt
+querymonitoring*.txt
+runningqueries*.txt
+stuckqueries*.txt
+Reindex_log_*.txt
+MissingIndexLog*.txt
+TableDataCount.html
+accesslogslowips*.txt
+pgsql
+
+.vscode
 # sample/*.txt
 output.*
+
+# Ignore analysis databases
 *.db
-*.db-journal
+*-journal
+*-shm
+
+# Ignore Test related resources
 /test
