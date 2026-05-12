@@ -6,6 +6,7 @@ pub mod arg;
 pub mod database;
 pub mod util;
 pub mod error;
+pub mod query;
 
 pub mod analysis;
 

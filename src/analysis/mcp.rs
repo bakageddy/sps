@@ -6,10 +6,9 @@ use std::{
 use crate::analysis::model::{
     Aggregate, AggregateColumn, Frame, StuckThread, StuckThreadAggregate, Trace,
 };
-use rmcp::ServerHandler;
 use rmcp::{
-    Json, handler::server::wrapper::Parameters, schemars::JsonSchema, tool, tool_handler,
-    tool_router,
+    Json, ServerHandler, handler::server::wrapper::Parameters, schemars::JsonSchema, tool,
+    tool_handler, tool_router,
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -19,6 +18,7 @@ use tracing::{debug, info};
 
 pub static DB: OnceLock<Arc<Mutex<Connection>>> = OnceLock::new();
 
+// NOTE: Provides the same connection many times using OnceLock
 pub fn init_db(cnx: Connection) {
     let cnx = Arc::new(Mutex::new(cnx));
     DB.set(cnx).expect("Failed to set DB connection pool")
