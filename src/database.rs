@@ -6,7 +6,7 @@ use tracing::warn;
 
 use crate::{
     stacktrace::{self},
-    stuckthread::{StuckThread, StuckThreadMeta},
+    stuckthread::{Event, StuckThread},
     threaddump::{self, Object, Thread, ThreadDump, ThreadState},
     util::{self, ToUnixMillis},
 };
@@ -79,10 +79,11 @@ impl Persistence {
         begin: &StuckThread,
         end: Option<&StuckThread>,
     ) -> rusqlite::Result<()> {
-        let stack_id = Persistence::insert_stuckthread_stacktrace(
-            tx,
-            begin.st.as_ref().expect("REQUIRE: metabegin in begin"),
-        )?;
+        let (stack_id, meta) = if let Event::Begin(meta, st) = &begin.event {
+            (Persistence::insert_stuckthread_stacktrace(tx, &st)?, meta)
+        } else {
+            panic!("stuckthread event is not of type begin");
+        };
 
         let query = Query::insert()
             .into_table(query::StuckThread::Table)
@@ -109,29 +110,24 @@ impl Persistence {
 
         let mut stmt = tx.prepare_cached(&query)?;
 
-        let begin = match &begin.meta {
-            StuckThreadMeta::Begin(x) => x,
-            _ => panic!("UNREACHABLE: Expect StuckThreadMetaBegin not StuckThreadEnd"),
-        };
-
-        let thread_id = begin.thread_id;
-        let thread_name = if begin.thread_name.is_empty() {
+        let thread_id = meta.thread_id;
+        let thread_name = if meta.thread_name.is_empty() {
             None
         } else {
-            Some(begin.thread_name)
+            Some(meta.thread_name)
         };
-        let api_request = if begin.request.is_empty() {
+        let api_request = if meta.request.is_empty() {
             None
         } else {
-            Some(begin.request)
+            Some(meta.request)
         };
-        let start = begin.start.to_unix_millis();
-        let active_monitor_count_begin = begin.active_monitor_count;
+        let start = meta.start.to_unix_millis();
+        let active_monitor_count_begin = meta.active_monitor_count;
         let mut active_monitor_count_end = 0;
-        let mut active_duration_count = begin.active_duration_ms;
+        let mut active_duration_count = meta.active_duration_ms;
 
         if let Some(end) = end
-            && let StuckThreadMeta::End(end) = &end.meta
+            && let Event::End(end) = &end.event
         {
             active_monitor_count_end = end.active_monitor_count;
             active_duration_count = end.active_duration_ms;

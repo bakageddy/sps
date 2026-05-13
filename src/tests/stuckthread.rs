@@ -1,7 +1,5 @@
 use crate::error::stuckthread::Parse;
-use crate::stuckthread::{
-    StuckThread, StuckThreadMeta, MetaBegin, MetaEnd, StuckThreadStream,
-};
+use crate::stuckthread::{Begin, End, Event, StuckThread, StuckThreadStream};
 
 // ============================================================
 // Helper: Build meta lines
@@ -22,17 +20,17 @@ const SMALL_STACKTRACE: &str = "java.lang.Throwable\n\tat java.base@17.0.17/jdk.
 
 #[test]
 fn meta_begin_parses_correctly() {
-    let result = StuckThreadMeta::try_from(BEGIN_META);
+    let result = Event::try_from(BEGIN_META);
     assert!(result.is_ok(), "failed: {result:?}");
     let meta = result.unwrap();
-    assert!(matches!(meta, StuckThreadMeta::Begin(_)));
+    assert!(matches!(meta, Event::Begin(_, _)));
 }
 
 #[test]
 fn meta_begin_fields() {
-    let meta = StuckThreadMeta::try_from(BEGIN_META).unwrap();
+    let meta = Event::try_from(BEGIN_META).unwrap();
     match meta {
-        StuckThreadMeta::Begin(b) => {
+        Event::Begin(b, _) => {
             assert_eq!(
                 b.thread_name,
                 "/api/v3/requests/3472132/request_detail-1771237317720_###_"
@@ -55,9 +53,9 @@ fn meta_begin_start_time_is_adjusted() {
     // header: 15:52:17.284 on 16-02-2026
     // duration: 19,273 ms
     // start should be ~15:51:58.011
-    let meta = StuckThreadMeta::try_from(BEGIN_META).unwrap();
+    let meta = Event::try_from(BEGIN_META).unwrap();
     match meta {
-        StuckThreadMeta::Begin(b) => {
+        Event::Begin(b, _) => {
             // The start time should be before the header timestamp
             let start_second = b.start.second();
             let start_minute = b.start.minute();
@@ -71,17 +69,17 @@ fn meta_begin_start_time_is_adjusted() {
 
 #[test]
 fn meta_end_4_groups() {
-    let result = StuckThreadMeta::try_from(END_META_4_GROUPS);
+    let result = Event::try_from(END_META_4_GROUPS);
     assert!(result.is_ok(), "failed: {result:?}");
     let meta = result.unwrap();
-    assert!(matches!(meta, StuckThreadMeta::End(_)));
+    assert!(matches!(meta, Event::End(_)));
 }
 
 #[test]
 fn meta_end_fields() {
-    let meta = StuckThreadMeta::try_from(END_META_4_GROUPS).unwrap();
+    let meta = Event::try_from(END_META_4_GROUPS).unwrap();
     match meta {
-        StuckThreadMeta::End(e) => {
+        Event::End(e) => {
             assert_eq!(e.thread_name, "");
             assert_eq!(e.thread_id, 226293);
             assert_eq!(e.active_duration_ms, 27650);
@@ -93,9 +91,9 @@ fn meta_end_fields() {
 
 #[test]
 fn meta_end_second_record() {
-    let meta = StuckThreadMeta::try_from(END_META_4_GROUPS_B).unwrap();
+    let meta = Event::try_from(END_META_4_GROUPS_B).unwrap();
     match meta {
-        StuckThreadMeta::End(e) => {
+        Event::End(e) => {
             assert_eq!(e.thread_id, 226802);
             assert_eq!(e.active_duration_ms, 38600);
             assert_eq!(e.active_monitor_count, 77);
@@ -106,9 +104,9 @@ fn meta_end_second_record() {
 
 #[test]
 fn meta_end_start_time_is_adjusted() {
-    let meta = StuckThreadMeta::try_from(END_META_4_GROUPS).unwrap();
+    let meta = Event::try_from(END_META_4_GROUPS).unwrap();
     match meta {
-        StuckThreadMeta::End(e) => {
+        Event::End(e) => {
             // 15:52:17.351 - 27,650ms ≈ 15:51:49.701
             assert_eq!(e.start.minute(), 51);
             assert_eq!(e.start.second(), 49);
@@ -124,7 +122,7 @@ fn meta_end_start_time_is_adjusted() {
 #[test]
 fn meta_missing_double_colon() {
     let input = "[15:52:17.284]|[16-02-2026]|[class]|[WARN]|[90]| no double colon here";
-    let result = StuckThreadMeta::try_from(input);
+    let result = Event::try_from(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(Parse::DoubleColonAbsent)));
 }
@@ -133,7 +131,7 @@ fn meta_missing_double_colon() {
 fn meta_wrong_header_group_count() {
     // Only 3 header groups instead of 5
     let input = "[15:52:17.284]|[16-02-2026]|[class]| :: Thread [name] (id=[1]) has been active for [100] milliseconds (since [now]) to serve the same request for [url] and may be stuck (configured threshold for this StuckThreadDetectionValve is [10] seconds). There is/are [1] thread(s) in total that are monitored by this Valve and may be stuck.";
-    let result = StuckThreadMeta::try_from(input);
+    let result = Event::try_from(input);
     assert!(result.is_err());
     assert!(matches!(
         result,
@@ -146,7 +144,7 @@ fn meta_wrong_message_group_count() {
     // Only 2 message groups — not enough for Begin (7) or End (3-4)
     let input =
         "[15:52:17.284]|[16-02-2026]|[class]|[WARN]|[90]| :: Thread [name] only [2] groups.";
-    let result = StuckThreadMeta::try_from(input);
+    let result = Event::try_from(input);
     assert!(result.is_err());
     assert!(matches!(
         result,
@@ -158,7 +156,7 @@ fn meta_wrong_message_group_count() {
 fn meta_invalid_thread_id() {
     // thread_id is "abc" instead of a number
     let input = "[15:52:17.284]|[16-02-2026]|[class]|[WARN]|[90]| :: Thread [] (id=[abc]) was previously reported to be stuck but has completed. It was active for approximately [100] milliseconds.";
-    let result = StuckThreadMeta::try_from(input);
+    let result = Event::try_from(input);
     assert!(result.is_err());
 }
 
@@ -166,13 +164,13 @@ fn meta_invalid_thread_id() {
 fn meta_invalid_duration() {
     // Duration is not a number
     let input = "[15:52:17.284]|[16-02-2026]|[class]|[WARN]|[90]| :: Thread [] (id=[123]) was previously reported to be stuck but has completed. It was active for approximately [not_a_number] milliseconds.";
-    let result = StuckThreadMeta::try_from(input);
+    let result = Event::try_from(input);
     assert!(result.is_err());
 }
 
 #[test]
 fn meta_empty_string() {
-    let result = StuckThreadMeta::try_from("");
+    let result = Event::try_from("");
     assert!(result.is_err());
 }
 
@@ -191,7 +189,7 @@ fn meta_begin_from_groups() {
         "10",
         "3",
     ];
-    let result = MetaBegin::try_from(groups);
+    let result = Begin::try_from(groups);
     assert!(result.is_ok(), "failed: {result:?}");
     let b = result.unwrap();
     assert_eq!(b.thread_name, "my-thread-1");
@@ -204,7 +202,7 @@ fn meta_begin_from_groups() {
 #[test]
 fn meta_begin_from_groups_wrong_count() {
     let groups = vec!["only", "three", "items"];
-    let result = MetaBegin::try_from(groups);
+    let result = Begin::try_from(groups);
     assert!(result.is_err());
     assert!(matches!(
         result,
@@ -223,7 +221,7 @@ fn meta_begin_comma_in_duration() {
         "10",
         "60",
     ];
-    let result = MetaBegin::try_from(groups).unwrap();
+    let result = Begin::try_from(groups).unwrap();
     assert_eq!(result.active_duration_ms, 21982);
 }
 
@@ -234,7 +232,7 @@ fn meta_begin_comma_in_duration() {
 #[test]
 fn meta_end_from_3_groups() {
     let groups = vec!["", "226293", "27,650"];
-    let result = MetaEnd::try_from(groups);
+    let result = End::try_from(groups);
     assert!(result.is_ok(), "failed: {result:?}");
     let e = result.unwrap();
     assert_eq!(e.thread_name, "");
@@ -246,7 +244,7 @@ fn meta_end_from_3_groups() {
 #[test]
 fn meta_end_from_4_groups() {
     let groups = vec!["", "226293", "27,650", "78"];
-    let result = MetaEnd::try_from(groups);
+    let result = End::try_from(groups);
     assert!(result.is_ok(), "failed: {result:?}");
     let e = result.unwrap();
     assert_eq!(e.thread_id, 226293);
@@ -257,7 +255,7 @@ fn meta_end_from_4_groups() {
 #[test]
 fn meta_end_from_groups_wrong_count() {
     let groups = vec!["too", "many", "items", "here", "extra"];
-    let result = MetaEnd::try_from(groups);
+    let result = End::try_from(groups);
     assert!(result.is_err());
     assert!(matches!(
         result,
@@ -275,17 +273,19 @@ fn stuckthread_begin_with_stacktrace() {
     let result = StuckThread::try_from(input.as_str());
     assert!(result.is_ok(), "failed: {result:?}");
     let st = result.unwrap();
-    assert!(matches!(st.meta, StuckThreadMeta::Begin(_)));
-    assert!(st.st.is_some());
-    assert!(st.st.unwrap().traces.len() >= 1);
+    assert!(matches!(st.event, Event::Begin(_, _)));
+    let Event::Begin(_, stack) = st.event else {
+        panic!("Failed to obtain stack trace")
+    };
+    assert!(stack.traces.len() >= 1);
 }
 
 #[test]
 fn stuckthread_begin_meta_fields_preserved() {
     let input = format!("{}{}", BEGIN_META, SMALL_STACKTRACE);
     let st = StuckThread::try_from(input.as_str()).unwrap();
-    match st.meta {
-        StuckThreadMeta::Begin(ref b) => {
+    match st.event {
+        Event::Begin(ref b, _) => {
             assert_eq!(b.thread_id, 226300);
             assert_eq!(b.active_duration_ms, 19273);
         }
@@ -300,15 +300,14 @@ fn stuckthread_end_no_stacktrace() {
     let result = StuckThread::try_from(input);
     assert!(result.is_ok(), "failed: {result:?}");
     let st = result.unwrap();
-    assert!(matches!(st.meta, StuckThreadMeta::End(_)));
-    assert!(st.st.is_none());
+    assert!(matches!(st.event, Event::End(_)));
 }
 
 #[test]
 fn stuckthread_end_fields_preserved() {
     let st = StuckThread::try_from(END_META_4_GROUPS).unwrap();
-    match st.meta {
-        StuckThreadMeta::End(ref e) => {
+    match st.event {
+        Event::End(ref e) => {
             assert_eq!(e.thread_id, 226293);
             assert_eq!(e.active_duration_ms, 27650);
             assert_eq!(e.active_monitor_count, 78);
@@ -332,8 +331,8 @@ fn stream_parse_single_end_record() {
     assert!(event.is_ok(), "Error parsing chunk {chunk:?} : {event:?}");
     let event = event.unwrap();
     println!("{event:?}");
-    match event.meta {
-        StuckThreadMeta::End(e) => {
+    match event.event {
+        Event::End(e) => {
             assert_eq!(e.thread_id, 226293);
             assert_eq!(e.active_monitor_count, 78);
             assert_eq!(e.active_duration_ms, 27650);
@@ -358,7 +357,7 @@ fn stream_parse_multiple_end_records() {
         let event = StuckThread::try_from(chunk);
         assert!(event.is_ok());
         let event = event.unwrap();
-        let StuckThreadMeta::End(_) = event.meta else {
+        let Event::End(_) = event.event else {
             panic!("Expected StuckThreadMetaEnd")
         };
 
@@ -402,7 +401,7 @@ fn parse_comma_separated_i64() {
         "10",
         "100",
     ];
-    let result = MetaBegin::try_from(groups).unwrap();
+    let result = Begin::try_from(groups).unwrap();
     assert_eq!(result.active_duration_ms, 1234567);
     assert_eq!(result.thread_id, 999999);
 }
@@ -418,7 +417,7 @@ fn parse_duration_no_comma() {
         "10",
         "1",
     ];
-    let result = MetaBegin::try_from(groups).unwrap();
+    let result = Begin::try_from(groups).unwrap();
     assert_eq!(result.active_duration_ms, 500);
 }
 
@@ -426,7 +425,7 @@ fn parse_duration_no_comma() {
 fn end_with_empty_thread_name() {
     // Real end records have empty thread names []
     let groups = vec!["", "42", "1,000", "5"];
-    let result = MetaEnd::try_from(groups).unwrap();
+    let result = End::try_from(groups).unwrap();
     assert_eq!(result.thread_name, "");
     assert_eq!(result.thread_id, 42);
 }
@@ -478,8 +477,8 @@ fn stream_whitespace_only_yields_nothing() {
 fn meta_begin_start_is_before_header_time() {
     // For any Begin record, start must be strictly before (or equal to at 0ms) the header ts.
     // BEGIN_META has duration 19,273 ms so start must be before 15:52:17.284.
-    let meta = StuckThreadMeta::try_from(BEGIN_META).unwrap();
-    let StuckThreadMeta::Begin(b) = meta else {
+    let meta = Event::try_from(BEGIN_META).unwrap();
+    let Event::Begin(b, _) = meta else {
         panic!("expected Begin");
     };
     // header: 15:52:17 → start ≈ 15:51:58, so hour must still be 15 and minute 51
@@ -494,15 +493,21 @@ fn meta_begin_start_is_before_header_time() {
 #[test]
 fn meta_end_from_2_groups_fails() {
     let groups = vec!["name", "123"];
-    let result = MetaEnd::try_from(groups);
+    let result = End::try_from(groups);
     assert!(result.is_err());
-    assert!(matches!(result, Err(Parse::IncorrectMessageInfoCount { .. })));
+    assert!(matches!(
+        result,
+        Err(Parse::IncorrectMessageInfoCount { .. })
+    ));
 }
 
 #[test]
 fn meta_end_from_5_groups_fails() {
     let groups = vec!["a", "1", "100", "5", "extra"];
-    let result = MetaEnd::try_from(groups);
+    let result = End::try_from(groups);
     assert!(result.is_err());
-    assert!(matches!(result, Err(Parse::IncorrectMessageInfoCount { .. })));
+    assert!(matches!(
+        result,
+        Err(Parse::IncorrectMessageInfoCount { .. })
+    ));
 }

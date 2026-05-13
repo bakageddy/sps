@@ -12,7 +12,7 @@ use clap::Parser;
 use rmcp::{ServiceExt, transport};
 use sps::analysis::mcp::{AnalysisServer, init_db};
 use sps::database::Persistence;
-use sps::stuckthread::{StuckThread, StuckThreadMeta, StuckThreadStream};
+use sps::stuckthread::{StuckThread, Event, StuckThreadStream};
 use sps::threaddump::{ThreadDump, ThreadDumpStreamer};
 use sps::util::{self, map_file};
 use tracing::{debug, error, info, warn};
@@ -71,11 +71,11 @@ async fn main() -> util::Result<()> {
                 };
 
                 // AGGREGATE: stuckthread bi-events
-                match &event.meta {
-                    StuckThreadMeta::Begin(begin) => {
+                match &event.event {
+                    Event::Begin(begin, _) => {
                         buffer.insert(begin.thread_id, event);
                     }
-                    StuckThreadMeta::End(end) => {
+                    Event::End(end) => {
                         if !buffer.contains_key(&end.thread_id) {
                             debug!(
                                 "Cannot find start during aggregation, cannot find matching entry for event {end:?}"
