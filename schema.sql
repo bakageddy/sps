@@ -1,8 +1,10 @@
 PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = MEMORY;
+PRAGMA journal_mode = WAL;
 PRAGMA synchronous = OFF;
-PRAGMA cache_size = -64000;
+PRAGMA cache_size = -200000;
 PRAGMA temp_store = MEMORY;
+PRAGMA threads = 4;
+PRAGMA locking_mode = EXCLUSIVE;
 
 CREATE TABLE IF NOT EXISTS object(
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +30,7 @@ CREATE TABLE IF NOT EXISTS stacktrace_elements(
 	PRIMARY KEY (id, frame_idx),
 	FOREIGN KEY (id) REFERENCES stacktrace(id) DEFERRABLE INITIALLY DEFERRED,
 	FOREIGN KEY (object_id) REFERENCES object(id) DEFERRABLE INITIALLY DEFERRED
-);
+) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS stacktrace_elements_id_frame_idx ON stacktrace_elements(id, frame_idx);
 CREATE INDEX IF NOT EXISTS stacktrace_elements_object_id ON stacktrace_elements(object_id);
