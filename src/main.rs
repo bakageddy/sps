@@ -12,9 +12,9 @@ use clap::Parser;
 use rmcp::{ServiceExt, transport};
 use sps::analysis::mcp::{AnalysisServer, init_db};
 use sps::database::Persistence;
-use sps::stuckthread::{StuckThread, Event, StuckThreadStream};
+use sps::stuckthread::{Event, StuckThread, StuckThreadStream};
 use sps::threaddump::{ThreadDump, ThreadDumpStreamer};
-use sps::util::{self, map_file};
+use sps::util;
 use tracing::{debug, error, info, warn};
 
 #[tokio::main]
@@ -25,121 +25,108 @@ async fn main() -> util::Result<()> {
     let args = sps::arg::AppArgs::parse();
 
     if let Command::Parse { path, database } = args.command {
-        // TODO: Bake in schema into the executable
         if database.is_none() {
             warn!("No path provided for saving the result. Persisting in memory");
         }
 
-        let mut cnx = Persistence::init_db(database)?;
+        let mut cnx = Persistence::init_db(database.as_ref())?;
         let tx = cnx.transaction()?;
 
-        // WARN: Do not merge this and the following loop.
-        // Lifetimes of Binary Stuckthread events can be tied to different maps
-
+        info!("Starting memory mapping files from {path:?}");
         let sorted_stuckthreads = util::get_sorted_stuckthreads(&path)?;
-        let mut contents = vec![];
-        for entry in &sorted_stuckthreads {
-            let map = util::map_file(entry);
-            let map = match map {
-                Ok(map) => map,
-                Err(e) => {
-                    warn!("Cannot map file {:?} due to {e}", &entry);
-                    continue;
-                }
-            };
+        let maps = sorted_stuckthreads
+            .iter()
+            .filter_map(|e| {
+                util::map_file(e)
+                    .inspect_err(|er| warn!("cannot map file {:?} due to {er}", e))
+                    .ok()
+            })
+            .collect::<Vec<_>>();
+        info!("Finished mapping files from {path:?}");
 
-            contents.push(map);
-        }
+        let events = std::iter::zip(&sorted_stuckthreads, &maps)
+            .map(|(entry, m)| {
+                info!("Parsing stuckthread log: {entry:?}");
+                StuckThreadStream(m)
+            })
+            .flatten()
+            .map(StuckThread::try_from)
+            .filter_map(|ev| {
+                ev.inspect_err(|er| warn!("Error during parsing chunk {er:?}"))
+                    .ok()
+            })
+            .collect::<Vec<_>>();
+        info!("Finished Parsing {} stuckthread events", events.len());
 
-        let mut buffer: HashMap<u32, StuckThread> = HashMap::new();
-        let mut insert_count = 0;
-        for (map, entry) in std::iter::zip(&contents, &sorted_stuckthreads) {
-            info!("Parsing file {:?}", &entry);
-
-            for chunk in StuckThreadStream(map) {
-                // PARSE: Chunk
-                let event = StuckThread::try_from(chunk);
-                let event = match event {
-                    Ok(event) => event,
-                    Err(e) => {
-                        warn!(
-                            "Error during parsing chunk {:?} in {:?} : {e:?}",
-                            chunk, entry
-                        );
-                        continue;
-                    }
-                };
-
-                // AGGREGATE: stuckthread bi-events
-                match &event.event {
-                    Event::Begin(begin, _) => {
-                        buffer.insert(begin.thread_id, event);
-                    }
-                    Event::End(end) => {
-                        if !buffer.contains_key(&end.thread_id) {
-                            debug!(
-                                "Cannot find start during aggregation, cannot find matching entry for event {end:?}"
-                            );
-                            continue;
-                        }
-                        let begin = buffer
-                            .get(&end.thread_id)
-                            .expect("SAFETY: checked in if statement above");
-                        match Persistence::insert_stuckthread(&tx, begin, Some(&event)) {
-                            Ok(_) => {}
-                            Err(e) => warn!("Error during inserting stuckthread event: {e:?}"),
-                        }
-                        insert_count += 1;
-                        buffer.remove(&end.thread_id);
-                    }
-                };
-            }
-            info!("Finished Persisting stuckthread events for {:?}", &entry);
-        }
-
-        info!("Started Persisting leftover stuckthread events");
-        for (_, event) in buffer {
-            match Persistence::insert_stuckthread(&tx, &event, None) {
-                Ok(_) => {}
-                Err(e) => {
-                    warn!("Error during insert: {e:?}");
-                }
-            }
-            insert_count += 1;
-        }
-        info!("Finished Persisting leftover stuckthread events");
-        info!("Persisted {insert_count} stuckthread events");
 
         let threaddump_entries = util::get_sorted_threaddumps(&path)?;
+        let maps = threaddump_entries
+            .iter()
+            .filter_map(|ent| {
+                util::map_file(&ent)
+                    .inspect_err(|err| warn!("Failed to map file {ent:?} due to {err:?}"))
+                    .ok()
+            })
+            .collect::<Vec<_>>();
 
-        for entry in threaddump_entries {
-            let map = map_file(&entry)?;
-            info!("Parsing Thread Dumps from {entry:?}");
-            for chunk in ThreadDumpStreamer(&map) {
-                let chunk = chunk.trim();
-                if chunk.is_empty() {
-                    continue;
+        let dumps = std::iter::zip(&threaddump_entries, &maps)
+            .map(|(entry, map)| {
+                info!("Parsing threaddump log file: {entry:?}");
+                ThreadDumpStreamer(&map)
+            })
+            .flatten()
+            .map(|c| c.trim())
+            .filter(|c| !c.is_empty())
+            .filter_map(|c| {
+                ThreadDump::try_from(c)
+                    .inspect_err(|e| warn!("Cannot parse \"{}\" due to {e:?}", c))
+                    .ok()
+            })
+            .collect::<Vec<_>>();
+
+        let mut aggregate_count = 0;
+        let mut aggregator: HashMap<u32, StuckThread> = HashMap::new();
+        debug!("Started Aggregating Stuckthread events");
+        for event in events {
+            match &event.event {
+                Event::Begin(begin, _) => {
+                    aggregator.insert(begin.thread_id, event);
                 }
-
-                let dump = match ThreadDump::try_from(chunk) {
-                    Ok(dump) => dump,
-                    Err(e) => {
-                        warn!("Cannot parse {} due to {e:?}", &chunk[0..100]);
-                        continue;
+                Event::End(end) => {
+                    if let Some(begin) = aggregator.get(&end.thread_id) {
+                        let _ = Persistence::insert_stuckthread(&tx, begin, Some(&event))
+                            .inspect_err(|e| {
+                                warn!("Error during inserting stuckthread event: {e:?}")
+                            });
+                        aggregate_count += 1;
+                        aggregator.remove(&end.thread_id);
+                    } else {
+                        debug!(
+                            "Cannot find start during aggregation, cannot find matching entry for event {end:?}"
+                        );
                     }
-                };
-
-                match Persistence::insert_threaddump(&tx, &dump) {
-                    Ok(_) => {}
-                    Err(e) => warn!("ERROR during Persisting Threaddump: {e}"),
-                };
+                }
             }
-            info!("Finished Parsing and Persisting Thread Dumps from {entry:?}");
+        }
+
+        for (_, event) in aggregator {
+            let _ = Persistence::insert_stuckthread(&tx, &event, None)
+                .inspect_err(|e| warn!("Error during inserting stuckthread event: {e:?}"));
+        }
+
+        info!("Finished Persisting {aggregate_count} stuckthread events");
+
+
+        for dump in dumps {
+            let _ = Persistence::insert_threaddump(&tx, &dump)
+                .inspect_err(|e| warn!("Error during persisting thread dump: {e:?}"));
         }
 
         if let Err(e) = tx.commit() {
             warn!("Error during committing transaction: {e:?}");
         }
+
+        info!("Persisted Stuckthread events and Thread dumps from {path:?} to {:?}", database.unwrap_or("Memory".to_owned().into()))
     } else if let Command::MCP {
         stdio,
         bind,
@@ -159,7 +146,10 @@ async fn main() -> util::Result<()> {
         } else if let Some(raw_addr) = bind {
             let addr = Ipv4Addr::from_str(&raw_addr);
             if let Err(e) = addr {
-                error!("FAILED to parse {raw_addr} due to {}. Defaulting to localhost", e.to_string());
+                error!(
+                    "FAILED to parse {raw_addr} due to {}. Defaulting to localhost",
+                    e.to_string()
+                );
                 exit(1);
             }
             let addr = addr.unwrap_or(Ipv4Addr::LOCALHOST);
@@ -191,7 +181,9 @@ async fn main() -> util::Result<()> {
             exit(1);
         }
     } else if let Command::Web = args.command {
-        error!("Web Server not yet implemented in this version. Update to the latest version (if any)");
+        error!(
+            "Web Server not yet implemented in this version. Update to the latest version (if any)"
+        );
     }
     Ok(())
 }
