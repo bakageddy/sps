@@ -1,6 +1,6 @@
 use rusqlite::{OptionalExtension, Rows};
 use schemars::JsonSchema;
-use sea_query::{Asterisk, Expr, Func, Order, OrderedStatement, Query, SqliteQueryBuilder};
+use sea_query::{Asterisk, Expr, Func, Order, Query, SqliteQueryBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use time::UtcDateTime;
@@ -370,7 +370,7 @@ impl StuckThread {
         i64,
         i64,
     )> {
-        let mut stmt = cnx.prepare_cached("SELECT name, request, start, active_duration_ms, stack_id, thread_id FROM stuckthread ORDER BY active_duration_ms LIMIT 1")?;
+        let mut stmt = cnx.prepare_cached("SELECT name, request, start, active_duration_ms, stack_id, thread_id FROM stuckthread ORDER BY active_duration_ms DESC LIMIT 1")?;
         let (name, request, start, active_ms, stack_id, thread_id): (
             Option<String>,
             Option<String>,
