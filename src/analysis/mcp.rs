@@ -18,7 +18,6 @@ use tracing::{debug, info};
 
 pub static DB: OnceLock<Arc<Mutex<Connection>>> = OnceLock::new();
 
-// NOTE: Provides the same connection many times using OnceLock
 pub fn init_db(cnx: Connection) {
     let cnx = Arc::new(Mutex::new(cnx));
     DB.set(cnx).expect("Failed to set DB connection pool")
@@ -346,5 +345,14 @@ optional filtering by time range and minimum duration."
         .await
         .map_err(|e| e.to_string())?;
         Ok(Json(TraceBulkResponse { response: output }))
+    }
+
+    #[tool(
+        name = "get_schema",
+        description = "Retrieves the schema of the underlying database"
+    )]
+    pub async fn get_schema(&self) -> String {
+        let schema = include_str!("../../schema.sql");
+        schema.to_owned()
     }
 }
