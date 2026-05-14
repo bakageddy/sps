@@ -1,5 +1,5 @@
 use crate::error::stacktrace::Parse;
-use crate::stacktrace::{StackTrace, StackTraceElement, StackTraceSource};
+use crate::stacktrace::{StackTrace, Element, StackTraceSource};
 
 #[test]
 fn source_native_method() {
@@ -111,7 +111,7 @@ fn source_empty_string() {
 #[test]
 fn element_standard_frame() {
     let input = "com.adventnet.persistence.DataAccess.get(DataAccess.java:2337)";
-    let result = StackTraceElement::try_from(input).unwrap();
+    let result = Element::try_from(input).unwrap();
     assert_eq!(result.function_name, "com.adventnet.persistence.DataAccess.get");
     match result.stacktrace_source {
         StackTraceSource::FileName { file, line } => {
@@ -125,7 +125,7 @@ fn element_standard_frame() {
 #[test]
 fn element_native_method() {
     let input = "jdk.internal.misc.Unsafe.park(Native Method)";
-    let result = StackTraceElement::try_from(input).unwrap();
+    let result = Element::try_from(input).unwrap();
     assert_eq!(result.function_name, "jdk.internal.misc.Unsafe.park");
     assert!(matches!(result.stacktrace_source, StackTraceSource::NativeMethod));
 }
@@ -133,7 +133,7 @@ fn element_native_method() {
 #[test]
 fn element_unknown_source() {
     let input = "java.util.concurrent.locks.LockSupport.parkNanos(Unknown Source)";
-    let result = StackTraceElement::try_from(input).unwrap();
+    let result = Element::try_from(input).unwrap();
     assert_eq!(
         result.function_name,
         "java.util.concurrent.locks.LockSupport.parkNanos"
@@ -146,7 +146,7 @@ fn element_with_module_prefix() {
     // JDK frames with java.base@17.0.17/ prefix
     let input =
         "java.base@17.0.17/jdk.internal.misc.Unsafe.park(Native Method)";
-    let result = StackTraceElement::try_from(input).unwrap();
+    let result = Element::try_from(input).unwrap();
     // The module prefix is included in function_name (parser doesn't strip it)
     assert_eq!(
         result.function_name,
@@ -158,7 +158,7 @@ fn element_with_module_prefix() {
 #[test]
 fn element_lambda_unknown_source() {
     let input = "com.adventnet.mfw.bean.BeanProxy$$Lambda$395/0x000001cf92566e40.call(Unknown Source)";
-    let result = StackTraceElement::try_from(input).unwrap();
+    let result = Element::try_from(input).unwrap();
     assert_eq!(
         result.function_name,
         "com.adventnet.mfw.bean.BeanProxy$$Lambda$395/0x000001cf92566e40.call"
@@ -169,7 +169,7 @@ fn element_lambda_unknown_source() {
 #[test]
 fn element_jdk_proxy() {
     let input = "jdk.proxy3/jdk.proxy3.$Proxy45.get(Unknown Source)";
-    let result = StackTraceElement::try_from(input).unwrap();
+    let result = Element::try_from(input).unwrap();
     assert_eq!(result.function_name, "jdk.proxy3/jdk.proxy3.$Proxy45.get");
     assert!(matches!(result.stacktrace_source, StackTraceSource::UnknownSource));
 }
@@ -177,7 +177,7 @@ fn element_jdk_proxy() {
 #[test]
 fn element_generated_method_accessor() {
     let input = "jdk.internal.reflect.GeneratedMethodAccessor112.invoke(Unknown Source)";
-    let result = StackTraceElement::try_from(input).unwrap();
+    let result = Element::try_from(input).unwrap();
     assert_eq!(
         result.function_name,
         "jdk.internal.reflect.GeneratedMethodAccessor112.invoke"
@@ -188,20 +188,20 @@ fn element_generated_method_accessor() {
 #[test]
 fn element_no_parens() {
     let input = "some.function.without.parens";
-    let result = StackTraceElement::try_from(input);
+    let result = Element::try_from(input);
     assert!(result.is_err());
 }
 
 #[test]
 fn element_empty_input() {
-    let result = StackTraceElement::try_from("");
+    let result = Element::try_from("");
     assert!(result.is_err());
 }
 
 #[test]
 fn element_servlet_frame() {
     let input = "javax.servlet.http.HttpServlet.service(HttpServlet.java:529)";
-    let result = StackTraceElement::try_from(input).unwrap();
+    let result = Element::try_from(input).unwrap();
     assert_eq!(result.function_name, "javax.servlet.http.HttpServlet.service");
     match result.stacktrace_source {
         StackTraceSource::FileName { file, line } => {
@@ -215,7 +215,7 @@ fn element_servlet_frame() {
 #[test]
 fn element_tomcat_filter_chain() {
     let input = "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:197)";
-    let result = StackTraceElement::try_from(input).unwrap();
+    let result = Element::try_from(input).unwrap();
     assert_eq!(
         result.function_name,
         "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter"
@@ -503,7 +503,7 @@ fn stacktrace_at_not_found_after_whitespace_skip() {
 #[test]
 fn element_missing_close_paren() {
     // Has open paren but no close paren → ParseError
-    let result = StackTraceElement::try_from("some.method(Native Method");
+    let result = Element::try_from("some.method(Native Method");
     assert!(result.is_err());
 }
 
