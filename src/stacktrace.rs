@@ -4,7 +4,7 @@ use crate::scanner::Scanner;
 #[derive(Debug)]
 #[derive(Default)]
 pub struct StackTrace<'a> {
-    pub traces: Vec<StackTraceElement<'a>>,
+    pub traces: Vec<Element<'a>>,
 }
 
 
@@ -25,7 +25,7 @@ impl<'a> TryFrom<&'a str> for StackTrace<'a> {
             };
             scanner.skip_whitespace();
 
-            let result = StackTraceElement::try_from(line)?;
+            let result = Element::try_from(line)?;
             st.traces.push(result);
         }
 
@@ -34,12 +34,12 @@ impl<'a> TryFrom<&'a str> for StackTrace<'a> {
 }
 
 #[derive(Debug)]
-pub struct StackTraceElement<'a> {
+pub struct Element<'a> {
     pub function_name: &'a str,
     pub stacktrace_source: StackTraceSource<'a>,
 }
 
-impl<'a> StackTraceElement<'a> {
+impl<'a> Element<'a> {
     pub fn new(function_name: &'a str, stacktrace_source: StackTraceSource<'a>) -> Self {
         Self {
             function_name,
@@ -48,7 +48,7 @@ impl<'a> StackTraceElement<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a str> for StackTraceElement<'a> {
+impl<'a> TryFrom<&'a str> for Element<'a> {
     type Error = Parse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
@@ -57,7 +57,7 @@ impl<'a> TryFrom<&'a str> for StackTraceElement<'a> {
         let function_name = scanner.take_until_inclusive("(").ok_or(Parse::ParenNotFound)?;
         let raw_source = scanner.take_within("(", ")").map_err(|_| Parse::ParenNotFound)?;
         let parsed_source = StackTraceSource::try_from(raw_source)?;
-        Ok(StackTraceElement::new(function_name, parsed_source))
+        Ok(Element::new(function_name, parsed_source))
     }
 }
 
@@ -79,7 +79,7 @@ impl<'a> TryFrom<&'a str> for StackTraceSource<'a> {
             _ => {}
         };
 
-        if value.contains('$') {
+        if value.contains('$') || !value.contains(':') {
             return Ok(StackTraceSource::Generated { inner: value });
         }
 
