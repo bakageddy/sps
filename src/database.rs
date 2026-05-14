@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::query::{self};
 use sea_query::{Query, SqliteQueryBuilder};
 use tracing::warn;
@@ -15,7 +13,10 @@ pub struct Persistence;
 
 impl Persistence {
     // TODO: bake in schema into the executable
-    pub fn init_db(path: Option<PathBuf>) -> util::Result<rusqlite::Connection> {
+    pub fn init_db<P>(path: Option<P>) -> util::Result<rusqlite::Connection>
+    where
+        P: AsRef<std::path::Path>,
+    {
         let schema = include_str!("../schema.sql");
 
         let cnx = if let Some(path) = path {
@@ -46,18 +47,7 @@ impl Persistence {
         tx: &rusqlite::Transaction,
         stack: &crate::stacktrace::StackTrace,
     ) -> rusqlite::Result<i64> {
-        let query = Query::insert()
-            .into_table(query::StackTraceElements::Table)
-            .columns([
-                query::StackTraceElements::ID,
-                query::StackTraceElements::FrameIndex,
-                query::StackTraceElements::Method,
-                query::StackTraceElements::FrameSource,
-                query::StackTraceElements::LineNumber,
-            ])
-            .values_panic([0.into(), 0.into(), "".into(), "".into(), "".into()])
-            .build(SqliteQueryBuilder)
-            .0;
+        let query = "INSERT INTO stacktrace_elements(id, frame_idx, method, frame_source, line_number) VALUES (?, ?, ?, ?, ?);";
         let id = Persistence::insert_stacktrace(tx)?;
         let mut elems = tx.prepare_cached(&query)?;
         for (i, elem) in (0..).zip(stack.traces.iter()) {
@@ -89,6 +79,7 @@ impl Persistence {
             .into_table(query::StuckThread::Table)
             .columns([
                 query::StuckThread::ThreadID,
+                query::StuckThread::Start,
                 query::StuckThread::Name,
                 query::StuckThread::Request,
                 query::StuckThread::ActiveDurationMS,
@@ -97,6 +88,7 @@ impl Persistence {
                 query::StuckThread::StackID,
             ])
             .values_panic([
+                "".into(),
                 "".into(),
                 "".into(),
                 "".into(),
