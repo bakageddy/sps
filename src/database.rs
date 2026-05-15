@@ -26,9 +26,6 @@ impl Persistence {
         };
 
         cnx.execute_batch(schema)?;
-        cnx.execute_batch(
-            r#"PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -64000; PRAGMA temp_store = MEMORY;"#,
-        )?;
         Ok(cnx)
     }
 
