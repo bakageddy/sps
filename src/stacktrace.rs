@@ -35,15 +35,15 @@ impl<'a> TryFrom<&'a str> for StackTrace<'a> {
 
 #[derive(Debug)]
 pub struct Element<'a> {
-    pub function_name: &'a str,
-    pub stacktrace_source: StackTraceSource<'a>,
+    pub method: &'a str,
+    pub source: StackTraceSource<'a>,
 }
 
 impl<'a> Element<'a> {
-    pub fn new(function_name: &'a str, stacktrace_source: StackTraceSource<'a>) -> Self {
+    pub fn new(method: &'a str, source: StackTraceSource<'a>) -> Self {
         Self {
-            function_name,
-            stacktrace_source,
+            method,
+            source,
         }
     }
 }

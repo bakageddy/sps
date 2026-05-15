@@ -9,6 +9,7 @@ pub mod error;
 pub mod query;
 
 pub mod analysis;
+pub mod persistence;
 
 #[cfg(test)]
 mod tests;

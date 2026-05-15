@@ -112,8 +112,8 @@ fn source_empty_string() {
 fn element_standard_frame() {
     let input = "com.adventnet.persistence.DataAccess.get(DataAccess.java:2337)";
     let result = Element::try_from(input).unwrap();
-    assert_eq!(result.function_name, "com.adventnet.persistence.DataAccess.get");
-    match result.stacktrace_source {
+    assert_eq!(result.method, "com.adventnet.persistence.DataAccess.get");
+    match result.source {
         StackTraceSource::FileName { file, line } => {
             assert_eq!(file, "DataAccess.java");
             assert_eq!(line, 2337);
@@ -126,8 +126,8 @@ fn element_standard_frame() {
 fn element_native_method() {
     let input = "jdk.internal.misc.Unsafe.park(Native Method)";
     let result = Element::try_from(input).unwrap();
-    assert_eq!(result.function_name, "jdk.internal.misc.Unsafe.park");
-    assert!(matches!(result.stacktrace_source, StackTraceSource::NativeMethod));
+    assert_eq!(result.method, "jdk.internal.misc.Unsafe.park");
+    assert!(matches!(result.source, StackTraceSource::NativeMethod));
 }
 
 #[test]
@@ -135,10 +135,10 @@ fn element_unknown_source() {
     let input = "java.util.concurrent.locks.LockSupport.parkNanos(Unknown Source)";
     let result = Element::try_from(input).unwrap();
     assert_eq!(
-        result.function_name,
+        result.method,
         "java.util.concurrent.locks.LockSupport.parkNanos"
     );
-    assert!(matches!(result.stacktrace_source, StackTraceSource::UnknownSource));
+    assert!(matches!(result.source, StackTraceSource::UnknownSource));
 }
 
 #[test]
@@ -149,10 +149,10 @@ fn element_with_module_prefix() {
     let result = Element::try_from(input).unwrap();
     // The module prefix is included in function_name (parser doesn't strip it)
     assert_eq!(
-        result.function_name,
+        result.method,
         "java.base@17.0.17/jdk.internal.misc.Unsafe.park"
     );
-    assert!(matches!(result.stacktrace_source, StackTraceSource::NativeMethod));
+    assert!(matches!(result.source, StackTraceSource::NativeMethod));
 }
 
 #[test]
@@ -160,18 +160,18 @@ fn element_lambda_unknown_source() {
     let input = "com.adventnet.mfw.bean.BeanProxy$$Lambda$395/0x000001cf92566e40.call(Unknown Source)";
     let result = Element::try_from(input).unwrap();
     assert_eq!(
-        result.function_name,
+        result.method,
         "com.adventnet.mfw.bean.BeanProxy$$Lambda$395/0x000001cf92566e40.call"
     );
-    assert!(matches!(result.stacktrace_source, StackTraceSource::UnknownSource));
+    assert!(matches!(result.source, StackTraceSource::UnknownSource));
 }
 
 #[test]
 fn element_jdk_proxy() {
     let input = "jdk.proxy3/jdk.proxy3.$Proxy45.get(Unknown Source)";
     let result = Element::try_from(input).unwrap();
-    assert_eq!(result.function_name, "jdk.proxy3/jdk.proxy3.$Proxy45.get");
-    assert!(matches!(result.stacktrace_source, StackTraceSource::UnknownSource));
+    assert_eq!(result.method, "jdk.proxy3/jdk.proxy3.$Proxy45.get");
+    assert!(matches!(result.source, StackTraceSource::UnknownSource));
 }
 
 #[test]
@@ -179,10 +179,10 @@ fn element_generated_method_accessor() {
     let input = "jdk.internal.reflect.GeneratedMethodAccessor112.invoke(Unknown Source)";
     let result = Element::try_from(input).unwrap();
     assert_eq!(
-        result.function_name,
+        result.method,
         "jdk.internal.reflect.GeneratedMethodAccessor112.invoke"
     );
-    assert!(matches!(result.stacktrace_source, StackTraceSource::UnknownSource));
+    assert!(matches!(result.source, StackTraceSource::UnknownSource));
 }
 
 #[test]
@@ -202,8 +202,8 @@ fn element_empty_input() {
 fn element_servlet_frame() {
     let input = "javax.servlet.http.HttpServlet.service(HttpServlet.java:529)";
     let result = Element::try_from(input).unwrap();
-    assert_eq!(result.function_name, "javax.servlet.http.HttpServlet.service");
-    match result.stacktrace_source {
+    assert_eq!(result.method, "javax.servlet.http.HttpServlet.service");
+    match result.source {
         StackTraceSource::FileName { file, line } => {
             assert_eq!(file, "HttpServlet.java");
             assert_eq!(line, 529);
@@ -217,10 +217,10 @@ fn element_tomcat_filter_chain() {
     let input = "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:197)";
     let result = Element::try_from(input).unwrap();
     assert_eq!(
-        result.function_name,
+        result.method,
         "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter"
     );
-    match result.stacktrace_source {
+    match result.source {
         StackTraceSource::FileName { file, line } => {
             assert_eq!(file, "ApplicationFilterChain.java");
             assert_eq!(line, 197);
@@ -243,11 +243,11 @@ java.lang.Throwable
     let result = StackTrace::try_from(input).unwrap();
     assert_eq!(result.traces.len(), 2);
     assert!(matches!(
-        result.traces[0].stacktrace_source,
+        result.traces[0].source,
         StackTraceSource::NativeMethod
     ));
     assert!(matches!(
-        result.traces[1].stacktrace_source,
+        result.traces[1].source,
         StackTraceSource::UnknownSource
     ));
 }
@@ -269,12 +269,12 @@ java.lang.Throwable
 
     // First frame: native method
     assert!(matches!(
-        result.traces[0].stacktrace_source,
+        result.traces[0].source,
         StackTraceSource::NativeMethod
     ));
 
     // Last frame: filename with line
-    match &result.traces[6].stacktrace_source {
+    match &result.traces[6].source {
         StackTraceSource::FileName { file, line } => {
             assert_eq!(*file, "ConnectionPool.java");
             assert_eq!(*line, 186);
@@ -294,10 +294,10 @@ java.lang.Throwable
 ";
     let result = StackTrace::try_from(input).unwrap();
     assert_eq!(result.traces.len(), 4);
-    assert!(matches!(result.traces[0].stacktrace_source, StackTraceSource::NativeMethod));
-    assert!(matches!(result.traces[1].stacktrace_source, StackTraceSource::UnknownSource));
-    assert!(matches!(result.traces[2].stacktrace_source, StackTraceSource::FileName { .. }));
-    assert!(matches!(result.traces[3].stacktrace_source, StackTraceSource::UnknownSource));
+    assert!(matches!(result.traces[0].source, StackTraceSource::NativeMethod));
+    assert!(matches!(result.traces[1].source, StackTraceSource::UnknownSource));
+    assert!(matches!(result.traces[2].source, StackTraceSource::FileName { .. }));
+    assert!(matches!(result.traces[3].source, StackTraceSource::UnknownSource));
 }
 
 #[test]
@@ -336,7 +336,7 @@ java.lang.Throwable
     let result = StackTrace::try_from(input).unwrap();
     assert_eq!(result.traces.len(), 1);
     assert_eq!(
-        result.traces[0].function_name,
+        result.traces[0].method,
         "javax.servlet.http.HttpServlet.service"
     );
 }
@@ -356,9 +356,9 @@ fn stacktrace_deep_trace() {
     assert_eq!(result.traces.len(), 30);
 
     // Spot-check first and last
-    assert_eq!(result.traces[0].function_name, "com.example.Class0.method0");
-    assert_eq!(result.traces[29].function_name, "com.example.Class29.method29");
-    match &result.traces[29].stacktrace_source {
+    assert_eq!(result.traces[0].method, "com.example.Class0.method0");
+    assert_eq!(result.traces[29].method, "com.example.Class29.method29");
+    match &result.traces[29].source {
         StackTraceSource::FileName { file, line } => {
             assert_eq!(*file, "Class29.java");
             assert_eq!(*line, 291);
@@ -410,7 +410,7 @@ java.lang.Throwable
 ";
     let result = StackTrace::try_from(input).unwrap();
     assert_eq!(result.traces.len(), 3);
-    match &result.traces[0].stacktrace_source {
+    match &result.traces[0].source {
         StackTraceSource::FileName { file, line } => {
             assert_eq!(*file, "WsFilter.java");
             assert_eq!(*line, 51);
@@ -437,16 +437,16 @@ java.lang.Throwable
 
     // Verify the module-prefixed frame
     assert_eq!(
-        result.traces[0].function_name,
+        result.traces[0].method,
         "java.base@17.0.17/jdk.internal.misc.Unsafe.park"
     );
 
     // Verify application frame
     assert_eq!(
-        result.traces[2].function_name,
+        result.traces[2].method,
         "com.zoho.cp.ObjectStack.acquirePermitAndPollLastElement"
     );
-    match &result.traces[2].stacktrace_source {
+    match &result.traces[2].source {
         StackTraceSource::FileName { file, line } => {
             assert_eq!(*file, "ObjectStack.java");
             assert_eq!(*line, 23);

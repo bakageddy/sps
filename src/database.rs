@@ -26,9 +26,6 @@ impl Persistence {
         };
 
         cnx.execute_batch(schema)?;
-        cnx.execute_batch(
-            r#"PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -64000; PRAGMA temp_store = MEMORY;"#,
-        )?;
         Ok(cnx)
     }
 
@@ -51,14 +48,14 @@ impl Persistence {
         let id = Persistence::insert_stacktrace(tx)?;
         let mut elems = tx.prepare_cached(&query)?;
         for (i, elem) in (0..).zip(stack.traces.iter()) {
-            let (frame_source, line_number) = match elem.stacktrace_source {
+            let (frame_source, line_number) = match elem.source {
                 stacktrace::StackTraceSource::NativeMethod => ("NativeMethod", None),
                 stacktrace::StackTraceSource::UnknownSource => ("UnknownSource", None),
                 stacktrace::StackTraceSource::FileName { file, line } => (file, Some(line as i64)),
                 stacktrace::StackTraceSource::Generated { inner } => (inner, None),
             };
 
-            elems.insert((id, i, elem.function_name, frame_source, line_number))?;
+            elems.insert((id, i, elem.method, frame_source, line_number))?;
         }
 
         Ok(id)

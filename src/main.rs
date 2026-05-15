@@ -2,6 +2,7 @@ use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
 use sps::arg::Command;
+use sps::persistence::store::Store;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::process::exit;
@@ -17,8 +18,8 @@ use sps::threaddump::{ThreadDump, ThreadDumpStreamer};
 use sps::util;
 use tracing::{debug, error, info, warn};
 
-#[tokio::main]
-async fn main() -> util::Result<()> {
+// #[tokio::main]
+fn main() -> util::Result<()> {
     tracing_subscriber::fmt().init();
 
     info!("Parsing Application Arguements: {:?}", std::env::args());
@@ -29,8 +30,14 @@ async fn main() -> util::Result<()> {
             warn!("No path provided for saving the result. Persisting in memory");
         }
 
-        let mut cnx = Persistence::init_db(database.as_ref())?;
+        // let mut cnx = Persistence::init_db(database.as_ref())?;
+        // let tx = cnx.transaction()?;
+
+        let mut cnx = Store::open(database.as_ref())?;
+        let _ = Store::schema(&cnx)?;
         let tx = cnx.transaction()?;
+        let mut stacktrace_elements_appender = tx.appender("stacktrace_elements")?;
+        let mut stuckthread_appender = tx.appender("stuckthread")?;
 
         info!("Starting memory mapping files from {path:?}");
         let sorted_stuckthreads = util::get_sorted_stuckthreads(&path)?;
@@ -57,7 +64,6 @@ async fn main() -> util::Result<()> {
             })
             .collect::<Vec<_>>();
         info!("Finished Parsing {} stuckthread events", events.len());
-
 
         let threaddump_entries = util::get_sorted_threaddumps(&path)?;
         let maps = threaddump_entries
@@ -94,10 +100,22 @@ async fn main() -> util::Result<()> {
                 }
                 Event::End(end) => {
                     if let Some(begin) = aggregator.get(&end.thread_id) {
-                        let _ = Persistence::insert_stuckthread(&tx, begin, Some(&event))
-                            .inspect_err(|e| {
-                                warn!("Error during inserting stuckthread event: {e:?}")
-                            });
+                        let Event::Begin(ref begin, ref st) = begin.event else {
+                            panic!("Unreachable")
+                        };
+                        let _ = Store::insert_stuckthread(
+                            &mut stuckthread_appender,
+                            &tx,
+                            &mut stacktrace_elements_appender,
+                            &begin,
+                            &st,
+                            Some(&end),
+                        )
+                        .inspect_err(|e| warn!("Error during inserting stuckthread event: {e:?}"));
+                        // let _ = Persistence::insert_stuckthread(&tx, begin, Some(&event))
+                        //     .inspect_err(|e| {
+                        //         warn!("Error during inserting stuckthread event: {e:?}")
+                        //     });
                         aggregate_count += 1;
                         aggregator.remove(&end.thread_id);
                     } else {
@@ -110,80 +128,92 @@ async fn main() -> util::Result<()> {
         }
 
         for (_, event) in aggregator {
-            let _ = Persistence::insert_stuckthread(&tx, &event, None)
+            let Event::Begin(begin, st) = event.event else {
+                panic!("Unreachable")
+            };
+            let _ = Store::insert_stuckthread(&mut stuckthread_appender, &tx, &mut stacktrace_elements_appender, &begin, &st, None)
                 .inspect_err(|e| warn!("Error during inserting stuckthread event: {e:?}"));
         }
+        stacktrace_elements_appender.flush()?;
+        stuckthread_appender.flush()?;
+        drop(stuckthread_appender);
+        drop(stacktrace_elements_appender);
 
         info!("Finished Persisting {aggregate_count} stuckthread events");
 
-
-        for dump in dumps {
-            let _ = Persistence::insert_threaddump(&tx, &dump)
-                .inspect_err(|e| warn!("Error during persisting thread dump: {e:?}"));
-        }
+        // for dump in dumps {
+        //     let _ = Persistence::insert_threaddump(&tx, &dump)
+        //         .inspect_err(|e| warn!("Error during persisting thread dump: {e:?}"));
+        // }
 
         if let Err(e) = tx.commit() {
             warn!("Error during committing transaction: {e:?}");
         }
 
-        info!("Persisted Stuckthread events and Thread dumps from {path:?} to {:?}", database.unwrap_or("Memory".to_owned().into()))
-    } else if let Command::MCP {
-        stdio,
-        bind,
-        database,
-        port,
-    } = args.command
-    {
-        let cnx = Persistence::init_db(database.into())?;
-        init_db(cnx);
-        if stdio {
-            info!("Starting MCP Server with stdio");
-            AnalysisServer::new()
-                .serve(transport::stdio())
-                .await
-                .unwrap();
-            info!("Stopped MCP Server with stdout");
-        } else if let Some(raw_addr) = bind {
-            let addr = Ipv4Addr::from_str(&raw_addr);
-            if let Err(e) = addr {
-                error!(
-                    "FAILED to parse {raw_addr} due to {}. Defaulting to localhost",
-                    e.to_string()
-                );
-                exit(1);
-            }
-            let addr = addr.unwrap_or(Ipv4Addr::LOCALHOST);
-            let port = port.unwrap_or(8080);
-
-            let listener = match TcpListener::bind((addr, port)).await {
-                Ok(l) => l,
-                Err(e) => {
-                    error!("Cannot bind to {addr}:{port} due to {e:?}");
-                    exit(1);
-                }
-            };
-
-            let mcp_service = StreamableHttpService::new(
-                || Ok(AnalysisServer::new()),
-                LocalSessionManager::default().into(),
-                Default::default(),
-            );
-
-            // let service = StreamableHttpService::new(service_factory, session_manager, )
-            let router = axum::Router::new().route_service("/mcp", mcp_service);
-            info!("Starting MCP Server on {addr}:{port}");
-            axum::serve(listener, router).await.unwrap();
-            info!("Stopped MCP Server on {addr}:{port}");
-        } else {
-            error!(
-                "--stdio must be provided or --bind should be provided to start the mcp server in stdio or http sse server. Exiting"
-            );
-            exit(1);
-        }
-    } else if let Command::Web = args.command {
-        error!(
-            "Web Server not yet implemented in this version. Update to the latest version (if any)"
-        );
+        info!(
+            "Persisted Stuckthread events and Thread dumps from {path:?} to {:?}",
+            database.unwrap_or("Memory".to_owned().into())
+        )
+    } else {
+        todo!()
     }
+    // } else if let Command::MCP {
+    //     stdio,
+    //     bind,
+    //     database,
+    //     port,
+    // } = args.command
+    // {
+    //     let cnx = Persistence::init_db(database.into())?;
+    //     init_db(cnx);
+    //     if stdio {
+    //         info!("Starting MCP Server with stdio");
+    //         AnalysisServer::new()
+    //             .serve(transport::stdio())
+    //             .await
+    //             .unwrap();
+    //         info!("Stopped MCP Server with stdout");
+    //     } else if let Some(raw_addr) = bind {
+    //         let addr = Ipv4Addr::from_str(&raw_addr);
+    //         if let Err(e) = addr {
+    //             error!(
+    //                 "FAILED to parse {raw_addr} due to {}. Defaulting to localhost",
+    //                 e.to_string()
+    //             );
+    //             exit(1);
+    //         }
+    //         let addr = addr.unwrap_or(Ipv4Addr::LOCALHOST);
+    //         let port = port.unwrap_or(8080);
+    //
+    //         let listener = match TcpListener::bind((addr, port)).await {
+    //             Ok(l) => l,
+    //             Err(e) => {
+    //                 error!("Cannot bind to {addr}:{port} due to {e:?}");
+    //                 exit(1);
+    //             }
+    //         };
+    //
+    //         let mcp_service = StreamableHttpService::new(
+    //             || Ok(AnalysisServer::new()),
+    //             LocalSessionManager::default().into(),
+    //             Default::default(),
+    //         );
+    //
+    //         // let service = StreamableHttpService::new(service_factory, session_manager, )
+    //         let router = axum::Router::new().route_service("/mcp", mcp_service);
+    //         info!("Starting MCP Server on {addr}:{port}");
+    //         axum::serve(listener, router).await.unwrap();
+    //         info!("Stopped MCP Server on {addr}:{port}");
+    //     } else {
+    //         error!(
+    //             "--stdio must be provided or --bind should be provided to start the mcp server in stdio or http sse server. Exiting"
+    //         );
+    //         exit(1);
+    //     }
+    // } else if let Command::Web = args.command {
+    //     error!(
+    //         "Web Server not yet implemented in this version. Update to the latest version (if any)"
+    //     );
+    // }
     Ok(())
 }

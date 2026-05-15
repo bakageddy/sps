@@ -8,6 +8,8 @@ pub enum Error {
     Clap(#[from] clap::Error),
     #[error("Error with SQLITE3: {0:?}")]
     Rusqlite(#[from] rusqlite::Error),
+    #[error("Error with DuckDB: {0:?}")]
+    DuckDB(#[from] duckdb::Error),
     #[error("Error during I/O: {0:?}")]
     IO(#[from] std::io::Error),
     #[error("Error with MCP communication/configuration/parameters: {0:?}")]
