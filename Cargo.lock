@@ -2408,6 +2408,7 @@ dependencies = [
  "axum",
  "clap",
  "duckdb",
+ "memchr",
  "memmap2",
  "rmcp",
  "rusqlite",

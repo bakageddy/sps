@@ -25,6 +25,8 @@ pub mod mcp {
 }
 
 pub mod scanner {
+    use std::borrow::Cow;
+
     use thiserror::Error;
 
     #[derive(Debug, Error, PartialEq, Eq)]
@@ -57,8 +59,6 @@ pub mod threaddump {
     pub enum Parse {
         #[error("Error parsing thread dump: Missing '@'")]
         MissingCommat,
-        #[error("Error parsing object id: unexpected input: {got:?}")]
-        HexUnexpectedInput { got: String },
         #[error("Missing open paren")]
         OpenParenNotFound,
         #[error("Missing close paren")]
@@ -67,8 +67,6 @@ pub mod threaddump {
         LockedNotFound,
         #[error("Colon (:) not found")]
         ColonNotFound,
-        #[error("Error during parsing line number in function frame: {0:?}")]
-        InvalidLineNumber(#[from] std::num::ParseIntError),
         #[error("Error during parsing thread state: Thread state preamble not found")]
         ExpectedPreamble,
         #[error("Error during parsing thread state: Unexpected thread state")]
@@ -176,6 +174,8 @@ pub mod stuckthread {
 }
 
 pub mod stacktrace {
+    use std::str::Utf8Error;
+
     // use std::path::PathBuf;
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
@@ -200,5 +200,13 @@ pub mod stacktrace {
         LineNumber,
         #[error("Error during stacktrace element source parsing: Cannot find colon")]
         ColonNotFound,
+        #[error("Error during stacktrace element source parsing: Cannot find @")]
+        MissingCommat,
+        #[error("Error during stacktrace element source parsing: Cannot convert to UTF8 {0:?}")]
+        UTF8Conversion(#[from] Utf8Error),
+        #[error("Error parsing object id: unexpected input: {got:?}")]
+        HexUnexpectedInput { got: String },
+        #[error("Error during parsing line number in function frame: {0:?}")]
+        InvalidLineNumber(#[from] std::num::ParseIntError),
     }
 }

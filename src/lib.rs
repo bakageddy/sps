@@ -1,4 +1,4 @@
-pub mod scanner;
+// pub mod scanner;
 pub mod stacktrace;
 pub mod stuckthread;
 pub mod threaddump;
@@ -10,6 +10,8 @@ pub mod query;
 
 pub mod analysis;
 pub mod persistence;
+pub mod parser;
+pub mod ingest;
 
 #[cfg(test)]
 mod tests;

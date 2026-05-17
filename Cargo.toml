@@ -2,11 +2,13 @@
 name = "sps"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95.0"
 
 [dependencies]
 axum = "0.8.9"
 clap = { version = "4.5.57", features = ["derive"] }
 duckdb = { version = "1.10502.0", features = ["bundled"] }
+memchr = "2.8.0"
 memmap2 = "0.9.10"
 rmcp = { version = "1.6.0", features = ["schemars", "macros", "transport-streamable-http-server", "transport-io"] }
 rusqlite = "0.38.0"

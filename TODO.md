@@ -10,6 +10,12 @@
 - [ ] Memory Dump Overview with memoryanalyzer
 - [ ] Integrate sea-query for queries.
 - [ ] Review Schema and Add appropriate indices after usage of the application
+- [ ] **Refactor: migrate storage from SQLite → DuckDB.** Workload is analytical (group-by stack, frame frequency, lock contention aggregates over millions of rows) — columnar engine is the right fit. Plan:
+    - Abstract DB access behind a trait (`Store`) so `rusqlite` and `duckdb` can coexist during transition.
+    - Port schema: drop `WITHOUT ROWID`, `DEFERRABLE` FKs, SQLite `PRAGMA`s; replace with DuckDB equivalents (no FKs needed for read-side).
+    - Re-tune ingestion: batch `Appender` API instead of row-by-row inserts.
+    - Keep `rusqlite` ingestion path as fallback initially; switch MCP read-side to DuckDB first (lowest risk — can `ATTACH` the existing `.db` as sqlite type and query from DuckDB).
+    - Re-bench aggregate MCP tools (`get_top_stacks_by_frequency`, `get_hot_frames`) before/after.
 
 ## TOOLS
 - [x] get_stuckthread_range

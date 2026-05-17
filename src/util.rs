@@ -1,7 +1,9 @@
 use std::fs;
 use std::io;
+use std::num::ParseIntError;
 use std::path::Path;
 use std::path::PathBuf;
+use memmap2::Advice;
 use time::PrimitiveDateTime;
 
 use memmap2::Mmap;
@@ -98,16 +100,29 @@ where
 {
     let handle = fs::File::open(path)?;
     let map = unsafe { memmap2::Mmap::map(&handle)? };
+    let _ = map.advise(Advice::WillNeed)?;
     Ok(map)
 }
 
+pub fn parse_u64(value: &[u8]) -> std::result::Result<u64, ParseIntError> {
+    String::from_utf8_lossy(value).parse()
+}
+
+pub fn parse_u32(value: &[u8]) -> std::result::Result<u32, ParseIntError> {
+    String::from_utf8_lossy(value).parse()
+}
+
+pub fn parse_comma_separated_u32(value: &[u8]) -> std::result::Result<u32, ParseIntError> {
+    String::from_utf8_lossy(value).replace(',', "").parse()
+}
+
 pub trait ToUnixMillis {
-    fn to_unix_millis(&self) -> Option<i64>;
+    fn to_unix_millis(&self) -> Option<u64>;
 }
 
 impl ToUnixMillis for PrimitiveDateTime {
-    fn to_unix_millis(&self) -> Option<i64> {
+    fn to_unix_millis(&self) -> Option<u64> {
         let result = self.assume_utc().unix_timestamp_nanos() / 1_000_000;
-        i64::try_from(result).ok()
+        u64::try_from(result).ok()
     }
 }
