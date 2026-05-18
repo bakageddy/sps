@@ -32,14 +32,18 @@ impl<'a> TryFrom<&'a [u8]> for Trace<'a> {
 
     fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
-        scanner
-            .expect(b"java.lang.Throwable")
-            .map_err(|_| Parse::ThrowableNotFound)?;
-        scanner.skip_whitespace();
+        if scanner.peek_expect(b"java.lang.Throwable") {
+            let _ = scanner.expect(b"java.lang.Throwable");
+            scanner.skip_whitespace();
+        }
 
         let mut st = Trace::default();
+        st.0.reserve(50);
         while !scanner.is_empty() {
-            scanner.expect(b"at").map_err(|_| Parse::AtNotFound)?;
+            if scanner.peek_expect(b"at") {
+                let _ = scanner.expect(b"at");
+            }
+            scanner.skip_whitespace();
             let line = match scanner.take_until_inclusive(b"\n") {
                 Some(line) => line,
                 None => break,
@@ -96,7 +100,7 @@ impl<'a> TryFrom<&'a [u8]> for Object<'a> {
         let class = scanner.take_until(b"@").ok_or(Parse::MissingCommat)?;
         Ok(Object {
             class,
-            identity: Object::hex_to_u64(scanner.remaining())?,
+            identity: Object::hex_to_u64(scanner.remaining().trim_ascii())?,
         })
     }
 }

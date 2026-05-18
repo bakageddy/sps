@@ -1,7 +1,3 @@
-use std::path::Path;
-
-use crate::parser::stuckthread::StuckThread;
-
 pub struct StuckThreadIterator<'a>(pub &'a [u8]);
 
 impl<'a> Iterator for StuckThreadIterator<'a> {
