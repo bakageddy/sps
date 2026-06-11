@@ -1,7 +1,7 @@
 pub struct ThreadDumpIterator<'a>(pub &'a [u8]);
 
 impl<'a> Iterator for ThreadDumpIterator<'a> {
-    type Item = &'a [u8];
+    type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.trim_ascii().is_empty() {
@@ -25,6 +25,6 @@ impl<'a> Iterator for ThreadDumpIterator<'a> {
         let contents = &self.0[start..start + offset];
         self.0 = &self.0[start + offset..];
 
-        Some(contents)
+        str::from_utf8(contents).ok()
     }
 }

@@ -4,10 +4,7 @@ use crate::{
     util::{self, ToUnixMillis},
 };
 
-use time::{
-    Date, Duration, PrimitiveDateTime, Time, UtcDateTime,
-    macros::{datetime, format_description},
-};
+use time::{Date, PrimitiveDateTime, Time, macros::format_description};
 
 static DATE_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[day]-[month]-[year]");
@@ -29,8 +26,8 @@ pub struct Begin<'a> {
     pub tid: u64,
     pub active_duration_ms: u32,
     pub active_monitor_count: u32,
-    pub name: &'a [u8],
-    pub request: &'a [u8],
+    pub name: &'a str,
+    pub request: &'a str,
 }
 
 #[derive(Debug)]
@@ -39,17 +36,16 @@ pub struct End<'a> {
     pub tid: u64,
     pub active_duration_ms: u32,
     pub active_monitor_count: u32,
-    pub name: &'a [u8],
+    pub name: &'a str,
 }
 
-
-impl<'a> TryFrom<&'a [u8]> for StuckThread<'a> {
+impl<'a> TryFrom<&'a str> for StuckThread<'a> {
     type Error = Parse;
 
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
         let meta = scanner
-            .take_until(b"\n")
+            .take_until("\n")
             .ok_or_else(|| Parse::MetaExtractionError)
             .and_then(|m| Event::try_from(m))?;
         if let Event::Begin(begin, _) = meta {
@@ -63,42 +59,35 @@ impl<'a> TryFrom<&'a [u8]> for StuckThread<'a> {
 }
 
 impl<'a> Event<'a> {
-    fn extract_bracket_groups(input: &[u8]) -> Result<Vec<&[u8]>, Parse> {
+    fn extract_bracket_groups(input: &str) -> Result<Vec<&str>, Parse> {
         let mut scanner = Scanner::new(input);
         let mut groups = Vec::with_capacity(8);
-        while let Ok(group) = scanner.take_within(b"[", b"]") {
+        while let Ok(group) = scanner.take_within("[", "]") {
             groups.push(group);
         }
         Ok(groups)
     }
 
-    fn parse_date_time(date: &'a [u8], time: &'a [u8]) -> Result<PrimitiveDateTime, Parse> {
-        let time = String::from_utf8_lossy(time);
-        let date = String::from_utf8_lossy(date);
-        let time = Time::parse(&time, TIME_FORMAT).map_err(Parse::InvalidDateTimeFormat)?;
-
-        let date = Date::parse(&date, DATE_FORMAT).map_err(Parse::InvalidDateTimeFormat)?;
-
+    fn parse_date_time(date: &'a str, time: &'a str) -> Result<PrimitiveDateTime, Parse> {
+        let time = Time::parse(time, TIME_FORMAT).map_err(Parse::InvalidDateTimeFormat)?;
+        let date = Date::parse(date, DATE_FORMAT).map_err(Parse::InvalidDateTimeFormat)?;
         let datetime = PrimitiveDateTime::new(date, time);
         Ok(datetime)
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for Event<'a> {
+impl<'a> TryFrom<&'a str> for Event<'a> {
     type Error = Parse;
 
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
-        let header = scanner.take_until(b"::").ok_or(Parse::DoubleColonAbsent)?;
+        let header = scanner.take_until("::").ok_or(Parse::DoubleColonAbsent)?;
 
         let headers = Event::extract_bracket_groups(header)?;
         let message = Event::extract_bracket_groups(scanner.remaining())?;
         let [time, date, _, _, _] = headers.as_slice() else {
             return Err(Parse::IncorrectHeaderInfoCount {
-                got: headers
-                    .iter()
-                    .map(|s| String::from_utf8_lossy(s).to_string())
-                    .collect(),
+                got: headers.iter().map(|s| String::from(*s)).collect(),
                 expected: 5,
             });
         };
@@ -113,10 +102,7 @@ impl<'a> TryFrom<&'a [u8]> for Event<'a> {
             [_, _, _, _] | [_, _, _] => Event::End(End::try_from(message.as_slice())?),
             _ => {
                 return Err(Parse::IncorrectMessageInfoCount {
-                    got: message
-                        .iter()
-                        .map(|s| String::from_utf8_lossy(*s).to_string())
-                        .collect(),
+                    got: message.iter().map(|s| String::from(*s)).collect(),
                     minimum_expected: 3,
                 });
             }
@@ -138,10 +124,10 @@ impl<'a> TryFrom<&'a [u8]> for Event<'a> {
     }
 }
 
-impl<'a> TryFrom<&[&'a [u8]]> for Begin<'a> {
+impl<'a> TryFrom<&[&'a str]> for Begin<'a> {
     type Error = Parse;
 
-    fn try_from(value: &[&'a [u8]]) -> Result<Self, Self::Error> {
+    fn try_from(value: &[&'a str]) -> Result<Self, Self::Error> {
         let [
             name,
             tid,
@@ -153,31 +139,27 @@ impl<'a> TryFrom<&[&'a [u8]]> for Begin<'a> {
         ] = value
         else {
             return Err(Parse::IncorrectMessageInfoCount {
-                got: value
-                    .iter()
-                    .map(|s| String::from_utf8_lossy(*s).to_string())
-                    .collect(),
+                got: value.iter().map(|s| String::from(*s)).collect(),
                 minimum_expected: 7,
             });
         };
 
-        let tid = util::parse_u64(*tid).map_err(|inner| Parse::InvalidThreadId {
-            got: String::from_utf8_lossy(*tid).to_string(),
+        let tid = tid.parse().map_err(|inner| Parse::InvalidThreadId {
+            got: String::from(*tid),
             inner,
         })?;
         let active_duration_ms =
-            util::parse_comma_separated_u32(*active_duration).map_err(|inner| {
+            util::parse_comma_separated_u32(*active_duration).ok_or_else(|| {
                 Parse::InvalidActiveDuration {
-                    got: String::from_utf8_lossy(*active_duration).to_string(),
-                    inner,
+                    got: String::from(*active_duration),
                 }
             })?;
-        let active_monitor_count = util::parse_u32(*active_thread_count).map_err(|inner| {
-            Parse::InvalidActiveThreadCount {
-                got: String::from_utf8_lossy(*active_thread_count).to_string(),
-                inner,
-            }
-        })?;
+        let active_monitor_count =
+            active_thread_count
+                .parse()
+                .map_err(|_| Parse::InvalidActiveThreadCount {
+                    got: String::from(*active_thread_count),
+                })?;
         Ok(Begin {
             tid,
             active_duration_ms,
@@ -189,10 +171,10 @@ impl<'a> TryFrom<&[&'a [u8]]> for Begin<'a> {
     }
 }
 
-impl<'a> TryFrom<&[&'a [u8]]> for End<'a> {
+impl<'a> TryFrom<&[&'a str]> for End<'a> {
     type Error = Parse;
 
-    fn try_from(value: &[&'a [u8]]) -> Result<Self, Self::Error> {
+    fn try_from(value: &[&'a str]) -> Result<Self, Self::Error> {
         let mut active_thread_count = None;
         let name;
         let tid;
@@ -211,35 +193,31 @@ impl<'a> TryFrom<&[&'a [u8]]> for End<'a> {
             }
             _ => {
                 return Err(Parse::IncorrectMessageInfoCount {
-                    got: value
-                        .iter()
-                        .map(|s| String::from_utf8_lossy(s).to_string())
-                        .collect(),
+                    got: value.iter().map(|s| String::from(*s)).collect(),
                     minimum_expected: 3,
                 });
             }
         }
 
-        let tid = util::parse_u64(tid).map_err(|inner| Parse::InvalidThreadId {
-            got: String::from_utf8_lossy(tid).to_string(),
+        let tid = tid.parse().map_err(|inner| Parse::InvalidThreadId {
+            got: String::from(tid),
             inner,
         })?;
         let active_duration_ms =
-            util::parse_comma_separated_u32(active_duration_ms).map_err(|inner| {
+            util::parse_comma_separated_u32(active_duration_ms).ok_or_else(|| {
                 Parse::InvalidActiveDuration {
-                    got: String::from_utf8_lossy(active_duration_ms).to_string(),
-                    inner,
+                    got: String::from(active_duration_ms),
                 }
             })?;
 
         let mut active_monitor_count = 0;
         if let Some(active_thread_count) = active_thread_count {
-            active_monitor_count = util::parse_u32(active_thread_count).map_err(|inner| {
-                Parse::InvalidActiveThreadCount {
-                    got: String::from_utf8_lossy(active_thread_count).to_string(),
-                    inner,
-                }
-            })?;
+            active_monitor_count =
+                active_thread_count
+                    .parse()
+                    .map_err(|_| Parse::InvalidActiveThreadCount {
+                        got: String::from(active_thread_count).to_string(),
+                    })?;
         }
 
         Ok(End {

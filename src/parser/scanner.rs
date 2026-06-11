@@ -1,12 +1,18 @@
+use std::str::Utf8Error;
+
 use crate::error::scanner::Error;
-use memchr::memmem;
 
 pub struct Scanner<'a> {
-    data: &'a [u8],
+    data: &'a str,
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(data: &'a [u8]) -> Self {
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, Utf8Error> {
+        let data = str::from_utf8(data)?;
+        Ok(Self { data })
+    }
+
+    pub fn new(data: &'a str) -> Self {
         Self { data }
     }
 
@@ -14,11 +20,11 @@ impl<'a> Scanner<'a> {
         self.data.is_empty()
     }
 
-    pub fn peek_expect(&self, expected: &[u8]) -> bool {
+    pub fn peek_expect(&self, expected: &str) -> bool {
         self.data.starts_with(expected)
     }
 
-    pub fn expect(&mut self, expected: &[u8]) -> Result<(), Error> {
+    pub fn expect(&mut self, expected: &str) -> Result<(), Error> {
         if self.data.len() < expected.len() {
             return Err(Error::EndOfData);
         }
@@ -29,18 +35,18 @@ impl<'a> Scanner<'a> {
                 Ok(())
             }
             None => Err(Error::Expected {
-                got: String::from_utf8_lossy(&self.data[..expected.len()]).into_owned(),
-                expected: String::from_utf8_lossy(expected).into_owned(),
+                got: String::from(&self.data[..expected.len()]),
+                expected: String::from(expected),
             }),
         }
     }
 
     pub fn skip_whitespace(&mut self) {
-        self.data = self.data.trim_ascii_start();
+        self.data = self.data.trim_start();
     }
 
     /// Take exactly `n` bytes. Errors if fewer than `n` remain.
-    pub fn take(&mut self, n: usize) -> Result<&'a [u8], Error> {
+    pub fn take(&mut self, n: usize) -> Result<&'a str, Error> {
         if n > self.data.len() {
             return Err(Error::NotEnoughData {
                 have: self.data.len(),
@@ -53,35 +59,38 @@ impl<'a> Scanner<'a> {
         Ok(before)
     }
 
-    pub fn take_until_inclusive(&mut self, delimiter: &[u8]) -> Option<&'a [u8]> {
-        let pos = memmem::find(self.data, delimiter)?;
+    pub fn take_until_inclusive(&mut self, delimiter: &str) -> Option<&'a str> {
+        let pos = self.data.find(delimiter)?;
         let (before, after) = self.data.split_at(pos);
         self.data = after;
         Some(before)
     }
 
-    pub fn take_until(&mut self, delimiter: &[u8]) -> Option<&'a [u8]> {
-        let pos = memmem::find(self.data, delimiter)?;
+    pub fn take_until(&mut self, delimiter: &str) -> Option<&'a str> {
+        let pos = self.data.find(delimiter)?;
         let before = &self.data[..pos];
         self.data = &self.data[pos + delimiter.len()..];
         Some(before)
     }
 
-    pub fn peek_until(&self, delimiter: &[u8]) -> Option<&'a [u8]> {
-        let pos = memmem::find(self.data, delimiter)?;
+    pub fn peek_until(&self, delimiter: &str) -> Option<&'a str> {
+        let pos = self.data.find(delimiter)?;
         Some(&self.data[..pos])
     }
 
-    pub fn take_within(&mut self, open: &[u8], close: &[u8]) -> Result<&'a [u8], Error> {
-        let open_pos = memmem::find(self.data, open).ok_or_else(|| Error::DelimiterNotFound {
-            delimiter: String::from_utf8_lossy(open).into_owned(),
-            data: String::from_utf8_lossy(self.data).into_owned(),
-        })?;
+    pub fn take_within(&mut self, open: &str, close: &str) -> Result<&'a str, Error> {
+        let open_pos = self
+            .data
+            .find(open)
+            .ok_or_else(|| Error::DelimiterNotFound {
+                delimiter: String::from(open),
+                data: String::from(self.data),
+            })?;
         let rest = &self.data[open_pos + open.len()..];
 
-        let close_pos = memmem::find(rest, close).ok_or_else(|| Error::DelimiterNotFound {
-            delimiter: String::from_utf8_lossy(close).into_owned(),
-            data: String::from_utf8_lossy(rest).into_owned(),
+        let close_pos = rest.find(close).ok_or_else(|| Error::DelimiterNotFound {
+            delimiter: String::from(close),
+            data: String::from(rest),
         })?;
 
         let within = &rest[..close_pos];
@@ -89,7 +98,11 @@ impl<'a> Scanner<'a> {
         Ok(within)
     }
 
-    pub fn remaining(self) -> &'a [u8] {
+    pub fn remaining(self) -> &'a str {
         self.data
+    }
+
+    pub fn remaining_bytes(self) -> &'a [u8] {
+        self.data.as_bytes()
     }
 }

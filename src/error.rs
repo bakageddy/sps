@@ -6,8 +6,6 @@ pub enum Error {
     ThreadDump(#[from] threaddump::Error),
     #[error("Error with Arguement parsing: {0:?}")]
     Clap(#[from] clap::Error),
-    #[error("Error with SQLITE3: {0:?}")]
-    Rusqlite(#[from] rusqlite::Error),
     #[error("Error with DuckDB: {0:?}")]
     DuckDB(#[from] duckdb::Error),
     #[error("Error during I/O: {0:?}")]
@@ -25,8 +23,6 @@ pub mod mcp {
 }
 
 pub mod scanner {
-    use std::borrow::Cow;
-
     use thiserror::Error;
 
     #[derive(Debug, Error, PartialEq, Eq)]
@@ -48,14 +44,172 @@ pub mod scanner {
     }
 }
 
+pub mod stuckquery {
+    use std::{
+        net::AddrParseError,
+        num::{ParseFloatError, ParseIntError},
+    };
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        #[error("Error during parsing pgsql stuckqueries: {0:?}")]
+        PgParse(#[from] PgParse),
+        #[error("Error during parsing SQL Server stuckqueries: {0:?}")]
+        SqlServerParse(#[from] SqlServerParse),
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum SqlServerParse {
+        #[error("Empty Iterator on SQL Server Stuck Query table")]
+        EmptyBlock,
+        #[error("Error extracting stuckquery table header")]
+        TableExtraction,
+        #[error("Error extracting stuckquery table header")]
+        TableHeaderExtraction,
+        #[error("Error during timestamp/meta information extraction from mssql")]
+        TableHeaderMetaExtraction,
+        #[error("Error during parsing timestamp information from the mssql table header: {0}")]
+        TimestampParse(time::error::Parse),
+
+        #[error("Error during extracting session id information from the table")]
+        SessionIDExtraction,
+        #[error("Error during parsing session id: {0:?}")]
+        SessionIDParse(ParseIntError),
+        #[error("Error during status extraction from the table")]
+        StatusExtraction,
+        #[error("Error during parsing status information, Unrecognized status: {0:?}")]
+        InvalidStatus(String),
+        #[error("Error during extracting transaction id information from the table")]
+        TransactionIDExtraction,
+        #[error("Error during parsing transaction id: {0:?}")]
+        TransactionIDParse(ParseIntError),
+        #[error("Error during extracting blocked by information from the table")]
+        BlockedByExtraction,
+        #[error("Error during parsing blocked by column: {0:?}")]
+        BlockedByParse(ParseIntError),
+        #[error("Error during extracting wait type information from the table")]
+        WaitTypeExtraction,
+        #[error("Error during extracting wait resource information from the table")]
+        WaitResourceExtraction,
+        #[error("Error during extracting wait time information from the table")]
+        WaitTimeExtraction,
+        #[error("Error during parsing wait time information from the table: {0:?}")]
+        WaitTimeParse(ParseFloatError),
+        #[error("Error during extracting CPU time information from the table")]
+        CPUTimeExtraction,
+        #[error("Error during parsing CPU time information from the table: {0:?}")]
+        CPUTimeParse(ParseFloatError),
+        #[error("Error during extracting Logical reads information from the table")]
+        LogicalReadsExtraction,
+        #[error("Error during parsing Logical reads information from the table: {0:?}")]
+        LogicalReadsParse(ParseIntError),
+        #[error("Error during extracting Physical Reads information from the table")]
+        PhysicalReadsExtraction,
+        #[error("Error during parsing Physical reads information from the table: {0:?}")]
+        PhysicalReadsParse(ParseIntError),
+        #[error("Error during extracting Elapsed Time information from the table")]
+        ElapsedTimeExtraction,
+        #[error("Error during parsing Elapsed Time information from the table: {0:?}")]
+        ElapsedTimeParse(ParseFloatError),
+        #[error("Error during extracting Statement information from the table")]
+        StatementExtraction,
+        #[error("Error during extracting Command Text information from the table")]
+        CommandTextExtraction,
+        #[error("Error during extracting Command information from the table")]
+        CommandExtraction,
+        #[error("Error during extracting Login Name information from the table")]
+        LoginNameExtraction,
+        #[error("Error during extracting Host Name information from the table")]
+        HostNameExtraction,
+        #[error("Error during extracting Database Name information from the table")]
+        DatabaseNameExtraction,
+        #[error("Error during extracting Program Name information from the table")]
+        ProgramNameExtraction,
+        #[error("Error during extracting Host Process ID information from the table")]
+        HostProcessIDExtraction,
+        #[error("Error during parsing Host Process ID information from the table: {0:?}")]
+        HostProcessIDParse(ParseIntError),
+        #[error("Error during extracting Last Request End information from the table")]
+        LastRequestEndExtraction,
+        #[error("Error during parsing Last Request End information from the table: {0:?}")]
+        LastRequestEndParse(time::error::Parse),
+        #[error("Error during extracting Login Time information from the table")]
+        LoginTimeExtraction,
+        #[error("Error during parsing Last Login Time information from the table: {0:?}")]
+        LoginTimeParse(time::error::Parse),
+        #[error("Error during extracting Open Transaction ID information from the table")]
+        OpenTransactionCountExtraction,
+        #[error("Error during parsing Open Transaction ID information from the table: {0:?}")]
+        OpenTransactionCountParse(ParseIntError),
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum PgParse {
+        #[error("Error during parsing Stuck Query State: {0:?}")]
+        UnrecognizedState(String),
+        #[error("Empty Iterator on Stuck query table")]
+        EmptyBlock,
+        #[error("Error during parsing client address: {0:?}")]
+        AddrParse(#[from] AddrParseError),
+        #[error("Error during parsing process id: {0:?}")]
+        PidParse(ParseIntError),
+        #[error("Error extracting PID from the table")]
+        PidExtraction,
+        #[error("Error parsing PID from the table: {0:?}")]
+        InvalidPID(ParseIntError),
+        #[error("Error extracting Query Time information from the table")]
+        QueryTimeExtraction,
+        #[error("Error parsing Query Time information from the table: {0:?}")]
+        InvalidQueryTime(ParseFloatError),
+        #[error("Error extracting Transaction Time information from the table")]
+        TransactionTimeExtraction,
+        #[error("Error parsing Transaction Time information from the table: {0:?}")]
+        InvalidTransactionTime(ParseFloatError),
+        #[error("Error extracting Database Name information from the table")]
+        DatabaseNameExtraction,
+        #[error("Error extracting State information from the table")]
+        StateExtraction,
+        #[error("Error extracting Waiting information from the table")]
+        WaitingExtraction,
+        #[error("Invalid Waiting state information from the table, got: {got:?}, expected: t/f")]
+        InvalidWaitingState { got: String },
+        #[error("Error extracting Query information from the table")]
+        QueryExtraction,
+        #[error("Error extracting State Change information from the table")]
+        StateChangeExtraction,
+        #[error("Error parsing State Change information from the table: {0:?}")]
+        InvalidStateChange(time::error::Parse),
+        #[error("Error extracting Application Name information from the table")]
+        ApplicationNameExtraction,
+        #[error("Error extracting Client Address information from the table")]
+        ClientAddressExtraction,
+        #[error("Error extracting Client Hostname information from the table")]
+        ClientHostnameExtraction,
+        #[error("Error extracting Client Port information from the table")]
+        ClientPortExtraction,
+        #[error("Error parsing Client Port information from the table: {0:?}")]
+        InvalidClientPort(ParseIntError),
+        #[error("Error parsing stuckquery table. Expected 8 lines of information")]
+        TableExtraction,
+        #[error("Error extracting stuckquery table header")]
+        TableHeaderExtraction,
+        #[error("Error extracting timestamp/meta information from the table header line")]
+        TableHeaderMetaExtraction,
+        #[error("Error during parsing timestamp information from the table header: {0}")]
+        TimestampParse(time::error::Parse),
+    }
+}
+
 pub mod threaddump {
-    #[derive(Debug, PartialEq, Eq, thiserror::Error)]
+    use crate::error::stacktrace;
+
+    #[derive(Debug, thiserror::Error)]
     pub enum Error {
         #[error("Error during parsing thread dump: {0:?}")]
         Parse(#[from] Parse),
     }
 
-    #[derive(Debug, PartialEq, Eq, thiserror::Error)]
+    #[derive(Debug, thiserror::Error)]
     pub enum Parse {
         #[error("Error parsing thread dump: Missing '@'")]
         MissingCommat,
@@ -109,6 +263,8 @@ pub mod threaddump {
         ExpectedWaitObject,
         #[error("Error during parsing thread state: Expected Lock Object")]
         ExpectedLockObject,
+        #[error("Error during parsing stacktrace/object related data: {0:?}")]
+        TraceParse(#[from] stacktrace::Parse),
     }
 }
 
@@ -157,14 +313,10 @@ pub mod stuckthread {
             "Error during Meta Data parsing: invalid thread id, got: {got:?}, message: {inner:?}"
         )]
         InvalidThreadId { got: String, inner: ParseIntError },
-        #[error(
-            "Error during Meta Data parsing: invalid active thread count, got: {got:?}, message: {inner:?}"
-        )]
-        InvalidActiveThreadCount { got: String, inner: ParseIntError },
-        #[error(
-            "Error during Meta Data parsing: invalid active duration, got: {got:?}, message: {inner:?}"
-        )]
-        InvalidActiveDuration { got: String, inner: ParseIntError },
+        #[error("Error during Meta Data parsing: invalid active thread count, got: {got:?}")]
+        InvalidActiveThreadCount { got: String },
+        #[error("Error during Meta Data parsing: invalid active duration, got: {got:?}")]
+        InvalidActiveDuration { got: String },
 
         #[error("Error during Meta Data parsing: Duration Overflow/Underflow")]
         DurationOverflow,
@@ -205,7 +357,7 @@ pub mod stacktrace {
         #[error("Error during stacktrace element source parsing: Cannot convert to UTF8 {0:?}")]
         UTF8Conversion(#[from] Utf8Error),
         #[error("Error parsing object id: unexpected input: {got:?}")]
-        HexUnexpectedInput { got: String },
+        InvalidHexadecimalCharacter { got: String },
         #[error("Error during parsing line number in function frame: {0:?}")]
         InvalidLineNumber(#[from] std::num::ParseIntError),
     }

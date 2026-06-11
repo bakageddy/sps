@@ -7,13 +7,13 @@ use crate::{
         scanner::Scanner,
         stacktrace::{Object, Trace},
     },
-    util::{self, ToUnixMillis},
+    util::ToUnixMillis,
 };
 
 #[derive(Debug)]
 pub struct LockInfo<'a> {
     pub owner_id: u64,
-    pub owner_name: Option<&'a [u8]>,
+    pub owner_name: Option<&'a str>,
     pub object: Object<'a>,
 }
 
@@ -35,7 +35,7 @@ pub struct Thread<'a> {
     pub tid: u64,
     pub state: ThreadState<'a>,
     pub stacktrace: Option<Trace<'a>>,
-    pub name: Option<&'a [u8]>,
+    pub name: Option<&'a str>,
 }
 
 #[derive(Debug)]
@@ -45,33 +45,34 @@ pub struct ThreadDump<'a> {
     pub snapshot: u8,
 }
 
-impl<'a> TryFrom<&'a [u8]> for LockInfo<'a> {
+impl<'a> TryFrom<&'a str> for LockInfo<'a> {
     type Error = Parse;
 
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
         scanner.skip_whitespace();
         scanner
-            .expect(b"LockName: ")
+            .expect("LockName: ")
             .map_err(|_| Parse::ExpectedLockName)?;
-        let object = scanner.take_until(b" ").ok_or(Parse::ExpectedLockObject)?;
+        let object = scanner.take_until(" ").ok_or(Parse::ExpectedLockObject)?;
         let object = Object::try_from(object)?;
 
         scanner.skip_whitespace();
         scanner
-            .expect(b"Owner Id: ")
+            .expect("Owner Id: ")
             .map_err(|_| Parse::ExpectedOwnerId)?;
 
         let owner_id: u64 = scanner
-            .take_until(b" ")
+            .take_until(" ")
             .ok_or(Parse::ExpectedOwnerId)
-            .and_then(|v| util::parse_u64(v).map_err(Parse::ThreadIdParse))?;
+            .and_then(|v| v.parse().map_err(Parse::ThreadIdParse))?;
 
         scanner.skip_whitespace();
         scanner
-            .expect(b"Owner Name: ")
+            .expect("Owner Name: ")
             .map_err(|_| Parse::ExpectedOwnerName)?;
-        let owner_name = scanner.remaining().trim_ascii_start();
+
+        let owner_name = scanner.remaining();
         let owner_name = if owner_name.is_empty() {
             None
         } else {
@@ -87,13 +88,13 @@ impl<'a> TryFrom<&'a [u8]> for LockInfo<'a> {
 }
 
 impl<'a> ThreadState<'a> {
-    const PREAMBLE: &'static [u8] = b"Java.lang.Thread.State:";
+    const PREAMBLE: &'static str = "Java.lang.Thread.State:";
 }
 
-impl<'a> TryFrom<&'a [u8]> for ThreadState<'a> {
+impl<'a> TryFrom<&'a str> for ThreadState<'a> {
     type Error = Parse;
 
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
         scanner.skip_whitespace();
         scanner
@@ -101,23 +102,23 @@ impl<'a> TryFrom<&'a [u8]> for ThreadState<'a> {
             .map_err(|_| Parse::ExpectedPreamble)?;
         scanner.skip_whitespace();
 
-        if let Some(raw_state) = scanner.peek_until(b" waiting to lock ") {
-            let raw_state = raw_state.trim_ascii();
-            if raw_state != b"BLOCKED" {
+        if let Some(raw_state) = scanner.peek_until(" waiting to lock ") {
+            let raw_state = raw_state.trim();
+            if raw_state != "BLOCKED" {
                 return Err(Parse::ExpectedLockObject);
             }
             Ok(ThreadState::BlockedToLock(None))
-        } else if let Some(raw_state) = scanner.peek_until(b" on ") {
-            match raw_state.trim_ascii() {
-                b"WAITING" => {
-                    _ = scanner.take_until(b"on").expect("SAFETY: CHECKED");
+        } else if let Some(raw_state) = scanner.peek_until(" on ") {
+            match raw_state.trim() {
+                "WAITING" => {
+                    _ = scanner.take_until("on").expect("SAFETY: CHECKED");
                     scanner.skip_whitespace();
                     let object = scanner.remaining();
                     let object = Object::try_from(object)?;
                     Ok(ThreadState::WaitingOn(object))
                 }
-                b"TIMED_WAITING" => {
-                    _ = scanner.take_until(b"on").expect("SAFETY: CHECKED");
+                "TIMED_WAITING" => {
+                    _ = scanner.take_until("on").expect("SAFETY: CHECKED");
                     scanner.skip_whitespace();
                     let object = scanner.remaining();
                     let object = Object::try_from(object)?;
@@ -126,26 +127,26 @@ impl<'a> TryFrom<&'a [u8]> for ThreadState<'a> {
                 _ => Err(Parse::ExpectedWaitObject),
             }
         } else {
-            match scanner.remaining().trim_ascii() {
-                b"NEW" => Ok(ThreadState::New),
-                b"TERMINATED" => Ok(ThreadState::Terminated),
-                b"RUNNABLE" => Ok(ThreadState::Runnable),
-                b"TIMED_WAITING" => Ok(ThreadState::TimedWaiting),
-                b"WAITING" => Ok(ThreadState::Waiting),
+            match scanner.remaining().trim() {
+                "NEW" => Ok(ThreadState::New),
+                "TERMINATED" => Ok(ThreadState::Terminated),
+                "RUNNABLE" => Ok(ThreadState::Runnable),
+                "TIMED_WAITING" => Ok(ThreadState::TimedWaiting),
+                "WAITING" => Ok(ThreadState::Waiting),
                 _ => Err(Parse::UnexpectedThreadState),
             }
         }
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for Thread<'a> {
+impl<'a> TryFrom<&'a str> for Thread<'a> {
     type Error = Parse;
 
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
         scanner.skip_whitespace();
         let thread_name = scanner
-            .take_within(b"\"", b"\"")
+            .take_within("\"", "\"")
             .map_err(|_| Parse::ThreadNameExtraction)?
             .trim_ascii();
 
@@ -157,16 +158,16 @@ impl<'a> TryFrom<&'a [u8]> for Thread<'a> {
 
         scanner.skip_whitespace();
         scanner
-            .expect(b"Id=")
+            .expect("Id=")
             .map_err(|_| Parse::ThreadIdExtraction)?;
 
         let id = scanner
-            .take_until_inclusive(b" ")
+            .take_until_inclusive(" ")
             .ok_or(Parse::ThreadIdExtraction)?;
-        let thread_id: u64 = util::parse_u64(id).map_err(Parse::ThreadIdParse)?;
+        let thread_id: u64 = id.parse().map_err(Parse::ThreadIdParse)?;
         scanner.skip_whitespace();
 
-        if scanner.peek_until(b"\n").is_none() {
+        if scanner.peek_until("\n").is_none() {
             let header = scanner.remaining();
             let state = ThreadState::try_from(header)?;
             return Ok(Thread {
@@ -178,13 +179,13 @@ impl<'a> TryFrom<&'a [u8]> for Thread<'a> {
         }
 
         let header = scanner
-            .take_until(b"\n")
+            .take_until("\n")
             .ok_or(Parse::ThreadHeaderExtraction)?;
         let state = ThreadState::try_from(header)?;
         scanner.skip_whitespace();
-        let state = if scanner.peek_expect(b"LockName: ") {
+        let state = if scanner.peek_expect("LockName: ") {
             let lock_info = scanner
-                .take_until(b"\n")
+                .take_until("\n")
                 .ok_or(Parse::ExpectedValidLockInformation)?;
             let lock_info = LockInfo::try_from(lock_info)?;
             match state {
@@ -196,7 +197,7 @@ impl<'a> TryFrom<&'a [u8]> for Thread<'a> {
             state
         };
 
-        let data = scanner.remaining().trim_ascii();
+        let data = scanner.remaining().trim();
         let mut stacktrace: Option<Trace<'a>> = None;
         if !data.is_empty() {
             stacktrace = Some(Trace::try_from(data)?);
@@ -216,26 +217,26 @@ impl<'a> ThreadDump<'a> {
         format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]");
 }
 
-impl<'a> TryFrom<&'a [u8]> for ThreadDump<'a> {
+impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
     type Error = Parse;
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
         let header = scanner
-            .take_until(b"\n")
+            .take_until("\n")
             .ok_or(Parse::ExpectedNewline)?
-            .trim_ascii_start();
+            .trim_start();
         let snapshot: u8;
         let timestamp: u64;
         match header
-            .splitn(3, |b| *b == b':')
-            .map(|b| b.trim_ascii())
+            .splitn(3, ":")
+            .map(|b| b.trim())
             .collect::<Vec<_>>()
             .as_slice()
         {
-            [b"Thread dump", raw_snapshot, raw_timestamp] => {
-                snapshot = util::parse_u32(raw_snapshot).map_err(|_| Parse::DumpSnapshot)? as u8;
+            ["Thread dump", raw_snapshot, raw_timestamp] => {
+                snapshot = (*raw_snapshot).parse().map_err(|_| Parse::DumpSnapshot)?;
                 let time = PrimitiveDateTime::parse(
-                    &String::from_utf8_lossy(*raw_timestamp),
+                    *raw_timestamp,
                     ThreadDump::FORMAT,
                 )
                 .map_err(Parse::SnapshotTimestampParsing)?;
@@ -247,14 +248,14 @@ impl<'a> TryFrom<&'a [u8]> for ThreadDump<'a> {
         };
 
         let rest = scanner.remaining();
-        let mut dump = rest.split_inclusive(|b| *b == b'\n').peekable();
+        let mut dump = rest.split_inclusive("\n").peekable();
         let mut start = 0;
         let mut offset = 0;
         let mut threads = Vec::with_capacity(100);
         while let Some(line) = dump.next() {
-            if line.starts_with(b"\"") {
+            if line.starts_with("\"") {
                 offset += line.len();
-                while let Some(line) = dump.next_if(|l| !l.trim_ascii().starts_with(b"\"")) {
+                while let Some(line) = dump.next_if(|l| !l.trim().starts_with("\"")) {
                     offset += line.len();
                 }
 
@@ -265,7 +266,7 @@ impl<'a> TryFrom<&'a [u8]> for ThreadDump<'a> {
                     Err(e) => {
                         warn!(
                             "Error during parsing thread dump: {e:?}, thread: {}",
-                            String::from_utf8_lossy(contents)
+                            String::from(contents)
                         );
                     }
                 };
