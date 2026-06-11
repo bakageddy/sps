@@ -1,11 +1,11 @@
-CREATE TYPE IF NOT EXISTS ThreadState AS ENUM (
-    'NEW',
-    'RUNNABLE',
-    'BLOCKED',
-    'WAITING',
-    'TIMED_WAITING',
-    'TERMINATED'
-);
+-- CREATE TYPE IF NOT EXISTS ThreadState AS ENUM (
+--     'NEW',
+--     'RUNNABLE',
+--     'BLOCKED',
+--     'WAITING',
+--     'TIMED_WAITING',
+--     'TERMINATED'
+-- );
 
 CREATE TABLE IF NOT EXISTS stuckthread (
     tid                   UBIGINT  NOT NULL,
@@ -34,11 +34,27 @@ CREATE TABLE IF NOT EXISTS stacktrace (
 CREATE TABLE IF NOT EXISTS thread (
 	tid					UBIGINT NOT NULL,
 	triggered_unix_ms	UBIGINT NOT NULL,	
-	identity			UBIGINT NOT NULL,
-
+	identity			UBIGINT NULL,
 	owner_id			UBIGINT NULL,
+	snapshot			UTINYINT NOT NULL,
 	owner_name			STRING NULL,
-	class				STRING NOT NULL,
+	class				STRING NULL,
 	name				STRING NULL,
-    state				ThreadState NOT NULL,
+    state				STRING NOT NULL,
+);
+
+CREATE TABLE IF NOT EXISTS stuckquery_pgsql (
+	timestamp			UBIGINT NOT NULL,
+	pid					UBIGINT NOT NULL,
+	query_time_ms		UBIGINT NOT NULL,
+	txn_time_ms			UBIGINT NOT NULL,
+	last_state_change	UBIGINT NOT NULL,
+	client_port			USMALLINT NULL,
+	active				BOOLEAN NOT NULL,
+	waiting				BOOLEAN NOT NULL,
+	client_address		STRING NULL,
+	db_name				STRING NULL,
+	query				STRING NULL,
+	application_name	STRING NULL,
+	client_hostname		STRING NULL,
 );

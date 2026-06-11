@@ -44,7 +44,7 @@ pub struct StuckQuery<'a> {
     pub program_name: &'a str,
     pub host_process_id: u64,
     pub last_request_end_ms: u64,
-    pub login_time: u64,
+    pub login_time_ms: u64,
     pub open_transaction_count: u64,
 }
 
@@ -110,7 +110,7 @@ impl<'a> TryFrom<&'a str> for StuckQueryTable<'a> {
 
             match StuckQuery::try_from(line) {
                 Ok(x) => queries.push(x),
-                Err(e) => warn!("Cannot parse {line} due to {e:?}"),
+                Err(e) => eprintln!("Cannot parse {} due to {e:?}", line),
             }
         }
         Ok(Self { timestamp, queries })
@@ -126,23 +126,27 @@ impl<'a> TryFrom<&'a str> for StuckQuery<'a> {
         let session_id = scanner
             .next()
             .ok_or_else(|| SqlServerParse::SessionIDExtraction)?
+            .trim()
             .parse::<u64>()
             .map_err(SqlServerParse::SessionIDParse)?;
 
         let status = scanner
             .next()
             .ok_or_else(|| SqlServerParse::StatusExtraction)?
+            .trim()
             .parse::<Status>()?;
 
         let txn_id = scanner
             .next()
             .ok_or_else(|| SqlServerParse::TransactionIDExtraction)?
+            .trim()
             .parse::<u64>()
             .map_err(SqlServerParse::TransactionIDParse)?;
 
         let blocked_by = scanner
             .next()
             .ok_or_else(|| SqlServerParse::BlockedByExtraction)?
+            .trim()
             .parse::<u64>()
             .map_err(SqlServerParse::BlockedByParse)?;
 
@@ -169,6 +173,7 @@ impl<'a> TryFrom<&'a str> for StuckQuery<'a> {
         let wait_time = scanner
             .next()
             .ok_or_else(|| SqlServerParse::WaitTimeExtraction)?
+            .trim()
             .parse::<f32>()
             .map_err(SqlServerParse::WaitTimeParse)?;
 
@@ -177,6 +182,7 @@ impl<'a> TryFrom<&'a str> for StuckQuery<'a> {
         let cpu_time = scanner
             .next()
             .ok_or_else(|| SqlServerParse::CPUTimeExtraction)?
+            .trim()
             .parse::<f32>()
             .map_err(SqlServerParse::CPUTimeParse)?;
 
@@ -185,18 +191,28 @@ impl<'a> TryFrom<&'a str> for StuckQuery<'a> {
         let logical_reads = scanner
             .next()
             .ok_or_else(|| SqlServerParse::LogicalReadsExtraction)?
+            .trim()
             .parse::<u64>()
             .map_err(SqlServerParse::LogicalReadsParse)?;
 
         let physical_reads = scanner
             .next()
             .ok_or_else(|| SqlServerParse::PhysicalReadsExtraction)?
+            .trim()
             .parse::<u64>()
             .map_err(SqlServerParse::PhysicalReadsParse)?;
+
+        let physical_writes = scanner
+            .next()
+            .ok_or_else(|| SqlServerParse::PhysicalWritesExtraction)?
+            .trim()
+            .parse::<u64>()
+            .map_err(SqlServerParse::PhysicalWritesParse)?;
 
         let elapsed_time = scanner
             .next()
             .ok_or_else(|| SqlServerParse::ElapsedTimeExtraction)?
+            .trim()
             .parse::<f32>()
             .map_err(SqlServerParse::ElapsedTimeParse)?;
 
@@ -252,6 +268,7 @@ impl<'a> TryFrom<&'a str> for StuckQuery<'a> {
         let host_process_id = scanner
             .next()
             .ok_or_else(|| SqlServerParse::HostProcessIDExtraction)?
+            .trim()
             .parse::<u64>()
             .map_err(SqlServerParse::HostProcessIDParse)?;
 
@@ -279,6 +296,7 @@ impl<'a> TryFrom<&'a str> for StuckQuery<'a> {
         let open_transaction_count = scanner
             .next()
             .ok_or_else(|| SqlServerParse::OpenTransactionCountExtraction)?
+            .trim()
             .parse::<u64>()
             .map_err(SqlServerParse::OpenTransactionCountParse)?;
 
@@ -304,8 +322,43 @@ impl<'a> TryFrom<&'a str> for StuckQuery<'a> {
             program_name,
             host_process_id,
             last_request_end_ms,
-            login_time,
+            login_time_ms,
             open_transaction_count,
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{parser::stuckquery_mssql::StuckQueryTable, util};
+
+    #[test]
+    fn stuckquery_mssql_test_empty_table() {
+        let map = util::map_file("test/stuckquery_mssql_empty_table.txt").unwrap();
+        let file = str::from_utf8(&map).unwrap_or("");
+        let table = StuckQueryTable::try_from(file);
+        assert!(
+            table.is_ok(),
+            "Error during parsing table: {:?}",
+            table.unwrap_err()
+        );
+
+        let table = table.unwrap();
+        assert_eq!(table.queries.len(), 0);
+    }
+
+    #[test]
+    fn stuckquery_mssql_test_full_table() {
+        let map = util::map_file("test/stuckquery_mssql_full_table.txt").unwrap();
+        let file = str::from_utf8(&map).unwrap_or("");
+        let table = StuckQueryTable::try_from(file);
+        assert!(
+            table.is_ok(),
+            "Error during parsing table: {:?}",
+            table.unwrap_err()
+        );
+
+        let table = table.unwrap();
+        assert_eq!(table.queries.len(), 7);
     }
 }

@@ -107,6 +107,10 @@ pub mod stuckquery {
         PhysicalReadsExtraction,
         #[error("Error during parsing Physical reads information from the table: {0:?}")]
         PhysicalReadsParse(ParseIntError),
+        #[error("Error during extracting Physical Writes information from the table")]
+        PhysicalWritesExtraction,
+        #[error("Error during parsing Physical Writes information from the table: {0:?}")]
+        PhysicalWritesParse(ParseIntError),
         #[error("Error during extracting Elapsed Time information from the table")]
         ElapsedTimeExtraction,
         #[error("Error during parsing Elapsed Time information from the table: {0:?}")]
