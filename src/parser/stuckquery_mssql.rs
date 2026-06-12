@@ -120,6 +120,7 @@ impl<'a> TryFrom<&'a str> for StuckQueryTable<'a> {
 impl<'a> TryFrom<&'a str> for StuckQuery<'a> {
     type Error = SqlServerParse;
 
+    // TODO: Migrate to scanner
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = value.split("|");
         scanner.next().ok_or_else(|| SqlServerParse::EmptyBlock)?;

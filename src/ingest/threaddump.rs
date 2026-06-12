@@ -12,12 +12,15 @@ impl<'a> Iterator for ThreadDumpIterator<'a> {
         let mut start = 0;
         let mut offset = 0;
         while let Some(line) = iter.next() {
-            if !line.starts_with(b"Thread dump") {
+            if !line.trim_ascii_start().starts_with(b"Thread dump") {
                 start += line.len();
                 continue;
             }
             offset += line.len();
-            while let Some(line) = iter.next_if(|l| !l.trim_ascii().starts_with(b"TriggeredTime")) {
+            while let Some(line) = iter.next_if(|l| {
+                !l.trim_ascii_start().starts_with(b"TriggeredTime")
+                    || !l.trim_ascii_start().starts_with(b"Thread dump")
+            }) {
                 offset += line.len();
             }
             break;

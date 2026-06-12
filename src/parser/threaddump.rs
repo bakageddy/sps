@@ -162,7 +162,7 @@ impl<'a> TryFrom<&'a str> for Thread<'a> {
             .map_err(|_| Parse::ThreadIdExtraction)?;
 
         let id = scanner
-            .take_until_inclusive(" ")
+            .take_until_exclusive(" ")
             .ok_or(Parse::ThreadIdExtraction)?;
         let thread_id: u64 = id.parse().map_err(Parse::ThreadIdParse)?;
         scanner.skip_whitespace();

@@ -72,7 +72,9 @@ impl<'a> TryFrom<&'a str> for StuckQueryTable<'a> {
         let timestamp = StuckQueryTable::extract_timestamp(header)?;
 
         for _ in 0..7 {
-            if scanner.take_until("\n").is_none() {
+            let line = scanner.take_until("\n");
+            if line.is_none() {
+                warn!("Table is empty, skipping parsing");
                 return Err(PgParse::TableExtraction);
             }
         }
@@ -93,7 +95,7 @@ impl<'a> TryFrom<&'a str> for StuckQueryTable<'a> {
 impl<'a> TryFrom<&'a str> for StuckQuery<'a> {
     type Error = PgParse;
 
-    // TODO: use scanner dumb dumb
+    // TODO: Migrate to scanner
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut iter = value.split("|");
         iter.next().ok_or_else(|| PgParse::EmptyBlock)?;

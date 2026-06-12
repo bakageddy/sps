@@ -59,7 +59,7 @@ impl<'a> Scanner<'a> {
         Ok(before)
     }
 
-    pub fn take_until_inclusive(&mut self, delimiter: &str) -> Option<&'a str> {
+    pub fn take_until_exclusive(&mut self, delimiter: &str) -> Option<&'a str> {
         let pos = self.data.find(delimiter)?;
         let (before, after) = self.data.split_at(pos);
         self.data = after;
@@ -98,11 +98,64 @@ impl<'a> Scanner<'a> {
         Ok(within)
     }
 
+    /// [NOTE] Takes the items within a set of delimiters, but leaves the `close`
+    /// delimiter behind.
+    /// Useful for scanning tables
+    pub fn take_within_exclusive(&mut self, open: &str, close: &str) -> Result<&'a str, Error> {
+        let open_pos = self
+            .data
+            .find(open)
+            .ok_or_else(|| Error::DelimiterNotFound {
+                delimiter: String::from(open),
+                data: String::from(self.data),
+            })?;
+        let rest = &self.data[open_pos + open.len()..];
+
+        let close_pos = rest.find(close).ok_or_else(|| Error::DelimiterNotFound {
+            delimiter: String::from(close),
+            data: String::from(rest),
+        })?;
+
+        let within = &rest[..close_pos];
+        self.data = &rest[close_pos..];
+        Ok(within)
+    }
+
     pub fn remaining(self) -> &'a str {
         self.data
     }
 
     pub fn remaining_bytes(self) -> &'a [u8] {
         self.data.as_bytes()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::parser::scanner::Scanner;
+
+    #[test]
+    fn scanner_take_within_exclusive() {
+        let data = "| data | another_type_of_data |";
+        let mut scanner = Scanner::new(data);
+        let first = scanner.take_within_exclusive("|", "|");
+        assert!(
+            first.is_ok(),
+            "Error during scanning: {:?}",
+            first.unwrap_err()
+        );
+        let first = first.unwrap().trim();
+        assert_eq!(first, "data");
+        let second = scanner.take_within_exclusive("|", "|");
+        assert!(
+            second.is_ok(),
+            "Error during scanning: {:?}",
+            second.unwrap_err()
+        );
+        let second = second.unwrap().trim();
+        assert_eq!(second, "another_type_of_data");
+
+        let remaining = scanner.remaining();
+        assert_eq!(remaining, "|");
     }
 }

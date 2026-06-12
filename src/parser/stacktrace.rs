@@ -1,21 +1,23 @@
+use tracing::warn;
+
 use crate::{error::stacktrace::Parse, parser::scanner::Scanner};
 
 #[derive(Debug, Default)]
 pub struct Trace<'a>(pub Vec<Element<'a>>);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Element<'a> {
     Lock(Object<'a>),
     Elem { method: &'a str, source: Source<'a> },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Object<'a> {
     pub class: &'a str,
     pub identity: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Source<'a> {
     NativeMethod,
     UnknownSource,
@@ -38,17 +40,24 @@ impl<'a> TryFrom<&'a str> for Trace<'a> {
         st.0.reserve(50);
         while !scanner.is_empty() {
             // NOTE: Thread Dump stack traces do not have the at PREAMBLE
+            scanner.skip_whitespace();
             if scanner.peek_expect("at") {
                 let _ = scanner.expect("at");
             }
             scanner.skip_whitespace();
-            let line = match scanner.take_until_inclusive("\n") {
+            let line = match scanner.take_until_exclusive("\n") {
                 Some(line) => line,
                 None => break,
             };
             scanner.skip_whitespace();
 
-            let result = Element::try_from(line)?;
+            let result = match Element::try_from(line) {
+                Ok(result) => result,
+                Err(e) => {
+                    warn!("Cannot parse stack trace element: {line:?} due to {e:?}");
+                    continue;
+                },
+            };
             st.0.push(result);
         }
         Ok(st)
@@ -68,8 +77,11 @@ impl<'a> TryFrom<&'a str> for Element<'a> {
             return Ok(Element::Lock(result));
         }
 
+        if scanner.is_empty() {
+            return Err(Parse::EmptyElement);
+        }
         let frame = scanner
-            .take_until_inclusive("(")
+            .take_until_exclusive("(")
             .ok_or(Parse::ParenNotFound)?;
         let source = scanner
             .take_within("(", ")")
@@ -84,6 +96,7 @@ impl<'a> TryFrom<&'a str> for Element<'a> {
 
 impl Object<'_> {
     pub fn hex_to_u64(value: &str) -> Result<u64, Parse> {
+        let value = value.trim();
         let result = u64::from_str_radix(value, 16);
         result.map_err(|_| Parse::InvalidHexadecimalCharacter {
             got: value.to_string(),

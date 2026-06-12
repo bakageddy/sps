@@ -204,6 +204,53 @@ pub mod stuckquery {
     }
 }
 
+pub mod cpumonitoring {
+    use crate::error::{scanner, stacktrace};
+    use std::num::{ParseFloatError, ParseIntError};
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        #[error("Error during parsing CPU Monitoring Logs: {0:?}")]
+        Parse(#[from] Parse),
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum Parse {
+        #[error("Error during parsing state: UnrecognizedState {0:?}")]
+        UnrecognizedState(String),
+
+        #[error("Error during extracting Time/Date from header")]
+        MonitoringHeaderExtraction,
+        #[error("Error during parsing Time/Date from header: {0:?}")]
+        MonitoringHeaderParse(time::error::Parse),
+        #[error("Error during extracting Thread Info")]
+        MonitoringThreadInfoExtraction(scanner::Error),
+        #[error("Error during extracting Thread Id")]
+        MonitoringThreadIdExtraction(scanner::Error),
+        #[error("Error during extracting Thread Id")]
+        MonitoringThreadIdCommaExtraction,
+        #[error("Error during Parsing Thread Id: {0:?}")]
+        MonitoringThreadIdParse(#[from] ParseIntError),
+        #[error("Error during extracting Thread CPU Usage: {0:?}")]
+        MonitoringThreadCPUUsageExtraction(scanner::Error),
+        #[error("Error during extracting Thread CPU Usage: Incomplete Line")]
+        MonitoringThreadCPUUsageIncompleteLine,
+        #[error("Error during Parsing Thread CPU Usage: {0:?}")]
+        MonitoringThreadCPUParse(#[from] ParseFloatError),
+        #[error("Error during extracting Thread Name: {0:?}")]
+        MonitoringThreadNameExtraction(scanner::Error),
+        #[error("Error during extracting Thread Name")]
+        MonitoringThreadNameIncompleteLine,
+        #[error("Error during extracting Thread State: {0:?}")]
+        MonitoringThreadStateExtraction(scanner::Error),
+        #[error("Error during extracting Thread State Incomplete Line")]
+        MonitoringThreadStateIncompleteLine,
+
+        #[error("Error during parsing stack trace: {0:?}")]
+        MonitoringTraceParse(#[from] stacktrace::Parse),
+    }
+}
+
 pub mod threaddump {
     use crate::error::stacktrace;
 
@@ -364,5 +411,8 @@ pub mod stacktrace {
         InvalidHexadecimalCharacter { got: String },
         #[error("Error during parsing line number in function frame: {0:?}")]
         InvalidLineNumber(#[from] std::num::ParseIntError),
+
+        #[error("Empty element during stacktrace parsing")]
+        EmptyElement,
     }
 }
