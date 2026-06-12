@@ -31,3 +31,34 @@ impl<'a> Iterator for CPUMonitoringIterator<'a> {
         str::from_utf8(contents).ok()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::{ingest::cpumonitoring::CPUMonitoringIterator, parser::cpumonitoring::CPUThread, util};
+
+    #[test]
+    fn cpumonitoring_iterator_empty_file() {
+        let file_contents = "";
+        let chunk = CPUMonitoringIterator(file_contents.as_bytes()).next();
+        assert_eq!(chunk, None);
+    }
+
+    #[test]
+    fn cpumonitoring_iterator_file() {
+        let map = util::map_file("test/cpumonitoring_full_file.txt").unwrap();
+        let mut count = 0;
+        for chunk in CPUMonitoringIterator(&map) {
+            assert_ne!(chunk.len(), 0);
+            let thread = CPUThread::try_from(chunk);
+            assert!(thread.is_ok(), "Error during parsing thread: {:?}", thread.unwrap_err());
+            let thread = thread.unwrap();
+            assert!(thread.trace.is_some());
+            assert!(thread.cpu >= 0.5);
+
+            count += 1;
+        }
+
+        assert_eq!(count, 15);
+    }
+
+}
