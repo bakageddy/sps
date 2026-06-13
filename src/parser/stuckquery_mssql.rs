@@ -110,7 +110,7 @@ impl<'a> TryFrom<&'a str> for StuckQueryTable<'a> {
 
             match StuckQuery::try_from(line) {
                 Ok(x) => queries.push(x),
-                Err(e) => eprintln!("Cannot parse {} due to {e:?}", line),
+                Err(e) => warn!("Cannot parse {} due to {e:?}", line),
             }
         }
         Ok(Self { timestamp, queries })

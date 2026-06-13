@@ -34,7 +34,9 @@ impl<'a> Iterator for CPUMonitoringIterator<'a> {
 
 #[cfg(test)]
 mod test {
-    use crate::{ingest::cpumonitoring::CPUMonitoringIterator, parser::cpumonitoring::CPUThread, util};
+    use crate::{
+        ingest::cpumonitoring::CPUMonitoringIterator, parser::cpumonitoring::CPUThread, util,
+    };
 
     #[test]
     fn cpumonitoring_iterator_empty_file() {
@@ -50,7 +52,11 @@ mod test {
         for chunk in CPUMonitoringIterator(&map) {
             assert_ne!(chunk.len(), 0);
             let thread = CPUThread::try_from(chunk);
-            assert!(thread.is_ok(), "Error during parsing thread: {:?}", thread.unwrap_err());
+            assert!(
+                thread.is_ok(),
+                "Error during parsing thread: {:?}",
+                thread.unwrap_err()
+            );
             let thread = thread.unwrap();
             assert!(thread.trace.is_some());
             assert!(thread.cpu >= 0.5);
@@ -61,4 +67,40 @@ mod test {
         assert_eq!(count, 15);
     }
 
+    #[test]
+    fn cpumonitoring_iterator_file_emptythreads() {
+        let map = util::map_file("test/cpumonitoring_full_file_empty.txt").unwrap();
+        let mut count = 0;
+        for chunk in CPUMonitoringIterator(&map) {
+            assert_ne!(chunk.len(), 0);
+            let thread = CPUThread::try_from(chunk);
+            assert!(
+                thread.is_ok(),
+                "Error during parsing thread: {:?}",
+                thread.unwrap_err()
+            );
+
+            let thread = thread.unwrap();
+            assert!(thread.trace.is_none());
+            assert!(thread.cpu < 0.5);
+            count += 1;
+        }
+
+        assert_eq!(count, 117);
+    }
+
+    #[test]
+    fn cpumonitoring_iterator_full_file() {
+        let map = util::map_file("test/CPUMonitoring0.txt").unwrap();
+        let mut count = 0;
+        for chunk in CPUMonitoringIterator(&map) {
+            assert_ne!(chunk.len(), 0);
+            let thread = CPUThread::try_from(chunk);
+            if thread.is_ok() {
+                count += 1;
+            }
+        }
+
+        assert_eq!(count, 1494);
+    }
 }

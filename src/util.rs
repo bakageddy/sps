@@ -11,103 +11,69 @@ use memmap2::Mmap;
 
 pub type Result<T> = std::result::Result<T, crate::error::Error>;
 
-pub fn get_sorted_threaddumps<P>(root: P) -> io::Result<Vec<PathBuf>>
-where
-    P: AsRef<Path>,
-{
-    let mut entries = Vec::with_capacity(10);
-    for entry in fs::read_dir(root)? {
-        let path = entry?.path();
-        let filename = path
-            .file_name()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidFilename,
-                    format!("Cannot extract filepath from {path:#?}"),
-                )
-            })?
-            .to_string_lossy();
-
-        if filename.starts_with("threaddump") {
-            entries.push(path);
-        }
-    }
-
-    entries.sort_by_key(|p| {
-        p.file_name()
-            .and_then(|f| f.to_str())
-            .and_then(|f| f.strip_prefix("threaddump"))
-            .and_then(|f| f.strip_suffix(".txt"))
-            .and_then(|n| n.parse::<u32>().ok())
-    });
-
-    entries.reverse();
-    Ok(entries)
+#[derive(Debug, Default)]
+pub struct LogFiles {
+    pub threaddump: Vec<PathBuf>,
+    pub cpumonitoring: Vec<PathBuf>,
+    pub stuckthreads: Vec<PathBuf>,
+    pub stuckqueries: Vec<PathBuf>,
 }
 
-pub fn get_sorted_stuckthreads<P>(root: P) -> io::Result<Vec<PathBuf>>
-where
-    P: AsRef<Path>,
-{
-    let mut entries = Vec::new();
-    for entry in fs::read_dir(root)? {
-        let path = entry?.path();
-        let filename = path
-            .file_name()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidFilename,
-                    format!("Cannot extract filepath from {path:#?}"),
-                )
-            })?
-            .to_string_lossy();
-        if filename.starts_with("stuckthreads") {
-            entries.push(path);
+pub fn get_logfiles_sorted(entries: impl Iterator<Item = PathBuf>) -> LogFiles {
+    let mut logfiles: LogFiles = Default::default();
+    for entry in entries {
+        if let Some(filename) = entry.file_name().and_then(|e| e.to_str()) {
+            if filename.starts_with("CPUMonitoring") {
+                logfiles.cpumonitoring.push(entry);
+            } else if filename.starts_with("stuckthread") {
+                logfiles.stuckthreads.push(entry);
+            } else if filename.starts_with("threaddump") {
+                logfiles.threaddump.push(entry);
+            } else if filename.starts_with("stuckqueries") {
+                logfiles.stuckqueries.push(entry);
+            }
         }
     }
-
-    entries.sort_by_key(|p| {
+    logfiles.stuckthreads.sort_by_key(|p| {
         p.file_name()
             .and_then(|f| f.to_str())
-            .and_then(|f| f.strip_prefix("stuckthreads"))
+            .and_then(|f| f.strip_prefix("stuckthread"))
             .and_then(|f| f.strip_suffix(".txt"))
-            .and_then(|n| n.parse::<u32>().ok())
+            .and_then(|n| n.parse::<u8>().ok())
     });
-    entries.reverse();
-    Ok(entries)
-}
 
-pub fn get_sorted_stuckqueries<P>(root: P) -> io::Result<Vec<PathBuf>>
-where
-    P: AsRef<Path>,
-{
-    let mut entries = Vec::with_capacity(5);
-    let dir = fs::read_dir(&root)?;
-    for entry in dir {
-        let path = entry?.path();
-        let filename = path
-            .file_name()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidFilename,
-                    format!("Cannot extract filepath from {path:#?}"),
-                )
-            })?
-            .to_string_lossy();
-        if filename.starts_with("stuckqueries") {
-            entries.push(path);
-        }
-    }
+    logfiles.cpumonitoring.sort_by_key(|p| {
+        p.file_name()
+            .and_then(|f| f.to_str())
+            .and_then(|f| f.strip_prefix("cpumonitoring"))
+            .and_then(|f| f.strip_suffix(".txt"))
+            .and_then(|n| n.parse::<u8>().ok())
+    });
 
-    entries.sort_by_key(|p| {
+    logfiles.stuckqueries.sort_by_key(|p| {
         p.file_name()
             .and_then(|f| f.to_str())
             .and_then(|f| f.strip_prefix("stuckqueries"))
             .and_then(|f| f.strip_suffix(".txt"))
-            .and_then(|n| n.parse::<u32>().ok())
+            .and_then(|n| n.parse::<u8>().ok())
     });
-    entries.reverse();
-    Ok(entries)
+
+    logfiles.threaddump.sort_by_key(|p| {
+        p.file_name()
+            .and_then(|f| f.to_str())
+            .and_then(|f| f.strip_prefix("threaddump"))
+            .and_then(|f| f.strip_suffix(".txt"))
+            .and_then(|n| n.parse::<u8>().ok())
+    });
+
+    logfiles
+}
+
+pub fn get_entries<P>(root: P) -> io::Result<impl Iterator<Item = PathBuf>>
+where
+    P: AsRef<Path>,
+{
+    Ok(fs::read_dir(root)?.flat_map(|e| e.ok()).map(|e| e.path()))
 }
 
 pub fn map_file<P>(path: P) -> self::Result<Mmap>

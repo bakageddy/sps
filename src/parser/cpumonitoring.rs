@@ -46,6 +46,17 @@ impl FromStr for State {
     }
 }
 
+impl State {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::Runnable => "RUNNABLE",
+            Self::Blocked => "BLOCKED",
+            Self::TimedWaiting => "TIMED_WAITING",
+            Self::Waiting => "WAITING",
+        }
+    }
+}
+
 impl<'a> CPUThread<'a> {
     fn extract_timestamp(header: &str) -> Result<u64, Parse> {
         let mut scanner = Scanner::new(header);

@@ -1,3 +1,5 @@
+use tracing::warn;
+
 pub struct StuckThreadIterator<'a>(pub &'a [u8]);
 
 impl<'a> Iterator for StuckThreadIterator<'a> {
@@ -16,7 +18,7 @@ impl<'a> Iterator for StuckThreadIterator<'a> {
         let mut iter = self.0.split_inclusive(|b| *b == b'\n').peekable();
         if let Some(line) = iter.next() {
             if !line.starts_with(b"[") {
-                eprintln!("Unreachable");
+                warn!("Unreachable");
                 return None;
             }
             offset += line.len();

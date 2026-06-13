@@ -1,17 +1,19 @@
 use duckdb::Appender;
 use duckdb::Connection;
 use duckdb::Result;
+use duckdb::params;
 
 use std::path::Path;
 
-use crate::parser::stacktrace::Element;
-use crate::parser::stacktrace::Source;
-use crate::parser::stacktrace::Trace;
-use crate::parser::stuckquery_pgsql::StuckQueryTable;
-use crate::parser::stuckthread::Begin;
-use crate::parser::stuckthread::End;
-use crate::parser::threaddump::ThreadDump;
-use crate::parser::threaddump::ThreadState;
+use crate::parser::cpumonitoring::CPUThread;
+use crate::parser::stuckquery_mssql::Status;
+use crate::parser::stuckquery_pgsql;
+use crate::parser::{
+    stacktrace::{Element, Source, Trace},
+    stuckquery_mssql,
+    stuckthread::{Begin, End},
+    threaddump::{ThreadDump, ThreadState},
+};
 
 pub struct Store;
 impl Store {
@@ -190,7 +192,7 @@ impl Store {
 
     pub fn insert_stuckquery_pgsql_table(
         appender: &mut Appender,
-        table: &StuckQueryTable,
+        table: &stuckquery_pgsql::StuckQueryTable,
     ) -> Result<()> {
         for query in &table.queries {
             let _ = appender.append_row((
@@ -210,5 +212,67 @@ impl Store {
             ))?;
         }
         Ok(())
+    }
+
+    pub fn insert_stuckquery_mssql_table(
+        appender: &mut Appender,
+        table: &stuckquery_mssql::StuckQueryTable,
+    ) -> Result<()> {
+        for query in &table.queries {
+            let status = match query.status {
+                Status::Running => "RUNNING",
+                Status::Runnable => "RUNNABLE",
+                Status::Suspended => "SUSPENDED",
+            };
+            let _ = appender.append_row(params![
+                table.timestamp,
+                query.session_id,
+                status,
+                query.txn_id,
+                query.blocked_by,
+                query.wait_type,
+                query.wait_resource,
+                query.wait_time_ms,
+                query.cpu_time_ms,
+                query.logical_reads,
+                query.physical_reads,
+                query.physical_writes,
+                query.elapsed_time_ms,
+                query.statement,
+                query.command_text,
+                query.command,
+                query.login_name,
+                query.host_name,
+                query.db_name,
+                query.program_name,
+                query.host_process_id,
+                query.last_request_end_ms,
+                query.login_time_ms,
+                query.open_transaction_count,
+            ])?;
+        }
+        Ok(())
+    }
+
+    // TODO: Append CPU Stacktraces
+    pub fn insert_cpumonitoring_thread(
+        cpu: &mut Appender,
+        trace: &mut Appender,
+        thread: CPUThread,
+    ) -> Result<()> {
+        cpu.append_row((
+            thread.tid,
+            thread.timestamp,
+            thread.name,
+            thread.state.to_str(),
+            thread.cpu,
+        ))
+    }
+
+    pub fn insert_cpumonitoring_threads<'a>(
+        appender: &mut Appender,
+        threads: impl Iterator<Item = CPUThread<'a>>,
+    ) -> Result<()> where {
+        appender.append_rows(threads.map(|t| (t.tid, t.timestamp, t.name, t.state.to_str(), t.cpu)))
     }
 }

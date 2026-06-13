@@ -21,7 +21,7 @@ use sps::ingest::stuckthread::StuckThreadIterator;
 use sps::parser::stuckthread::*;
 // use sps::stuckthread::{Event, Stuc, StuckThread};
 // use sps::threaddump::{ThreadDump, ThreadDumpStreamer};
-use sps::util;
+use sps::util::{self, LogFiles};
 use tracing::{debug, info, warn};
 // // #[tokio::main]
 // fn main() -> util::Result<()> {
@@ -236,15 +236,20 @@ fn main() -> util::Result<()> {
         let cnx = Store::open(database.as_ref())?;
         let _ = Store::schema(&cnx)?;
 
-        let mut stuckthread = cnx.appender("stuckthread")?;
-        let mut stacktrace = cnx.appender("stacktrace")?;
-        let mut threads = cnx.appender("thread")?;
-        let mut stuckquery_pgsql = cnx.appender("stuckquery_pgsql")?;
+        let mut stuckthread_appender = cnx.appender("stuckthread")?;
+        let mut stacktrace_appender = cnx.appender("stacktrace")?;
+        let mut threads_appender = cnx.appender("thread")?;
+        let mut stuckquery_pgsql_appender = cnx.appender("stuckquery_pgsql")?;
+        let mut cpumonitoring_appender = cnx.appender("cpumonitoring")?;
 
         info!("Starting memory mapping files from {path:?}");
-        let sorted_stuckthreads = util::get_sorted_stuckthreads(&path)?;
-        let sorted_threaddumps = util::get_sorted_threaddumps(&path)?;
-        let sorted_stuckquery = util::get_sorted_stuckqueries(&path)?;
+        let LogFiles {
+            cpumonitoring,
+            stuckqueries,
+            stuckthreads,
+            threaddump
+        } = util::get_logfiles_sorted(util::get_entries(path)?);
+
         let mut stuckthread_maps = Vec::with_capacity(10);
         let mut threaddump_maps = Vec::with_capacity(10);
         let mut stuckquery_maps = Vec::with_capacity(5);
@@ -252,21 +257,21 @@ fn main() -> util::Result<()> {
         let mut dumps = Vec::with_capacity(20);
         let mut stuckquery_pgsql_tables = Vec::with_capacity(100);
 
-        for entry in &sorted_stuckthreads {
+        for entry in &stuckthreads {
             let map = util::map_file(entry)
                 .inspect_err(|er| warn!("cannot map file {:?} due to {er}", entry))
                 .unwrap();
             stuckthread_maps.push(map);
         }
 
-        for entry in &sorted_threaddumps {
+        for entry in &threaddumps {
             let map = util::map_file(entry)
                 .inspect_err(|er| warn!("cannot map file {:?} due to {er}", entry))
                 .unwrap();
             threaddump_maps.push(map);
         }
 
-        for entry in &sorted_stuckquery {
+        for entry in &stuckqueries {
             let map = util::map_file(entry)
                 .inspect_err(|er| warn!("Cannot map file {:?} due to {er}", entry))
                 .unwrap();
@@ -275,7 +280,8 @@ fn main() -> util::Result<()> {
 
         info!("Finished mapping files from {path:?}");
 
-        for (entry, map) in std::iter::zip(&sorted_stuckthreads, &stuckthread_maps) {
+        info!("Parsing stuckthreads");
+        for (entry, map) in std::iter::zip(&stuckthreads, &stuckthread_maps) {
             info!("Parsing: {entry:?}");
             for chunk in StuckThreadIterator(map) {
                 let stuckthread = StuckThread::try_from(chunk)
@@ -287,7 +293,8 @@ fn main() -> util::Result<()> {
 
         info!("Finished Parsing {} stuckthread events", events.len());
 
-        for (entry, map) in std::iter::zip(&sorted_threaddumps, &threaddump_maps) {
+        info!("Parsing threaddumps");
+        for (entry, map) in std::iter::zip(&threaddump, &threaddump_maps) {
             info!("Parsing: {entry:?}");
             for chunk in ThreadDumpIterator(map) {
                 if chunk.is_empty() {
@@ -306,7 +313,8 @@ fn main() -> util::Result<()> {
 
         info!("Finished Parsing {} threaddumps", dumps.len());
 
-        for (entry, map) in std::iter::zip(&sorted_stuckquery, &stuckquery_maps) {
+        info!("Parsing stuckqueries");
+        for (entry, map) in std::iter::zip(&stuckqueries, &stuckquery_maps) {
             info!("Parsing: {entry:?}");
             for chunk in StuckQueryTableIteratorPGSQL(map) {
                 if chunk.is_empty() {
@@ -324,6 +332,9 @@ fn main() -> util::Result<()> {
             }
         }
         info!("Finished Parsing {} PGSQL stuckquery tables", stuckquery_pgsql_tables.len());
+
+        info!("Parsing CPUMonitoring");
+        info!("Finished Parsing {} CPUMonitoring Threads");
 
         let mut aggregator: HashMap<u64, &StuckThread> = HashMap::new();
         let mut aggregates: Vec<(&Begin, &Trace, Option<&End>)> = Vec::with_capacity(100);
@@ -350,31 +361,31 @@ fn main() -> util::Result<()> {
 
         info!("Started persisting {} aggregated events", aggregates.len());
         for (begin, st, end) in &aggregates {
-            let _ = Store::insert_stuckthread(&mut stuckthread, &mut stacktrace, begin, st, *end)?;
+            let _ = Store::insert_stuckthread(&mut stuckthread_appender, &mut stacktrace_appender, begin, st, *end)?;
         }
         info!("Finished persisting {} aggregated events", aggregates.len());
 
         info!("Started persisting {} threaddumps", dumps.len());
         for dump in &dumps {
-            let _ = Store::insert_threaddump(&mut threads, &mut stacktrace, dump)?;
+            let _ = Store::insert_threaddump(&mut threads_appender, &mut stacktrace_appender, dump)?;
         }
         info!("Finished persisting {} threaddumps", dumps.len());
 
         info!("Started persisting {} PGSQL stuckquery tables", stuckquery_pgsql_tables.len());
         for table in &stuckquery_pgsql_tables {
-            let _ = Store::insert_stuckquery_pgsql_table(&mut stuckquery_pgsql, &table)?;
+            let _ = Store::insert_stuckquery_pgsql_table(&mut stuckquery_pgsql_appender, &table)?;
         }
         info!("Finished persisting {} PGSQL stuckquery tables", stuckquery_pgsql_tables.len());
 
-        stuckthread.flush()?;
-        stacktrace.flush()?;
-        threads.flush()?;
-        stuckquery_pgsql.flush()?;
+        stuckthread_appender.flush()?;
+        stacktrace_appender.flush()?;
+        threads_appender.flush()?;
+        stuckquery_pgsql_appender.flush()?;
 
-        drop(stuckthread);
-        drop(stacktrace);
-        drop(threads);
-        drop(stuckquery_pgsql);
+        drop(stuckthread_appender);
+        drop(stacktrace_appender);
+        drop(threads_appender);
+        drop(stuckquery_pgsql_appender);
         _ = cnx.close();
     } else {
         todo!("Not yet implemented");
