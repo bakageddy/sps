@@ -228,7 +228,7 @@ impl<'a> TryFrom<&'a str> for MemoryStatTable<'a> {
             return Err(Parse::InvalidLogType);
         }
 
-        for _ in 0..3 {
+        for _ in 0..4 {
             let _ = scanner.take_until("\n");
         }
 

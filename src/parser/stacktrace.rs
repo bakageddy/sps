@@ -1,6 +1,6 @@
 use tracing::warn;
 
-use crate::{error::stacktrace::Parse, parser::scanner::Scanner};
+use crate::{error::stacktrace::Parse, parser::scanner::Scanner, util::SchemaMapper};
 
 #[derive(Debug, Default)]
 pub struct Trace<'a>(pub Vec<Element<'a>>);
@@ -56,7 +56,7 @@ impl<'a> TryFrom<&'a str> for Trace<'a> {
                 Err(e) => {
                     warn!("Cannot parse stack trace element: {line:?} due to {e:?}");
                     continue;
-                },
+                }
             };
             st.0.push(result);
         }
@@ -136,6 +136,38 @@ impl<'a> TryFrom<&'a str> for Source<'a> {
             })
         } else {
             Ok(Source::Generated(value))
+        }
+    }
+}
+
+impl<'a> SchemaMapper for Source<'a> {
+    type Item = (&'a str, Option<u64>);
+
+    fn map_to_row(&self) -> Self::Item {
+        match &self {
+            Source::Filename { file, line } => (*file, Some(*line)),
+            Source::UnknownSource => ("Unknown Source", None),
+            Source::NativeMethod => ("NativeMethod", None),
+            Source::Generated(inner) => (inner, None),
+        }
+    }
+}
+
+impl<'a> SchemaMapper for Element<'a> {
+    type Item = (
+        Option<u64>,
+        Option<u64>,
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<&'a str>,
+    );
+    fn map_to_row(&self) -> Self::Item {
+        match self {
+            Element::Lock(object) => (None, Some(object.identity), Some(object.class), None, None),
+            Element::Elem { method, source } => {
+                let mapped = source.map_to_row();
+                (mapped.1, None, None, Some(*method), Some(mapped.0))
+            }
         }
     }
 }

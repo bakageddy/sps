@@ -1,201 +1,89 @@
-use duckdb::Appender;
-use duckdb::Connection;
-use duckdb::Result;
-use duckdb::params;
+use duckdb::{Appender, DuckdbConnectionManager, Result, params};
+use r2d2::{Pool, PooledConnection};
 
 use std::path::Path;
 
-use crate::parser::cpumonitoring::CPUThread;
-use crate::parser::stuckquery_mssql::Status;
-use crate::parser::stuckquery_pgsql;
 use crate::parser::{
-    stacktrace::{Element, Source, Trace},
-    stuckquery_mssql,
-    stuckthread::{Begin, End},
-    threaddump::{ThreadDump, ThreadState},
+    cpumemstats_windows::CPUMemoryStats,
+    cpumonitoring::CPUThread,
+    stacktrace::{Element, Trace},
+    stuckquery_mssql::{self, Status},
+    stuckquery_pgsql,
+    stuckthread::{Event, StuckThread},
+    threaddump::ThreadDump,
 };
+use crate::util::{self, SchemaMapper};
 
 pub struct Store;
 impl Store {
-    pub fn open<P>(path: Option<P>) -> Result<Connection>
+    pub fn open<P>(path: Option<P>) -> util::Result<Pool<DuckdbConnectionManager>>
     where
         P: AsRef<Path>,
     {
-        let cnx = if let Some(path) = path {
-            Connection::open(path)?
+        let mgr = if let Some(path) = path {
+            DuckdbConnectionManager::file(path)?
         } else {
-            Connection::open_in_memory()?
+            DuckdbConnectionManager::memory()?
         };
 
-        Ok(cnx)
+        let pool = r2d2::Pool::new(mgr)?;
+
+        Ok(pool)
     }
 
-    pub fn schema(cnx: &Connection) -> Result<()> {
+    pub fn schema(cnx: &PooledConnection<DuckdbConnectionManager>) -> Result<()> {
         let schema = include_str!("../../schema.duckdb.sql");
         cnx.execute_batch(schema)?;
         Ok(())
     }
 
-    pub fn insert_stuckthread(
+    pub fn insert_stuckthread<'a>(
         stuckthread_appender: &mut Appender,
         stacktrace_appender: &mut Appender,
-        begin: &Begin,
-        trace: &Trace,
-        end: Option<&End>,
+        iter: Vec<StuckThread<'a>>,
     ) -> Result<()> {
-        let mut active_monitor_end = None;
-        let mut active_duration_ms = begin.active_duration_ms;
-        if let Some(end) = end {
-            active_monitor_end = Some(end.active_monitor_count);
-            active_duration_ms = end.active_duration_ms;
-        };
-        let _ = stuckthread_appender.append_row((
-            begin.tid,
-            begin.start,
-            active_duration_ms,
-            begin.active_monitor_count,
-            active_monitor_end,
-            Some(begin.name),
-            Some(begin.request),
-        ))?;
-
-        stacktrace_appender.append_rows((0..).zip(&trace.0).map(
-            |(idx, element)| match element {
-                Element::Lock(_) => unreachable!("Lock Information in stuckthread"),
-                Element::Elem { method, source } => {
-                    let (file, line) = match source {
-                        Source::NativeMethod => (Some("NativeMethod"), None),
-                        Source::UnknownSource => (Some("UnknownSource"), None),
-                        Source::Filename { file, line } => (Some(*file), Some(*line)),
-                        Source::Generated(inner) => (Some(*inner), None),
-                    };
-                    (
-                        begin.tid,
-                        begin.start,
-                        line,
-                        None::<u64>,
-                        idx,
-                        None::<&str>,
-                        Some(*method),
-                        file,
-                    )
-                }
-            },
-        ))?;
-
+        for event in iter {
+            match &event.0 {
+                Event::Begin(begin, trace) => Self::insert_stuckthread_stacktrace(
+                    stacktrace_appender,
+                    begin.tid,
+                    begin.start,
+                    trace,
+                )?,
+                _ => {}
+            };
+            stuckthread_appender.append_row(event.map_to_row())?;
+        }
         Ok(())
     }
 
-    pub fn insert_threaddump(
-        thread_appender: &mut Appender,
-        stacktrace_appender: &mut Appender,
-        dump: &ThreadDump,
+    pub fn insert_stuckthread_stacktrace(
+        appender: &mut Appender,
+        tid: u64,
+        stamp: u64,
+        trace: &Trace,
     ) -> Result<()> {
-        let mut stacktraces = Vec::with_capacity(dump.threads.len());
-        for thread in &dump.threads {
-            let mut identity = None;
-            let mut class = None;
-            let mut owner_id = None;
-            let mut owner = None;
-            let state = match &thread.state {
-                ThreadState::New => "NEW",
-                ThreadState::Terminated => "TERMINATED",
-                ThreadState::Runnable => "RUNNABLE",
-                ThreadState::TimedWaiting => "TIMED_WAITING",
-                ThreadState::BlockedToLock(lock) => {
-                    let temp_lock = lock
-                        .as_ref()
-                        .expect("SAFETY: Blocked state will always have a lock");
-                    class = Some(temp_lock.object.class);
-                    identity = Some(temp_lock.object.identity);
-                    owner_id = Some(temp_lock.owner_id);
-                    owner = temp_lock.owner_name.and_then(|s| Some(s));
-                    "BLOCKED"
+        for (idx, item) in (0u32..).zip(&trace.0) {
+            match item {
+                Element::Lock(_) => {
+                    unreachable!("Stuckthreads' stacktraces do not have locked objects");
                 }
-                ThreadState::TimedWaitingOn(object) => {
-                    class = Some(object.class);
-                    identity = Some(object.identity);
-                    "TIMED_WAITING"
+                Element::Elem { method, source } => {
+                    let mapped = source.map_to_row();
+                    appender.append_row((tid, stamp, mapped.1, idx, *method, mapped.0))?;
                 }
-                ThreadState::Waiting => "WAITING",
-                ThreadState::WaitingOn(object) => {
-                    class = Some(object.class);
-                    identity = Some(object.identity);
-                    "WAITING"
-                }
-                ThreadState::WaitingToLock(lock) => {
-                    class = Some(lock.object.class);
-                    identity = Some(lock.object.identity);
-                    owner_id = Some(lock.owner_id);
-                    owner = lock.owner_name.and_then(|s| Some(s));
-                    "WAITING"
-                }
-            };
-            let _ = thread_appender.append_row((
-                thread.tid,
-                dump.triggered,
-                identity,
-                owner_id,
-                dump.snapshot,
-                owner,
-                class,
-                thread.name,
-                state,
-            ));
-
-            if let Some(trace) = &thread.stacktrace {
-                stacktraces.push((thread.tid, trace));
             }
         }
-
-        let _ = stacktrace_appender.append_rows(
-            stacktraces
-                .iter()
-                .map(|(tid, trace)| {
-                    (0..)
-                        .zip(&trace.0)
-                        .map(move |(idx, element)| match element {
-                            Element::Lock(object) => (
-                                tid,
-                                dump.triggered,
-                                None,
-                                Some(object.identity),
-                                idx,
-                                Some(object.class),
-                                None,
-                                None,
-                            ),
-                            Element::Elem { method, source } => {
-                                let (file, line) = match source {
-                                    Source::NativeMethod => (Some("NativeMethod"), None),
-                                    Source::UnknownSource => (Some("UnknownSource"), None),
-                                    Source::Filename { file, line } => (Some(*file), Some(*line)),
-                                    Source::Generated(inner) => (Some(*inner), None),
-                                };
-                                (
-                                    tid,
-                                    dump.triggered,
-                                    line,
-                                    None,
-                                    idx,
-                                    None,
-                                    Some(*method),
-                                    file,
-                                )
-                            }
-                        })
-                })
-                .flatten(),
-        )?;
         Ok(())
     }
+
 
     pub fn insert_stuckquery_pgsql_table(
         appender: &mut Appender,
         table: &stuckquery_pgsql::StuckQueryTable,
     ) -> Result<()> {
-        for query in &table.queries {
-            let _ = appender.append_row((
+        appender.append_rows(table.queries.iter().map(|query| {
+            (
                 table.timestamp,
                 query.pid,
                 query.query_time_ms,
@@ -209,9 +97,8 @@ impl Store {
                 Some(query.query),
                 Some(query.application_name),
                 query.client_hostname,
-            ))?;
-        }
-        Ok(())
+            )
+        }))
     }
 
     pub fn insert_stuckquery_mssql_table(
@@ -254,25 +141,119 @@ impl Store {
         Ok(())
     }
 
-    // TODO: Append CPU Stacktraces
-    pub fn insert_cpumonitoring_thread(
-        cpu: &mut Appender,
-        trace: &mut Appender,
-        thread: CPUThread,
+    pub fn insert_cpumonitoring_threads(
+        cpu_appender: &mut Appender,
+        stacktrace_appender: &mut Appender,
+        threads: Vec<CPUThread>,
     ) -> Result<()> {
-        cpu.append_row((
-            thread.tid,
-            thread.timestamp,
-            thread.name,
-            thread.state.to_str(),
-            thread.cpu,
-        ))
+        for thread in threads {
+            if let Some(trace) = thread.trace {
+                Store::insert_cpumonitoring_stacktrace(
+                    stacktrace_appender,
+                    thread.tid,
+                    thread.timestamp,
+                    trace,
+                )?;
+            }
+            cpu_appender.append_row((
+                thread.tid,
+                thread.timestamp,
+                Some(thread.name),
+                thread.state.to_str(),
+                thread.cpu,
+            ))?;
+        }
+        Ok(())
     }
 
-    pub fn insert_cpumonitoring_threads<'a>(
+    pub fn insert_cpumonitoring_stacktrace(
         appender: &mut Appender,
-        threads: impl Iterator<Item = CPUThread<'a>>,
-    ) -> Result<()> where {
-        appender.append_rows(threads.map(|t| (t.tid, t.timestamp, t.name, t.state.to_str(), t.cpu)))
+        tid: u64,
+        stamp: u64,
+        trace: Trace,
+    ) -> Result<()> {
+        for (idx, item) in (0u32..).zip(&trace.0) {
+            match item {
+                Element::Lock(_) => {
+                    unreachable!("CPUMonitoring stacktraces do not have locked objects");
+                }
+                Element::Elem { method, source } => {
+                    let mapped = source.map_to_row();
+                    appender.append_row((tid, stamp, mapped.1, idx, *method, mapped.0))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn insert_threaddump(
+        thread_appender: &mut Appender,
+        stacktrace_appender: &mut Appender,
+        dump: ThreadDump,
+    ) -> Result<()> {
+        for thread in &dump.threads {
+            thread_appender.append_row(thread.map_to_row())?;
+            if let Some(ref trace) = thread.stacktrace {
+                Store::insert_threaddump_stacktrace(
+                    stacktrace_appender,
+                    trace,
+                    thread.tid,
+                    dump.triggered,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn insert_threaddump_stacktrace(
+        appender: &mut Appender,
+        trace: &Trace,
+        tid: u64,
+        timestamp: u64,
+    ) -> Result<()> {
+        appender.append_rows(trace.0.iter().zip(0..).map(|(item, idx)| {
+            let mapped = item.map_to_row();
+            (
+                tid, timestamp, mapped.0, mapped.1, idx, mapped.2, mapped.3, mapped.4,
+            )
+        }))
+    }
+
+    pub fn insert_cpumemstats(appender: &mut Appender, stats: Vec<CPUMemoryStats>) -> Result<()> {
+        for table in stats {
+            match table {
+                CPUMemoryStats::CPU(table) => {
+                    appender.append_rows(table.stats.iter().map(|stat| stat.map_to_row()).map(
+                        |(pid, usage, path, name, is_cpu)| {
+                            (
+                                table.timestamp_ms,
+                                pid,
+                                table.total_cpu,
+                                usage,
+                                path,
+                                name,
+                                is_cpu,
+                            )
+                        },
+                    ))?;
+                }
+                CPUMemoryStats::Memory(table) => {
+                    appender.append_rows(table.stats.iter().map(|stat| stat.map_to_row()).map(
+                        |(pid, usage, path, name, is_cpu)| {
+                            (
+                                table.timestamp_ms,
+                                pid,
+                                table.total_memory,
+                                usage,
+                                path,
+                                name,
+                                is_cpu,
+                            )
+                        },
+                    ))?;
+                }
+            }
+        }
+        Ok(())
     }
 }

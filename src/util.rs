@@ -14,17 +14,19 @@ use tracing::{info, warn};
 
 use memmap2::Mmap;
 
-use crate::ingest::cpumemstats_windows::CPUMemStatsIterator;
-use crate::ingest::cpumonitoring::CPUMonitoringIterator;
-use crate::ingest::stuckquery_pgsql::StuckQueryTableIteratorPGSQL;
-use crate::ingest::stuckthread::StuckThreadIterator;
-use crate::ingest::threaddump::ThreadDumpIterator;
-use crate::parser::cpumemstats_windows::CPUMemoryStats;
-use crate::parser::cpumonitoring::CPUThread;
-use crate::parser::stuckquery_pgsql;
-use crate::parser::stuckthread::StuckThread;
-use crate::parser::threaddump::ThreadDump;
-use crate::persistence::store::Store;
+use crate::error;
+use crate::{
+    ingest::{
+        cpumemstats_windows::CPUMemStatsIterator, cpumonitoring::CPUMonitoringIterator,
+        stuckquery_pgsql::StuckQueryTableIteratorPGSQL, stuckthread::StuckThreadIterator,
+        threaddump::ThreadDumpIterator,
+    },
+    parser::{
+        cpumemstats_windows::CPUMemoryStats, cpumonitoring::CPUThread, stuckquery_pgsql,
+        stuckthread::StuckThread, threaddump::ThreadDump,
+    },
+    persistence::store::Store,
+};
 
 pub type Result<T> = std::result::Result<T, crate::error::Error>;
 
@@ -269,6 +271,10 @@ where
             let thread = match CPUThread::try_from(chunk) {
                 Ok(thread) => thread,
                 Err(e) => {
+                    match e {
+                        error::cpumonitoring::Parse::MonitoringThreadInfoExtraction(_) => continue,
+                        _ => {},
+                    };
                     debug!("Error during parsing, chunk: {chunk}");
                     warn!("Error during parsing CPUMonitoring Thread: {e}");
                     continue;
@@ -336,7 +342,6 @@ pub fn parse_and_persist_threaddump<P>(
 where
     P: AsRef<Path>,
 {
-
     let mut maps = Vec::new();
     let mut dumps = Vec::new();
     for entry in &entries {

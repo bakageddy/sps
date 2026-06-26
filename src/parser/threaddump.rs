@@ -7,7 +7,7 @@ use crate::{
         scanner::Scanner,
         stacktrace::{Object, Trace},
     },
-    util::ToUnixMillis,
+    util::{SchemaMapper, ToUnixMillis},
 };
 
 #[derive(Debug)]
@@ -17,6 +17,7 @@ pub struct LockInfo<'a> {
     pub object: Object<'a>,
 }
 
+// TODO: Refactor Thread State to better model the logs
 #[derive(Debug)]
 pub enum ThreadState<'a> {
     New,
@@ -235,11 +236,8 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
         {
             ["Thread dump", raw_snapshot, raw_timestamp] => {
                 snapshot = (*raw_snapshot).parse().map_err(|_| Parse::DumpSnapshot)?;
-                let time = PrimitiveDateTime::parse(
-                    *raw_timestamp,
-                    ThreadDump::FORMAT,
-                )
-                .map_err(Parse::SnapshotTimestampParsing)?;
+                let time = PrimitiveDateTime::parse(*raw_timestamp, ThreadDump::FORMAT)
+                    .map_err(Parse::SnapshotTimestampParsing)?;
                 timestamp = time
                     .to_unix_millis()
                     .ok_or(Parse::SnapshotTimestampConversion)?;
@@ -255,7 +253,7 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
         while let Some(line) = dump.next() {
             if line.starts_with("\"") {
                 offset += line.len();
-                while let Some(line) = dump.next_if(|l| !l.trim().starts_with("\"")) {
+                while let Some(line) = dump.next_if(|l| !l.trim_start().starts_with("\"")) {
                     offset += line.len();
                 }
 
@@ -266,7 +264,7 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
                     Err(e) => {
                         warn!(
                             "Error during parsing thread dump: {e:?}, thread: {}",
-                            String::from(contents)
+                            contents
                         );
                     }
                 };
@@ -283,5 +281,92 @@ impl<'a> TryFrom<&'a str> for ThreadDump<'a> {
             triggered: timestamp,
             snapshot,
         })
+    }
+}
+
+impl<'a> SchemaMapper for ThreadState<'a> {
+    /// (
+    ///  State: &'static str,
+    ///  Owner Name: Option<&'a str>,
+    ///  Owner ID: Option<u64>,
+    ///  Class: Option<&'a str>,
+    ///  Identity: Option<u64>
+    /// );
+    type Item = (
+        &'static str,
+        Option<&'a str>,
+        Option<u64>,
+        Option<&'a str>,
+        Option<u64>,
+    );
+
+    fn map_to_row(&self) -> Self::Item {
+        match self {
+            ThreadState::New => ("NEW", None, None, None, None),
+            ThreadState::Terminated => ("TERMINATED", None, None, None, None),
+            ThreadState::Runnable => ("RUNNABLE", None, None, None, None),
+            ThreadState::BlockedToLock(Some(lock)) => (
+                "BLOCKED",
+                lock.owner_name,
+                Some(lock.owner_id),
+                Some(lock.object.class),
+                Some(lock.object.identity),
+            ),
+            // WARN: Remove when you refactor stuff
+            ThreadState::BlockedToLock(None) => unreachable!(
+                "Blocked thread state in Java always has an lock object. Remove this arm, when you refactor thread parser"
+            ),
+            ThreadState::TimedWaiting => ("TIMED_WAITING", None, None, None, None),
+            ThreadState::TimedWaitingOn(object) => (
+                "TIMED_WAITING",
+                None,
+                None,
+                Some(object.class),
+                Some(object.identity),
+            ),
+            ThreadState::Waiting => ("WAITING", None, None, None, None),
+            ThreadState::WaitingOn(object) => (
+                "WAITING",
+                None,
+                None,
+                Some(object.class),
+                Some(object.identity),
+            ),
+            ThreadState::WaitingToLock(lock_info) => (
+                "WAITING",
+                lock_info.owner_name,
+                Some(lock_info.owner_id),
+                Some(lock_info.object.class),
+                Some(lock_info.object.identity),
+            ),
+        }
+    }
+}
+
+impl<'a> SchemaMapper for Thread<'a> {
+    /// (
+    ///     tid: u64,
+    ///     identity: Option<u64>,
+    ///     owner_id: Option<u64>,
+    ///     owner_name: Option<&'a str>,
+    ///     class: Option<&'a str>,
+    ///     name: Option<&'a str>,
+    ///     state: &'static str
+    /// )
+    type Item = (
+        u64,
+        Option<u64>,
+        Option<u64>,
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<&'a str>,
+        &'static str,
+    );
+
+    fn map_to_row(&self) -> Self::Item {
+        let (state, owner_name, owner_id, class, identity) = self.state.map_to_row();
+        (
+            self.tid, identity, owner_id, owner_name, class, self.name, state,
+        )
     }
 }

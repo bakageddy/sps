@@ -1,14 +1,6 @@
 use clap::Parser;
 use sps::{
     arg::Command,
-    ingest::{
-        cpumemstats_windows::CPUMemStatsIterator, cpumonitoring::CPUMonitoringIterator,
-        threaddump::ThreadDumpIterator,
-    },
-    parser::{
-        cpumemstats_windows::CPUMemoryStats, cpumonitoring::CPUThread, stacktrace::Trace,
-        stuckquery_pgsql::StuckQueryTable, stuckthread::*, threaddump::ThreadDump,
-    },
     persistence::store::Store,
     util::{self, LogFiles},
 };

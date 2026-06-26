@@ -1,7 +1,7 @@
 use crate::{
     error::stuckthread::Parse,
     parser::{scanner::Scanner, stacktrace::Trace},
-    util::{self, ToUnixMillis},
+    util::{self, SchemaMapper, ToUnixMillis},
 };
 
 use time::{Date, PrimitiveDateTime, Time, macros::format_description};
@@ -47,7 +47,7 @@ impl<'a> TryFrom<&'a str> for StuckThread<'a> {
         let meta = scanner
             .take_until("\n")
             .ok_or_else(|| Parse::MetaExtractionError)
-            .and_then(|m| Event::try_from(m))?;
+            .and_then(Event::try_from)?;
         if let Event::Begin(begin, _) = meta {
             let stacktrace =
                 Trace::try_from(scanner.remaining()).map_err(Parse::StackParseError)?;
@@ -227,5 +227,53 @@ impl<'a> TryFrom<&[&'a str]> for End<'a> {
             active_duration_ms,
             active_monitor_count,
         })
+    }
+}
+
+impl<'a> SchemaMapper for StuckThread<'a> {
+    /// Item = (
+    ///     tid: u64,
+    ///     start: u64,
+    ///     active_duration_ms: u32,
+    ///     active_monitor: u32,
+    ///     begin_event: bool,
+    ///     name: Option<&'a str>,
+    ///     request: Option<&'a str>
+    /// );
+    type Item = (u64, u64, u32, u32, bool, Option<&'a str>, Option<&'a str>);
+
+    fn map_to_row(&self) -> Self::Item {
+        match &self.0 {
+            Event::Begin(b, _) => (
+                b.tid,
+                b.start,
+                b.active_duration_ms,
+                b.active_monitor_count,
+                true,
+                if !b.name.trim().is_empty() {
+                    Some(b.name)
+                } else {
+                    None
+                },
+                if !b.request.trim().is_empty() {
+                    Some(b.request)
+                } else {
+                    None
+                },
+            ),
+            Event::End(e) => (
+                e.tid,
+                e.start,
+                e.active_duration_ms,
+                e.active_monitor_count,
+                false,
+                if !e.name.trim().is_empty() {
+                    Some(e.name)
+                } else {
+                    None
+                },
+                None,
+            ),
+        }
     }
 }
