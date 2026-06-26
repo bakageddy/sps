@@ -1,25 +1,25 @@
--- CREATE TYPE IF NOT EXISTS ThreadState AS ENUM (
---     'NEW',
---     'RUNNABLE',
---     'BLOCKED',
---     'WAITING',
---     'TIMED_WAITING',
---     'TERMINATED'
--- );
+PRAGMA memory_limit = '1GB';
 
-CREATE TABLE IF NOT EXISTS stuckthread (
-    tid                   UBIGINT  NOT NULL,
-    start                 UBIGINT  NOT NULL,           -- unix millis
-    active_duration_ms    UBIGINT  NOT NULL,
-    active_monitor_start  UINTEGER DEFAULT 0,
-    active_monitor_end    UINTEGER DEFAULT 0,
-    name                  STRING   NULL,
-    request               STRING   NULL
+CREATE TABLE IF NOT EXISTS stuckthread_events (
+	tid	UBIGINT NOT NULL,
+	start UBIGINT NOT NULL,
+	active_duration_ms UINTEGER NOT NULL,
+	active_monitor UINTEGER DEFAULT 0,
+	begin_event BOOLEAN DEFAULT TRUE NOT NULL,
+	name STRING NULL,
+	request STRING NULL,
 );
 
--- for thread related stacktraces: tid, triggered_unix_ms
--- for stuckthread related stacktraces: tid, start
-CREATE TABLE IF NOT EXISTS stacktrace (
+CREATE TABLE IF NOT EXISTS stuckthread_stacktraces (
+    tid				UBIGINT NOT NULL, 
+	stamp			UBIGINT NOT NULL,
+    line			UBIGINT NULL,
+    frame_idx		UINTEGER NOT NULL,
+    method			STRING NULL,
+    frame_source	STRING NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS thread_stacktrace (
     tid				UBIGINT NOT NULL, 
 	stamp			UBIGINT NOT NULL,
 
@@ -92,4 +92,23 @@ CREATE TABLE IF NOT EXISTS cpumonitoring (
 	name					STRING NULL,
 	state					STRING NULL,
 	cpu						FLOAT NOT NULL,	
+);
+
+CREATE TABLE IF NOT EXISTS cpumonitoring_traces (
+    tid				UBIGINT NOT NULL, 
+	stamp			UBIGINT NOT NULL,
+    line			UBIGINT NULL,
+    frame_idx		UINTEGER NOT NULL,
+    method			STRING NULL,
+    frame_source	STRING NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cpumemstats (
+	timestamp				UBIGINT NOT NULL,
+	process_id				UBIGINT NOT NULL,
+	total_usage				FLOAT NOT NULL,
+	usage					FLOAT NOT NULL,
+	path					STRING NOT NULL,
+	name					STRING NOT NULL,
+	is_cpu					BOOLEAN NOT NULL,
 );

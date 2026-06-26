@@ -26,9 +26,13 @@ impl<'a> Iterator for CPUMonitoringIterator<'a> {
             offset += line.len();
         }
 
-        let contents = &self.0[start..(start + offset)];
+        let chunk = &self.0[start..(start + offset)];
         self.0 = &self.0[start + offset..];
-        str::from_utf8(contents).ok()
+        if chunk.len() == 0 {
+            None
+        } else {
+            str::from_utf8(chunk).ok()
+        }
     }
 }
 

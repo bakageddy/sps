@@ -8,6 +8,8 @@ pub enum Error {
     Clap(#[from] clap::Error),
     #[error("Error with DuckDB: {0:?}")]
     DuckDB(#[from] duckdb::Error),
+    #[error("Error with R2D2 Connection Pool: {0:?}")]
+    R2D2(#[from] r2d2::Error),
     #[error("Error during I/O: {0:?}")]
     IO(#[from] std::io::Error),
     #[error("Error with MCP communication/configuration/parameters: {0:?}")]
@@ -414,5 +416,53 @@ pub mod stacktrace {
 
         #[error("Empty element during stacktrace parsing")]
         EmptyElement,
+    }
+}
+
+pub mod cpumemstats {
+    use std::num::{ParseFloatError, ParseIntError};
+
+    use crate::error::scanner;
+
+    #[derive(thiserror::Error, Debug)]
+    pub enum Error {
+        #[error("Error during parsing: {0:?}")]
+        Parse(#[from] Parse),
+    }
+
+    #[derive(thiserror::Error, Debug)]
+    pub enum Parse {
+        #[error("Error during name extraction: {0}")]
+        NameExtraction(scanner::Error),
+        #[error("Error during PID extraction: {0}")]
+        PIDExtraction(scanner::Error),
+        #[error("Error during parsing PID: {0}")]
+        PIDParse(ParseIntError),
+        #[error("Error during CPU Usage extraction: {0}")]
+        CPUUsageExtraction(scanner::Error),
+        #[error("Error during parsing CPU Usage : {0}")]
+        CPUParse(ParseFloatError),
+        #[error("Error during CPU Usage extraction: {0}")]
+        PathExtraction(scanner::Error),
+        #[error("Error during CPU Usage extraction: {0}")]
+        MemoryUsageExtraction(scanner::Error),
+        #[error("Error during parsing CPU Usage : {0}")]
+        MemoryParse(ParseFloatError),
+        #[error("Error during timestamp extraction: {0}")]
+        TimestampExtraction(scanner::Error),
+        #[error("Error during timestamp parsing: {0}")]
+        TimestampParsing(#[from] time::error::Parse),
+        #[error("Error during header extraction")]
+        HeaderExtraction,
+        #[error("Error during log type extraction: {0}")]
+        LogTypeExtraction(scanner::Error),
+        #[error("Invalid Log Type found")]
+        InvalidLogType,
+        #[error("Error during total cpu extraction: {0}")]
+        TotalUsageExtraction(scanner::Error),
+        #[error("Error during Total CPU/Memory Usage: {0}")]
+        TotalUsageParsing(ParseFloatError),
+        #[error("Total Usage unavailable")]
+        TotalUsageUnavailable,
     }
 }

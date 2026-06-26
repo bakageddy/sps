@@ -17,14 +17,14 @@ impl<'a> Iterator for ThreadDumpIterator<'a> {
                 continue;
             }
             offset += line.len();
-            while let Some(line) = iter.next_if(|l| {
-                !l.trim_ascii_start().starts_with(b"TriggeredTime")
-                    || !l.trim_ascii_start().starts_with(b"Thread dump")
-            }) {
-                offset += line.len();
-            }
             break;
         }
+
+        while let Some(line) = iter.next_if(|l| !l.trim_ascii_start().starts_with(b"TriggeredTime"))
+        {
+            offset += line.len();
+        }
+
         let contents = &self.0[start..start + offset];
         self.0 = &self.0[start + offset..];
 

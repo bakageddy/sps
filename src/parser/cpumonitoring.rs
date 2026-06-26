@@ -5,13 +5,14 @@ use crate::{
     error::cpumonitoring::Parse,
     parser::{scanner::Scanner, stacktrace::Trace},
 };
-use time::Date;
-use time::{PrimitiveDateTime, Time, format_description::FormatItem, macros::format_description};
+use time::{
+    Date, PrimitiveDateTime, Time, format_description::FormatItem, macros::format_description,
+};
 
-static CPU_MONITORING_TIME_FORMAT: &'static [FormatItem<'static>] =
+static CPU_MONITORING_TIME_FORMAT: &[FormatItem<'static>] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
 
-static CPU_MONITORING_DATE_FORMAT: &'static [FormatItem<'static>] =
+static CPU_MONITORING_DATE_FORMAT: &[FormatItem<'static>] =
     format_description!("[day]-[month]-[year]");
 
 #[derive(Debug)]
@@ -19,7 +20,7 @@ pub struct CPUThread<'a> {
     pub name: &'a str,
     pub trace: Option<Trace<'a>>,
     pub timestamp: u64,
-    pub tid: u32,
+    pub tid: u64,
     pub cpu: f32,
     pub state: State,
 }
@@ -98,7 +99,7 @@ impl<'a> TryFrom<&'a str> for CPUThread<'a> {
         let tid = scanner
             .take_until(",")
             .ok_or(Parse::MonitoringThreadIdCommaExtraction)?;
-        let tid = tid.trim().parse::<u32>()?;
+        let tid = tid.trim().parse::<u64>()?;
 
         scanner.skip_whitespace();
         scanner
@@ -174,7 +175,7 @@ Thread Name: pool-25-thread-15, Thread State: TIMED_WAITING
         );
 
         let thread = thread.unwrap();
-        assert_eq!(thread.tid, 620u32);
+        assert_eq!(thread.tid, 620u64);
         assert_eq!(thread.cpu, 0.095f32);
         assert_eq!(thread.name, "pool-25-thread-15");
         assert_eq!(thread.state, State::TimedWaiting);
@@ -208,7 +209,8 @@ Is executing native code? : false"#;
             thread.unwrap_err()
         );
         let thread = thread.unwrap();
-        assert_eq!(thread.tid, 28u32);
+        // NOTE: We check for types to, check whether we have to use types
+        assert_eq!(thread.tid, 28u64);
         assert_eq!(thread.cpu, 2.0939937f32);
         assert_eq!(thread.name, "Glowroot-Aggregate-Flushing");
         assert_eq!(thread.state, State::Blocked);
@@ -223,7 +225,8 @@ Is executing native code? : false"#;
                     file: "DataSource.java",
                     line: 359u64
                 }
-            }).as_ref()
+            })
+            .as_ref()
         );
         assert_eq!(
             trace.0.last(),

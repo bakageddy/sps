@@ -1,28 +1,28 @@
-use sps::ingest::stuckquery_pgsql::StuckQueryTableIteratorPGSQL;
-use sps::parser::stuckquery_pgsql::StuckQueryTable;
-use sps::parser::threaddump::ThreadDump;
-// use rmcp::transport::{
-//     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
-// };
-use sps::parser::stacktrace::Trace;
-use sps::persistence::store::Store;
-use sps::{arg::Command, ingest::threaddump::ThreadDumpIterator};
-use std::collections::HashMap;
+use clap::Parser;
+use sps::{
+    arg::Command,
+    ingest::{
+        cpumemstats_windows::CPUMemStatsIterator, cpumonitoring::CPUMonitoringIterator,
+        threaddump::ThreadDumpIterator,
+    },
+    parser::{
+        cpumemstats_windows::CPUMemoryStats, cpumonitoring::CPUThread, stacktrace::Trace,
+        stuckquery_pgsql::StuckQueryTable, stuckthread::*, threaddump::ThreadDump,
+    },
+    persistence::store::Store,
+    util::{self, LogFiles},
+};
+use tracing::{debug, error, info, warn};
 // use std::net::Ipv4Addr;
 // use std::process::exit;
 // use std::str::FromStr;
 // use tokio::net::TcpListener;
 
-use clap::Parser;
 // use rmcp::{ServiceExt, transport};
 // use sps::analysis::mcp::{AnalysisServer, init_db};
 // use sps::database::Persistence;
-use sps::ingest::stuckthread::StuckThreadIterator;
-use sps::parser::stuckthread::*;
 // use sps::stuckthread::{Event, Stuc, StuckThread};
 // use sps::threaddump::{ThreadDump, ThreadDumpStreamer};
-use sps::util::{self, LogFiles};
-use tracing::{debug, info, warn};
 // // #[tokio::main]
 // fn main() -> util::Result<()> {
 //     tracing_subscriber::fmt().init();
@@ -233,160 +233,59 @@ fn main() -> util::Result<()> {
         if database.is_none() {
             warn!("No path provided for saving the result. Persisting in memory");
         }
-        let cnx = Store::open(database.as_ref())?;
+        let pool = Store::open(database)?;
+        let cnx = pool.get()?;
         let _ = Store::schema(&cnx)?;
 
-        let mut stuckthread_appender = cnx.appender("stuckthread")?;
-        let mut stacktrace_appender = cnx.appender("stacktrace")?;
-        let mut threads_appender = cnx.appender("thread")?;
-        let mut stuckquery_pgsql_appender = cnx.appender("stuckquery_pgsql")?;
-        let mut cpumonitoring_appender = cnx.appender("cpumonitoring")?;
+        // TODO: Determine if the current files are from mssql or pgsql.
+        // TODO: Add a command line flag for the parser subcommand to hint at the files.
 
         info!("Starting memory mapping files from {path:?}");
         let LogFiles {
             cpumonitoring,
+            cpumemstats,
             stuckqueries,
             stuckthreads,
-            threaddump
-        } = util::get_logfiles_sorted(util::get_entries(path)?);
+            threaddumps,
+        } = util::get_logfiles_sorted(util::get_entries(&path)?);
 
-        let mut stuckthread_maps = Vec::with_capacity(10);
-        let mut threaddump_maps = Vec::with_capacity(10);
-        let mut stuckquery_maps = Vec::with_capacity(5);
-        let mut events = Vec::with_capacity(10000);
-        let mut dumps = Vec::with_capacity(20);
-        let mut stuckquery_pgsql_tables = Vec::with_capacity(100);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let _ =
+                    util::parse_and_persist_stuckthreads(stuckthreads, pool.clone()).map_err(|e| {
+                        warn!("Error during Parsing/Persisting Stuck Threads: {e}");
+                    });
+            });
 
-        for entry in &stuckthreads {
-            let map = util::map_file(entry)
-                .inspect_err(|er| warn!("cannot map file {:?} due to {er}", entry))
-                .unwrap();
-            stuckthread_maps.push(map);
-        }
+            s.spawn(|| {
+                let _ = util::parse_and_persist_stuckqueries_pgsql(stuckqueries, pool.clone())
+                    .map_err(|e| {
+                        warn!("Error during Parsing/Persisting Stuck Queries: {e}");
+                    });
+            });
 
-        for entry in &threaddumps {
-            let map = util::map_file(entry)
-                .inspect_err(|er| warn!("cannot map file {:?} due to {er}", entry))
-                .unwrap();
-            threaddump_maps.push(map);
-        }
+            s.spawn(|| {
+                let _ = util::parse_and_persist_cpumonitoring(cpumonitoring, pool.clone()).map_err(
+                    |e| {
+                        warn!("Error during Parsing/Persisting CPUMonitoring: {e}");
+                    },
+                );
+            });
 
-        for entry in &stuckqueries {
-            let map = util::map_file(entry)
-                .inspect_err(|er| warn!("Cannot map file {:?} due to {er}", entry))
-                .unwrap();
-            stuckquery_maps.push(map);
-        }
+            s.spawn(|| {
+                let _ =
+                    util::parse_and_persist_cpumemstats(cpumemstats, pool.clone()).map_err(|e| {
+                        warn!("Error during Parsing/Persisting cpumemstats: {e}");
+                    });
+            });
 
-        info!("Finished mapping files from {path:?}");
-
-        info!("Parsing stuckthreads");
-        for (entry, map) in std::iter::zip(&stuckthreads, &stuckthread_maps) {
-            info!("Parsing: {entry:?}");
-            for chunk in StuckThreadIterator(map) {
-                let stuckthread = StuckThread::try_from(chunk)
-                    .inspect_err(|er| warn!("Error during parsing chunk {er:?}"))
-                    .unwrap();
-                events.push(stuckthread);
-            }
-        }
-
-        info!("Finished Parsing {} stuckthread events", events.len());
-
-        info!("Parsing threaddumps");
-        for (entry, map) in std::iter::zip(&threaddump, &threaddump_maps) {
-            info!("Parsing: {entry:?}");
-            for chunk in ThreadDumpIterator(map) {
-                if chunk.is_empty() {
-                    continue;
-                }
-                let threaddump = match ThreadDump::try_from(chunk) {
-                    Ok(o) => o,
-                    Err(e) => {
-                        warn!("Error during parsing chunk {e:?}");
-                        continue;
-                    }
-                };
-                dumps.push(threaddump)
-            }
-        }
-
-        info!("Finished Parsing {} threaddumps", dumps.len());
-
-        info!("Parsing stuckqueries");
-        for (entry, map) in std::iter::zip(&stuckqueries, &stuckquery_maps) {
-            info!("Parsing: {entry:?}");
-            for chunk in StuckQueryTableIteratorPGSQL(map) {
-                if chunk.is_empty() {
-                    continue;
-                }
-
-                let table = match StuckQueryTable::try_from(chunk) {
-                    Ok(table) => table,
-                    Err(e) => {
-                        warn!("Error during parsing chunk: {e:?}");
-                        continue;
-                    }
-                };
-                stuckquery_pgsql_tables.push(table);
-            }
-        }
-        info!("Finished Parsing {} PGSQL stuckquery tables", stuckquery_pgsql_tables.len());
-
-        info!("Parsing CPUMonitoring");
-        info!("Finished Parsing {} CPUMonitoring Threads");
-
-        let mut aggregator: HashMap<u64, &StuckThread> = HashMap::new();
-        let mut aggregates: Vec<(&Begin, &Trace, Option<&End>)> = Vec::with_capacity(100);
-        debug!("Started Aggregating Stuckthread events");
-
-        for event in &events {
-            match &event.0 {
-                Event::Begin(begin, _) => {
-                    aggregator.insert(begin.tid, event);
-                }
-                Event::End(end) => {
-                    if let Some(StuckThread(Event::Begin(begin, st))) = aggregator.get(&end.tid) {
-                        aggregates.push((begin, st, Some(end)))
-                    }
-                }
-            }
-        }
-
-        for (_, event) in aggregator {
-            if let StuckThread(Event::Begin(begin, st)) = event {
-                aggregates.push((begin, st, None))
-            }
-        }
-
-        info!("Started persisting {} aggregated events", aggregates.len());
-        for (begin, st, end) in &aggregates {
-            let _ = Store::insert_stuckthread(&mut stuckthread_appender, &mut stacktrace_appender, begin, st, *end)?;
-        }
-        info!("Finished persisting {} aggregated events", aggregates.len());
-
-        info!("Started persisting {} threaddumps", dumps.len());
-        for dump in &dumps {
-            let _ = Store::insert_threaddump(&mut threads_appender, &mut stacktrace_appender, dump)?;
-        }
-        info!("Finished persisting {} threaddumps", dumps.len());
-
-        info!("Started persisting {} PGSQL stuckquery tables", stuckquery_pgsql_tables.len());
-        for table in &stuckquery_pgsql_tables {
-            let _ = Store::insert_stuckquery_pgsql_table(&mut stuckquery_pgsql_appender, &table)?;
-        }
-        info!("Finished persisting {} PGSQL stuckquery tables", stuckquery_pgsql_tables.len());
-
-        stuckthread_appender.flush()?;
-        stacktrace_appender.flush()?;
-        threads_appender.flush()?;
-        stuckquery_pgsql_appender.flush()?;
-
-        drop(stuckthread_appender);
-        drop(stacktrace_appender);
-        drop(threads_appender);
-        drop(stuckquery_pgsql_appender);
-        _ = cnx.close();
+            s.spawn(|| {
+                let _ =
+                    util::parse_and_persist_threaddump(threaddumps, pool.clone()).map_err(|e| {
+                        warn!("Error during Parsing/Persisting thread dumps: {e}");
+                    });
+            });
+        });
     } else {
         todo!("Not yet implemented");
     }
