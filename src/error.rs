@@ -25,6 +25,8 @@ pub mod mcp {
 }
 
 pub mod scanner {
+    use std::str::Utf8Error;
+
     use thiserror::Error;
 
     #[derive(Debug, Error, PartialEq, Eq)]
@@ -39,10 +41,8 @@ pub mod scanner {
             "Error during consuming Scanner: Trying to consume {expect:?} but available {have:?}"
         )]
         NotEnoughData { have: usize, expect: usize },
-        #[error(
-            "Error during consuming Scanner: {n:?}th byte is not a valid utf8 code point in {data:?}"
-        )]
-        NotACharBoundary { n: usize, data: String },
+        #[error("Error during conversion from bytes to utf8: {0}")]
+        UTF8(#[from] Utf8Error),
     }
 }
 
