@@ -7,8 +7,7 @@ use crate::parser::{
     cpumemstats_windows::CPUMemoryStats,
     cpumonitoring::CPUThread,
     stacktrace::{Element, Trace},
-    stuckquery_mssql::{self, Status},
-    stuckquery_pgsql,
+    stuckquery::{self, Status},
     stuckthread::{Event, StuckThread},
     threaddump::ThreadDump,
 };
@@ -80,7 +79,7 @@ impl Store {
 
     pub fn insert_stuckquery_pgsql_table(
         appender: &mut Appender,
-        table: &stuckquery_pgsql::StuckQueryTable,
+        table: &stuckquery::PGSQLTable,
     ) -> Result<()> {
         appender.append_rows(table.queries.iter().map(|query| {
             (
@@ -103,13 +102,14 @@ impl Store {
 
     pub fn insert_stuckquery_mssql_table(
         appender: &mut Appender,
-        table: &stuckquery_mssql::StuckQueryTable,
+        table: &stuckquery::MSSQLTable,
     ) -> Result<()> {
         for query in &table.queries {
             let status = match query.status {
                 Status::Running => "RUNNING",
                 Status::Runnable => "RUNNABLE",
                 Status::Suspended => "SUSPENDED",
+                Status::Unknown(inner) => &format!("UNKNOWN: {inner}"),
             };
             let _ = appender.append_row(params![
                 table.timestamp,

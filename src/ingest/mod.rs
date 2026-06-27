@@ -3,7 +3,6 @@
 pub mod stuckthread;
 pub mod running_queries;
 pub mod threaddump;
-pub mod stuckquery_pgsql;
-pub mod stuckquery_mssql;
+pub mod stuckquery;
 pub mod cpumonitoring;
 pub mod cpumemstats_windows;

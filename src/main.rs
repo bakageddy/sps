@@ -229,7 +229,6 @@ fn main() -> util::Result<()> {
         let cnx = pool.get()?;
         let _ = Store::schema(&cnx)?;
 
-        // TODO: Determine if the current files are from mssql or pgsql.
         // TODO: Add a command line flag for the parser subcommand to hint at the files.
 
         info!("Starting memory mapping files from {path:?}");
@@ -250,7 +249,7 @@ fn main() -> util::Result<()> {
             });
 
             s.spawn(|| {
-                let _ = util::parse_and_persist_stuckqueries_pgsql(stuckqueries, pool.clone())
+                let _ = util::parse_and_persist_stuckqueries(stuckqueries, pool.clone())
                     .map_err(|e| {
                         warn!("Error during Parsing/Persisting Stuck Queries: {e}");
                     });

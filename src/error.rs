@@ -1,18 +1,20 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Error with Stuck Threads: {0:?}")]
+    #[error("Error with Stuck Threads: {0}")]
     StuckThread(#[from] stuckthread::Error),
-    #[error("Error with Thread Dumps: {0:?}")]
+    #[error("Error with Thread Dumps: {0}")]
     ThreadDump(#[from] threaddump::Error),
-    #[error("Error with Arguement parsing: {0:?}")]
+    #[error("Error with Stuck Queries: {0}")]
+    StuckQuery(#[from] stuckquery::Error),
+    #[error("Error with Arguement parsing: {0}")]
     Clap(#[from] clap::Error),
-    #[error("Error with DuckDB: {0:?}")]
+    #[error("Error with DuckDB: {0}")]
     DuckDB(#[from] duckdb::Error),
-    #[error("Error with R2D2 Connection Pool: {0:?}")]
+    #[error("Error with R2D2 Connection Pool: {0}")]
     R2D2(#[from] r2d2::Error),
-    #[error("Error during I/O: {0:?}")]
+    #[error("Error during I/O: {0}")]
     IO(#[from] std::io::Error),
-    #[error("Error with MCP communication/configuration/parameters: {0:?}")]
+    #[error("Error with MCP communication/configuration/parameters: {0}")]
     MCP(#[from] mcp::Error),
 }
 
@@ -52,16 +54,20 @@ pub mod stuckquery {
         num::{ParseFloatError, ParseIntError},
     };
 
+    use crate::error::scanner;
+
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
+        #[error("Error during StuckQuery kind detection: Unable to detect kind")]
+        UnableToDetectKind,
         #[error("Error during parsing pgsql stuckqueries: {0:?}")]
-        PgParse(#[from] PgParse),
+        PGParse(#[from] PGParse),
         #[error("Error during parsing SQL Server stuckqueries: {0:?}")]
-        SqlServerParse(#[from] SqlServerParse),
+        MSSQLParse(#[from] MSSQLParse),
     }
 
     #[derive(Debug, thiserror::Error)]
-    pub enum SqlServerParse {
+    pub enum MSSQLParse {
         #[error("Empty Iterator on SQL Server Stuck Query table")]
         EmptyBlock,
         #[error("Error extracting stuckquery table header")]
@@ -73,127 +79,127 @@ pub mod stuckquery {
         #[error("Error during parsing timestamp information from the mssql table header: {0}")]
         TimestampParse(time::error::Parse),
 
-        #[error("Error during extracting session id information from the table")]
-        SessionIDExtraction,
-        #[error("Error during parsing session id: {0:?}")]
+        #[error("Error during extracting session id information from the table: {0}")]
+        SessionIDExtraction(scanner::Error),
+        #[error("Error during parsing session id: {0}")]
         SessionIDParse(ParseIntError),
-        #[error("Error during status extraction from the table")]
-        StatusExtraction,
-        #[error("Error during parsing status information, Unrecognized status: {0:?}")]
+        #[error("Error during status extraction from the table: {0}")]
+        StatusExtraction(scanner::Error),
+        #[error("Error during parsing status information, Unrecognized status: {0}")]
         InvalidStatus(String),
-        #[error("Error during extracting transaction id information from the table")]
-        TransactionIDExtraction,
-        #[error("Error during parsing transaction id: {0:?}")]
+        #[error("Error during extracting transaction id information from the table: {0}")]
+        TransactionIDExtraction(scanner::Error),
+        #[error("Error during parsing transaction id: {0}")]
         TransactionIDParse(ParseIntError),
-        #[error("Error during extracting blocked by information from the table")]
-        BlockedByExtraction,
+        #[error("Error during extracting blocked by information from the table: {0}")]
+        BlockedByExtraction(scanner::Error),
         #[error("Error during parsing blocked by column: {0:?}")]
         BlockedByParse(ParseIntError),
-        #[error("Error during extracting wait type information from the table")]
-        WaitTypeExtraction,
-        #[error("Error during extracting wait resource information from the table")]
-        WaitResourceExtraction,
-        #[error("Error during extracting wait time information from the table")]
-        WaitTimeExtraction,
-        #[error("Error during parsing wait time information from the table: {0:?}")]
+        #[error("Error during extracting wait type information from the table: {0}")]
+        WaitTypeExtraction(scanner::Error),
+        #[error("Error during extracting wait resource information from the table: {0}")]
+        WaitResourceExtraction(scanner::Error),
+        #[error("Error during extracting wait time information from the table: {0}")]
+        WaitTimeExtraction(scanner::Error),
+        #[error("Error during parsing wait time information from the table: {0}")]
         WaitTimeParse(ParseFloatError),
-        #[error("Error during extracting CPU time information from the table")]
-        CPUTimeExtraction,
-        #[error("Error during parsing CPU time information from the table: {0:?}")]
+        #[error("Error during extracting CPU time information from the table: {0}")]
+        CPUTimeExtraction(scanner::Error),
+        #[error("Error during parsing CPU time information from the table: {0}")]
         CPUTimeParse(ParseFloatError),
-        #[error("Error during extracting Logical reads information from the table")]
-        LogicalReadsExtraction,
-        #[error("Error during parsing Logical reads information from the table: {0:?}")]
+        #[error("Error during extracting Logical reads information from the table: {0}")]
+        LogicalReadsExtraction(scanner::Error),
+        #[error("Error during parsing Logical reads information from the table: {0}")]
         LogicalReadsParse(ParseIntError),
-        #[error("Error during extracting Physical Reads information from the table")]
-        PhysicalReadsExtraction,
-        #[error("Error during parsing Physical reads information from the table: {0:?}")]
+        #[error("Error during extracting Physical Reads information from the table: {0}")]
+        PhysicalReadsExtraction(scanner::Error),
+        #[error("Error during parsing Physical reads information from the table: {0}")]
         PhysicalReadsParse(ParseIntError),
-        #[error("Error during extracting Physical Writes information from the table")]
-        PhysicalWritesExtraction,
-        #[error("Error during parsing Physical Writes information from the table: {0:?}")]
+        #[error("Error during extracting Physical Writes information from the table: {0}")]
+        PhysicalWritesExtraction(scanner::Error),
+        #[error("Error during parsing Physical Writes information from the table: {0}")]
         PhysicalWritesParse(ParseIntError),
-        #[error("Error during extracting Elapsed Time information from the table")]
-        ElapsedTimeExtraction,
-        #[error("Error during parsing Elapsed Time information from the table: {0:?}")]
+        #[error("Error during extracting Elapsed Time information from the table: {0}")]
+        ElapsedTimeExtraction(scanner::Error),
+        #[error("Error during parsing Elapsed Time information from the table: {0}")]
         ElapsedTimeParse(ParseFloatError),
-        #[error("Error during extracting Statement information from the table")]
-        StatementExtraction,
-        #[error("Error during extracting Command Text information from the table")]
-        CommandTextExtraction,
-        #[error("Error during extracting Command information from the table")]
-        CommandExtraction,
-        #[error("Error during extracting Login Name information from the table")]
-        LoginNameExtraction,
-        #[error("Error during extracting Host Name information from the table")]
-        HostNameExtraction,
-        #[error("Error during extracting Database Name information from the table")]
-        DatabaseNameExtraction,
-        #[error("Error during extracting Program Name information from the table")]
-        ProgramNameExtraction,
-        #[error("Error during extracting Host Process ID information from the table")]
-        HostProcessIDExtraction,
-        #[error("Error during parsing Host Process ID information from the table: {0:?}")]
+        #[error("Error during extracting Statement information from the table: {0}")]
+        StatementExtraction(scanner::Error),
+        #[error("Error during extracting Command Text information from the table: {0}")]
+        CommandTextExtraction(scanner::Error),
+        #[error("Error during extracting Command information from the table: {0}")]
+        CommandExtraction(scanner::Error),
+        #[error("Error during extracting Login Name information from the table: {0}")]
+        LoginNameExtraction(scanner::Error),
+        #[error("Error during extracting Host Name information from the table: {0}")]
+        HostNameExtraction(scanner::Error),
+        #[error("Error during extracting Database Name information from the table: {0}")]
+        DatabaseNameExtraction(scanner::Error),
+        #[error("Error during extracting Program Name information from the table: {0}")]
+        ProgramNameExtraction(scanner::Error),
+        #[error("Error during extracting Host Process ID information from the table: {0}")]
+        HostProcessIDExtraction(scanner::Error),
+        #[error("Error during parsing Host Process ID information from the table: {0}")]
         HostProcessIDParse(ParseIntError),
-        #[error("Error during extracting Last Request End information from the table")]
-        LastRequestEndExtraction,
-        #[error("Error during parsing Last Request End information from the table: {0:?}")]
+        #[error("Error during extracting Last Request End information from the table: {0}")]
+        LastRequestEndExtraction(scanner::Error),
+        #[error("Error during parsing Last Request End information from the table: {0}")]
         LastRequestEndParse(time::error::Parse),
-        #[error("Error during extracting Login Time information from the table")]
-        LoginTimeExtraction,
-        #[error("Error during parsing Last Login Time information from the table: {0:?}")]
+        #[error("Error during extracting Login Time information from the table: {0}")]
+        LoginTimeExtraction(scanner::Error),
+        #[error("Error during parsing Last Login Time information from the table: {0}")]
         LoginTimeParse(time::error::Parse),
-        #[error("Error during extracting Open Transaction ID information from the table")]
-        OpenTransactionCountExtraction,
-        #[error("Error during parsing Open Transaction ID information from the table: {0:?}")]
+        #[error("Error during extracting Open Transaction ID information from the table: {0}")]
+        OpenTransactionCountExtraction(scanner::Error),
+        #[error("Error during parsing Open Transaction ID information from the table: {0}")]
         OpenTransactionCountParse(ParseIntError),
     }
 
     #[derive(Debug, thiserror::Error)]
-    pub enum PgParse {
+    pub enum PGParse {
         #[error("Error during parsing Stuck Query State: {0:?}")]
         UnrecognizedState(String),
         #[error("Empty Iterator on Stuck query table")]
         EmptyBlock,
-        #[error("Error during parsing client address: {0:?}")]
+        #[error("Error during parsing client address: {0}")]
         AddrParse(#[from] AddrParseError),
-        #[error("Error during parsing process id: {0:?}")]
+        #[error("Error during parsing process id: {0}")]
         PidParse(ParseIntError),
-        #[error("Error extracting PID from the table")]
-        PidExtraction,
-        #[error("Error parsing PID from the table: {0:?}")]
+        #[error("Error extracting PID from the table: {0}")]
+        PidExtraction(scanner::Error),
+        #[error("Error parsing PID from the table: {0}")]
         InvalidPID(ParseIntError),
-        #[error("Error extracting Query Time information from the table")]
-        QueryTimeExtraction,
-        #[error("Error parsing Query Time information from the table: {0:?}")]
+        #[error("Error extracting Query Time information from the table: {0}")]
+        QueryTimeExtraction(scanner::Error),
+        #[error("Error parsing Query Time information from the table: {0}")]
         InvalidQueryTime(ParseFloatError),
         #[error("Error extracting Transaction Time information from the table")]
-        TransactionTimeExtraction,
-        #[error("Error parsing Transaction Time information from the table: {0:?}")]
+        TransactionTimeExtraction(scanner::Error),
+        #[error("Error parsing Transaction Time information from the table: {0}")]
         InvalidTransactionTime(ParseFloatError),
-        #[error("Error extracting Database Name information from the table")]
-        DatabaseNameExtraction,
-        #[error("Error extracting State information from the table")]
-        StateExtraction,
-        #[error("Error extracting Waiting information from the table")]
-        WaitingExtraction,
+        #[error("Error extracting Database Name information from the table: {0}")]
+        DatabaseNameExtraction(scanner::Error),
+        #[error("Error extracting State information from the table: {0}")]
+        StateExtraction(scanner::Error),
+        #[error("Error extracting Waiting information from the table: {0}")]
+        WaitingExtraction(scanner::Error),
         #[error("Invalid Waiting state information from the table, got: {got:?}, expected: t/f")]
         InvalidWaitingState { got: String },
-        #[error("Error extracting Query information from the table")]
-        QueryExtraction,
-        #[error("Error extracting State Change information from the table")]
-        StateChangeExtraction,
-        #[error("Error parsing State Change information from the table: {0:?}")]
+        #[error("Error extracting Query information from the table: {0}")]
+        QueryExtraction(scanner::Error),
+        #[error("Error extracting State Change information from the table: {0}")]
+        StateChangeExtraction(scanner::Error),
+        #[error("Error parsing State Change information from the table: {0}")]
         InvalidStateChange(time::error::Parse),
-        #[error("Error extracting Application Name information from the table")]
-        ApplicationNameExtraction,
-        #[error("Error extracting Client Address information from the table")]
-        ClientAddressExtraction,
-        #[error("Error extracting Client Hostname information from the table")]
-        ClientHostnameExtraction,
-        #[error("Error extracting Client Port information from the table")]
-        ClientPortExtraction,
-        #[error("Error parsing Client Port information from the table: {0:?}")]
+        #[error("Error extracting Application Name information from the table: {0}")]
+        ApplicationNameExtraction(scanner::Error),
+        #[error("Error extracting Client Address information from the table: {0}")]
+        ClientAddressExtraction(scanner::Error),
+        #[error("Error extracting Client Hostname information from the table: {0}")]
+        ClientHostnameExtraction(scanner::Error),
+        #[error("Error extracting Client Port information from the table: {0}")]
+        ClientPortExtraction(scanner::Error),
+        #[error("Error parsing Client Port information from the table: {0}")]
         InvalidClientPort(ParseIntError),
         #[error("Error parsing stuckquery table. Expected 8 lines of information")]
         TableExtraction,

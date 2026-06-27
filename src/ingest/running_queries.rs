@@ -1,23 +1,23 @@
 use crate::parser::running_queries;
 
-pub enum RunningQueriesIter<'a> {
+pub enum RunningQueriesIterator<'a> {
     PGSQL(PGSQLIterator<'a>),
     MSSQL(MSSQLIterator<'a>),
 }
 
-impl<'a> RunningQueriesIter<'a> {
+impl<'a> RunningQueriesIterator<'a> {
     pub fn new(strategy: running_queries::Strategy, body: &'a [u8]) -> Self {
         match strategy {
-            running_queries::Strategy::PGSQL => RunningQueriesIter::PGSQL(PGSQLIterator(body)),
-            running_queries::Strategy::MSSQL => RunningQueriesIter::MSSQL(MSSQLIterator(body)),
+            running_queries::Strategy::PGSQL => RunningQueriesIterator::PGSQL(PGSQLIterator(body)),
+            running_queries::Strategy::MSSQL => RunningQueriesIterator::MSSQL(MSSQLIterator(body)),
         }
     }
 }
 
-pub struct PGSQLIterator<'a>(pub &'a [u8]);
-pub struct MSSQLIterator<'a>(pub &'a [u8]);
+struct PGSQLIterator<'a>(pub &'a [u8]);
+struct MSSQLIterator<'a>(pub &'a [u8]);
 
-impl<'a> Iterator for RunningQueriesIter<'a> {
+impl<'a> Iterator for RunningQueriesIterator<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {

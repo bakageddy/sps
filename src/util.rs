@@ -15,14 +15,15 @@ use tracing::{info, warn};
 use memmap2::Mmap;
 
 use crate::error;
+use crate::parser::stuckquery::Kind;
 use crate::{
     ingest::{
         cpumemstats_windows::CPUMemStatsIterator, cpumonitoring::CPUMonitoringIterator,
-        stuckquery_pgsql::StuckQueryTableIteratorPGSQL, stuckthread::StuckThreadIterator,
+        stuckquery::StuckQueryIterator, stuckthread::StuckThreadIterator,
         threaddump::ThreadDumpIterator,
     },
     parser::{
-        cpumemstats_windows::CPUMemoryStats, cpumonitoring::CPUThread, stuckquery_pgsql,
+        cpumemstats_windows::CPUMemoryStats, cpumonitoring::CPUThread, stuckquery,
         stuckthread::StuckThread, threaddump::ThreadDump,
     },
     persistence::store::Store,
@@ -208,7 +209,7 @@ where
     Ok(())
 }
 
-pub fn parse_and_persist_stuckqueries_pgsql<P>(
+pub fn parse_and_persist_stuckqueries<P>(
     entries: Vec<P>,
     pool: Pool<DuckdbConnectionManager>,
 ) -> Result<()>
@@ -221,12 +222,22 @@ where
         let map = map_file(entry)?;
         maps.push(map);
     }
+
+    // TODO: Better detection
+    let map = maps[0];
+    let kind = Kind::detect(&map);
+    // TODO: Better Error Handling
+    if kind.is_none() {
+        return Err(error::Error::StuckQuery(
+            error::stuckquery::Error::UnableToDetectKind,
+        ));
+    }
     for (map, entry) in maps.iter().zip(&entries) {
         let entry = entry.as_ref();
         let span = span!(Level::INFO, "stuckqueries_pgsql", filename = %&entry.display());
         let _span = span.enter();
         info!("Phase: Parse");
-        for chunk in StuckQueryTableIteratorPGSQL(map) {
+        for chunk in {
             let table = match stuckquery_pgsql::StuckQueryTable::try_from(chunk) {
                 Ok(table) => table,
                 Err(e) => {
@@ -273,7 +284,7 @@ where
                 Err(e) => {
                     match e {
                         error::cpumonitoring::Parse::MonitoringThreadInfoExtraction(_) => continue,
-                        _ => {},
+                        _ => {}
                     };
                     debug!("Error during parsing, chunk: {chunk}");
                     warn!("Error during parsing CPUMonitoring Thread: {e}");
