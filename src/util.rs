@@ -3,10 +3,8 @@ use memmap2::Advice;
 use r2d2::Pool;
 use std::fs;
 use std::io;
-use std::iter::Sum;
 use std::path::Path;
 use std::path::PathBuf;
-use std::str::FromStr;
 use time::PrimitiveDateTime;
 use tracing::debug;
 use tracing::{Level, span};
@@ -122,13 +120,6 @@ where
     let map = unsafe { memmap2::Mmap::map(&handle)? };
     let _ = map.advise(Advice::WillNeed)?;
     Ok(map)
-}
-
-pub fn parse_num<T>(value: &str) -> std::result::Result<T, <T as FromStr>::Err>
-where
-    T: FromStr + Sum + Default + PartialOrd,
-{
-    value.parse::<T>()
 }
 
 pub fn parse_comma_separated_u32(value: &str) -> Option<u32> {

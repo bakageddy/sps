@@ -14,8 +14,8 @@ impl<'a> RunningQueriesIterator<'a> {
     }
 }
 
-struct PGSQLIterator<'a>(pub &'a [u8]);
-struct MSSQLIterator<'a>(pub &'a [u8]);
+struct PGSQLIterator<'a>(&'a [u8]);
+struct MSSQLIterator<'a>(&'a [u8]);
 
 impl<'a> Iterator for RunningQueriesIterator<'a> {
     type Item = &'a str;
