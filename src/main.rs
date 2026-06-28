@@ -4,7 +4,7 @@ use sps::{
     persistence::store::Store,
     util::{self, LogFiles},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{info, warn};
 // use std::net::Ipv4Addr;
 // use std::process::exit;
 // use std::str::FromStr;
@@ -241,41 +241,41 @@ fn main() -> util::Result<()> {
         } = util::get_logfiles_sorted(util::get_entries(&path)?);
 
         std::thread::scope(|s| {
-            s.spawn(|| {
-                let _ =
-                    util::parse_and_persist_stuckthreads(stuckthreads, pool.clone()).map_err(|e| {
-                        warn!("Error during Parsing/Persisting Stuck Threads: {e}");
-                    });
-            });
+            // s.spawn(|| {
+            //     let _ =
+            //         util::parse_and_persist_stuckthreads(stuckthreads, pool.clone()).map_err(|e| {
+            //             warn!("Error during Parsing/Persisting Stuck Threads: {e}");
+            //         });
+            // });
 
             s.spawn(|| {
-                let _ = util::parse_and_persist_stuckqueries(stuckqueries, pool.clone())
-                    .map_err(|e| {
+                let _ =
+                    util::parse_and_persist_stuckqueries(stuckqueries, pool.clone()).map_err(|e| {
                         warn!("Error during Parsing/Persisting Stuck Queries: {e}");
                     });
             });
 
-            s.spawn(|| {
-                let _ = util::parse_and_persist_cpumonitoring(cpumonitoring, pool.clone()).map_err(
-                    |e| {
-                        warn!("Error during Parsing/Persisting CPUMonitoring: {e}");
-                    },
-                );
-            });
+            // s.spawn(|| {
+            //     let _ = util::parse_and_persist_cpumonitoring(cpumonitoring, pool.clone()).map_err(
+            //         |e| {
+            //             warn!("Error during Parsing/Persisting CPUMonitoring: {e}");
+            //         },
+            //     );
+            // });
 
-            s.spawn(|| {
-                let _ =
-                    util::parse_and_persist_cpumemstats(cpumemstats, pool.clone()).map_err(|e| {
-                        warn!("Error during Parsing/Persisting cpumemstats: {e}");
-                    });
-            });
+            // s.spawn(|| {
+            //     let _ =
+            //         util::parse_and_persist_cpumemstats(cpumemstats, pool.clone()).map_err(|e| {
+            //             warn!("Error during Parsing/Persisting cpumemstats: {e}");
+            //         });
+            // });
 
-            s.spawn(|| {
-                let _ =
-                    util::parse_and_persist_threaddump(threaddumps, pool.clone()).map_err(|e| {
-                        warn!("Error during Parsing/Persisting thread dumps: {e}");
-                    });
-            });
+            // s.spawn(|| {
+            //     let _ =
+            //         util::parse_and_persist_threaddump(threaddumps, pool.clone()).map_err(|e| {
+            //             warn!("Error during Parsing/Persisting thread dumps: {e}");
+            //         });
+            // });
         });
     } else {
         todo!("Not yet implemented");

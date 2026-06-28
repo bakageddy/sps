@@ -5,12 +5,12 @@ use time::{Date, PrimitiveDateTime, Time, UtcDateTime, macros::format_descriptio
 use tracing::warn;
 
 use crate::{
-    error::stuckquery::{MSSQLParse, PGParse},
+    error::stuckquery::{self, MSSQLParse, PGParse},
     parser::scanner::Scanner,
     util::ToUnixMillis,
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Kind {
     PGSQL,
     MSSQL,
@@ -84,6 +84,27 @@ pub static PGSQL_TIMESTAMP_TIME_FORMAT: &[time::format_description::FormatItem<'
 
 pub static PGSQL_TIMESTAMP_DATE_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[day]-[month]-[year]");
+
+impl<'a> StuckQueryTable<'a> {
+    pub fn parse(kind: Kind, value: &'a str) -> Result<Self, stuckquery::Error> {
+        match kind {
+            Kind::PGSQL => Ok(StuckQueryTable::PGSQL(PGSQLTable::try_from(value)?)),
+            Kind::MSSQL => Ok(StuckQueryTable::MSSQL(MSSQLTable::try_from(value)?)),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a str> for StuckQueryTable<'a> {
+    type Error = stuckquery::Error;
+
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        match Kind::detect(value.as_bytes()) {
+            Some(Kind::PGSQL) => Ok(StuckQueryTable::PGSQL(PGSQLTable::try_from(value)?)),
+            Some(Kind::MSSQL) => Ok(StuckQueryTable::MSSQL(MSSQLTable::try_from(value)?)),
+            None => Err(stuckquery::Error::UnableToDetectKind),
+        }
+    }
+}
 
 impl<'a> PGSQLTable<'a> {
     pub fn extract_timestamp(header: &'a str) -> Result<u64, PGParse> {
@@ -382,7 +403,7 @@ impl<'a> TryFrom<&'a str> for MSSQLTable<'a> {
 
             match MSSQLQuery::try_from(line) {
                 Ok(x) => queries.push(x),
-                Err(e) => warn!("Cannot parse {} due to {e:?}", line),
+                Err(e) => warn!("Cannot parse MSSQL query {line} due to {e:?}"),
             }
         }
         Ok(Self { timestamp, queries })
@@ -490,7 +511,7 @@ impl<'a> TryFrom<&'a str> for MSSQLQuery<'a> {
         let elapsed_time_ms = (elapsed_time * 1000.0f32).trunc() as u64;
 
         let statement = scanner
-            .take_within("|", "|")
+            .take_within_exclusive("|", "|")
             .map_err(MSSQLParse::StatementExtraction)?
             .trim();
 

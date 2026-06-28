@@ -16,6 +16,7 @@ use memmap2::Mmap;
 
 use crate::error;
 use crate::parser::stuckquery::Kind;
+use crate::parser::stuckquery::StuckQueryTable;
 use crate::{
     ingest::{
         cpumemstats_windows::CPUMemStatsIterator, cpumonitoring::CPUMonitoringIterator,
@@ -223,8 +224,11 @@ where
         maps.push(map);
     }
 
-    // TODO: Better detection
-    let map = maps[0];
+    if maps.len() == 0 {
+        return Ok(());
+    }
+
+    let map = &maps[0];
     let kind = Kind::detect(&map);
     // TODO: Better Error Handling
     if kind.is_none() {
@@ -232,13 +236,15 @@ where
             error::stuckquery::Error::UnableToDetectKind,
         ));
     }
+    let kind = kind.unwrap();
     for (map, entry) in maps.iter().zip(&entries) {
         let entry = entry.as_ref();
         let span = span!(Level::INFO, "stuckqueries_pgsql", filename = %&entry.display());
         let _span = span.enter();
         info!("Phase: Parse");
-        for chunk in {
-            let table = match stuckquery_pgsql::StuckQueryTable::try_from(chunk) {
+        let iter = StuckQueryIterator::new(kind.clone(), map).into_iter();
+        for chunk in iter {
+            let table = match stuckquery::StuckQueryTable::parse(kind.clone(), chunk) {
                 Ok(table) => table,
                 Err(e) => {
                     debug!("Error during parsing, chunk: {chunk}");
@@ -249,14 +255,29 @@ where
             tables.push(table);
         }
     }
+
     let cnx = pool.get()?;
-    let mut appender = cnx.appender("stuckquery_pgsql")?;
-    info!("Start Phase: Persist Stuck Query PGSQL");
-    tables.iter().for_each(|table| {
-        let _ = Store::insert_stuckquery_pgsql_table(&mut appender, table);
-    });
-    info!("Finish Phase: Persist Stuck Query MSSQL");
-    appender.flush()?;
+    let mut iter = tables.into_iter();
+    match kind {
+        Kind::PGSQL => {
+            let mut appender = cnx.appender("stuckquery_pgsql")?;
+            info!("Start Phase: Persist Stuck Query PGSQL");
+            while let Some(StuckQueryTable::PGSQL(table)) = iter.next() {
+                let _ = Store::insert_stuckquery_pgsql_table(&mut appender, &table)?;
+            }
+            info!("Finish Phase: Persist Stuck Query PGSQL");
+            appender.flush()?;
+        }
+        Kind::MSSQL => {
+            let mut appender = cnx.appender("stuckquery_mssql")?;
+            info!("Start Phase: Persist Stuck Query MSSQL");
+            while let Some(StuckQueryTable::MSSQL(table)) = iter.next() {
+                let _ = Store::insert_stuckquery_mssql_table(&mut appender, &table)?;
+            }
+            info!("Finish Phase: Persist Stuck Query MSSQL");
+            appender.flush()?;
+        }
+    };
     Ok(())
 }
 
@@ -384,5 +405,5 @@ where
     }
     appender.flush()?;
     stacktrace.flush()?;
-    todo!()
+    Ok(())
 }
