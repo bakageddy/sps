@@ -6,6 +6,10 @@ pub enum Error {
     ThreadDump(#[from] threaddump::Error),
     #[error("Error with Stuck Queries: {0}")]
     StuckQuery(#[from] stuckquery::Error),
+    #[error("Error with Stuck Queries: {0}")]
+    RunningQuery(#[from] running_query::Error),
+    #[error("Error with Detecting OS/DB")]
+    Detection,
     #[error("Error with Arguement parsing: {0}")]
     Clap(#[from] clap::Error),
     #[error("Error with DuckDB: {0}")]
@@ -210,6 +214,70 @@ pub mod stuckquery {
         #[error("Error during parsing timestamp information from the table header: {0}")]
         TimestampParse(time::error::Parse),
     }
+}
+
+pub mod running_query {
+    use std::{
+        net::AddrParseError,
+        num::{ParseFloatError, ParseIntError},
+    };
+
+    use crate::error::scanner;
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        #[error("Error during parsing PGSQL Running Queries: {0}")]
+        PGParse(#[from] PGParse),
+        #[error("Error during parsing MSSQL Running Queries: {0}")]
+        MSParse(#[from] MSParse),
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum PGParse {
+        #[error("Error during Extracting PGSQL Running Query PID: {0}")]
+        PIDExtraction(scanner::Error),
+        #[error("Error during Parsing PGSQL Running Query PID: {0}")]
+        PIDParse(ParseIntError),
+        #[error("Error during Extracting PGSQL Running Query, Query Time: {0}")]
+        QueryTimeExtraction(scanner::Error),
+        #[error("Error during Parsing PGSQL Running Query, Query Time: {0}")]
+        QueryTimeParse(ParseFloatError),
+        #[error("Error during Extracting PGSQL Running Query, Transaction Time: {0}")]
+        TransactionTimeExtraction(scanner::Error),
+        #[error("Error during Parsing PGSQL Running Query, Transaction Time: {0}")]
+        TransactionTimeParse(ParseFloatError),
+        #[error("Error during Extracting PGSQL Running Query, Database Name: {0}")]
+        DatabaseNameExtraction(scanner::Error),
+        #[error("Error during Extracting PGSQL Running Query, State Information: {0}")]
+        StateExtraction(scanner::Error),
+        #[error("Error during Extracting PGSQL Running Query: Waiting State: {0}")]
+        WaitingExtraction(scanner::Error),
+        #[error("Error during Parsing PGSQL Running Query: Waiting State: {got}")]
+        InvalidWaitingState {
+            got: String,
+        },
+        #[error("Error during Parsing PGSQL Running Query, `Query` {0}")]
+        QueryExtraction(scanner::Error),
+        #[error("Error during Parsing PGSQL Running Query, `Query` {0}")]
+        ClientAddressParsing(AddrParseError),
+        #[error("Error during Extracting PGSQL Running Query, `Client Address` {0}")]
+        ClientAddressExtraction(scanner::Error),
+        #[error("Error during Extracting PGSQL Running Query, `Application Name` {0}")]
+        ApplicationNameExtraction(scanner::Error),
+        #[error("Error during Parsing PGSQL Running Query, `Last State Change` {0}")]
+        LastStateChangeParse(#[from] time::error::Parse),
+        #[error("Error during Extracting PGSQL Running Query, `Last State Change` {0}")]
+        StateChangeExtraction(scanner::Error),
+        #[error("Error during Extracting PGSQL Running Query, `Last State Change` {0}")]
+        ClientPortExtraction(scanner::Error),
+        #[error("Error during Parsing PGSQL Running Query, `Client Port` {0}")]
+        ClientPortParsing(ParseIntError),
+        #[error("Error during Extraction PGSQL Running Query, `Client Host` {0}")]
+        ClientHostExtraction(scanner::Error),
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum MSParse {}
 }
 
 pub mod cpumonitoring {

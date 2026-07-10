@@ -1,33 +1,24 @@
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, num::ParseIntError};
 
-use memchr::memmem::find;
+use time::{UtcDateTime, macros::format_description};
 
-#[derive(Debug)]
-pub enum Strategy {
-    MSSQL,
-    PGSQL,
-}
+use crate::{
+    error::running_query::{Error, PGParse},
+    ingest::running_queries::Entry,
+    parser::scanner::Scanner,
+};
 
-impl Strategy {
-    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-        find(haystack, needle).is_some()
-    }
-    pub fn detect(body: &[u8]) -> Option<Self> {
-        if Self::contains(body, b"pid") || Self::contains(body, b"Query Time (s)") {
-            Some(Self::PGSQL)
-        } else if Self::contains(body, b"Logical Reads")
-            || Self::contains(body, b"Wait Resource")
-            || Self::contains(body, b"CPUTime")
-        {
-            Some(Self::MSSQL)
-        } else {
-            None
-        }
-    }
+static PGSQL_STATE_CHANGE_FORMAT: &[time::format_description::FormatItem<'static>] = format_description!(
+    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond][offset_hour sign:mandatory]:[offset_minute]"
+);
+
+pub enum RunningQueryTable<'a> {
+    MSSQL(MSSQLRunningQueryTable<'a>),
+    PGSQL(PGSQLRunningQueryTable<'a>),
 }
 
 #[derive(Debug)]
-pub struct PGSQLRunningQueries<'a> {
+pub struct PGSQLRunningQuery<'a> {
     pub pid: u64,
     pub query_time_ms: u64,
     pub txn_time_ms: u64,
@@ -39,14 +30,20 @@ pub struct PGSQLRunningQueries<'a> {
     pub application_name: &'a str,
     pub client_address: Option<Ipv4Addr>,
     pub client_port: Option<u16>,
-    pub client_hostname: Option<&'a str>
+    pub client_hostname: Option<&'a str>,
+}
+
+#[derive(Debug)]
+pub struct PGSQLRunningQueryTable<'a> {
+    pub queries: Vec<PGSQLRunningQuery<'a>>,
+    pub timestamp: u64,
 }
 
 #[derive(Debug)]
 pub enum State<'a> {
     Active,
     Idle,
-    Unknown(&'a str)
+    Unknown(&'a str),
 }
 
 #[derive(Debug)]
@@ -76,7 +73,7 @@ pub enum SPWho2Status<'a> {
     Sleeping,
     Background,
     Runnable,
-    Unknown(&'a str)
+    Unknown(&'a str),
 }
 
 #[derive(Debug)]
@@ -111,4 +108,202 @@ pub enum Status {
     Running,
     Runnable,
     Suspended,
+}
+
+impl<'a> TryFrom<&'a str> for PGSQLRunningQuery<'a> {
+    type Error = PGParse;
+
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        let mut scanner = Scanner::new(value);
+        let pid = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::PIDExtraction)?
+            .trim()
+            .parse()
+            .map_err(PGParse::PIDParse)?;
+
+        let query_time_ms: f32 = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::QueryTimeExtraction)?
+            .trim()
+            .parse()
+            .map_err(PGParse::QueryTimeParse)?;
+
+        let query_time_ms = (query_time_ms * 1000.0f32).trunc() as u64;
+        let txn_time = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::TransactionTimeExtraction)?
+            .trim();
+
+        let txn_time_ms = if txn_time.is_empty() {
+            Ok(0.0)
+        } else {
+            txn_time.parse().map_err(PGParse::TransactionTimeParse)
+        }?;
+
+        let txn_time_ms = (txn_time_ms * 1000.0f32).trunc() as u64;
+
+        let db_name = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::DatabaseNameExtraction)?
+            .trim();
+
+        let state = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::StateExtraction)?
+            .trim();
+
+        let state = State::from(state);
+
+        let waiting = match scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::WaitingExtraction)?
+            .trim()
+        {
+            "f" => false,
+            "t" => true,
+            waiting => {
+                return Err(PGParse::InvalidWaitingState {
+                    got: String::from(waiting),
+                });
+            }
+        };
+
+        let query = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::QueryExtraction)?
+            .trim();
+        let state_change = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::StateChangeExtraction)?
+            .trim();
+
+        let state_change = UtcDateTime::parse(state_change, PGSQL_STATE_CHANGE_FORMAT)
+            .map_err(PGParse::LastStateChangeParse)?
+            .unix_timestamp_nanos()
+            / 1_000_000;
+
+        let last_state_change = state_change as u64;
+
+        let application_name = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::ApplicationNameExtraction)?
+            .trim();
+
+        let client_address = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::ClientAddressExtraction)?
+            .trim();
+        let client_address = if client_address.is_empty() {
+            None
+        } else {
+            Some(
+                client_address
+                    .parse()
+                    .map_err(PGParse::ClientAddressParsing)?,
+            )
+        };
+
+        let client_hostname = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::ClientHostExtraction)?
+            .trim();
+
+        let client_hostname = if client_hostname.is_empty() {
+            None
+        } else {
+            Some(client_hostname)
+        };
+
+        let client_port = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(PGParse::ClientPortExtraction)?
+            .trim();
+        let client_port = if client_port.is_empty() {
+            None
+        } else {
+            Some(client_port.parse().map_err(PGParse::ClientPortParsing)?)
+        };
+
+        Ok(Self {
+            pid,
+            query_time_ms,
+            txn_time_ms,
+            db_name,
+            state,
+            waiting,
+            query,
+            last_state_change,
+            application_name,
+            client_address,
+            client_port,
+            client_hostname,
+        })
+    }
+}
+
+impl<'a> From<&'a str> for State<'a> {
+    fn from(value: &'a str) -> Self {
+        match value {
+            "active" => Self::Active,
+            "idle in transaction" => State::Idle,
+            unknown => State::Unknown(unknown),
+        }
+    }
+}
+
+pub struct RunningQueryParser<T>(pub T);
+
+impl<'a, T> RunningQueryParser<T> {
+    pub fn new(iter: T) -> Self
+    where
+        T: Iterator<Item = Entry<'a>>,
+    {
+        Self(iter)
+    }
+}
+
+impl<'a> RunningQueryTable<'a> {
+    pub fn extract_timestamp(meta: Entry) -> Option<Result<u64, ParseIntError>> {
+        if let Entry::Meta(meta) = meta {
+            Some(meta.parse())
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, T> Iterator for RunningQueryParser<T>
+where
+    T: Iterator<Item = Entry<'a>>,
+{
+    type Item = Result<RunningQueryTable<'a>, Error>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut meta = None;
+        let mut table = None;
+        while let Some(entry) = self.0.next() {
+            if let Entry::Meta(_) = entry {
+                meta = Some(entry);
+                break;
+            }
+        }
+
+        while let Some(entry) = self.0.next() {
+            if let Entry::Table(_) = entry {
+                table = Some(entry);
+                break;
+            }
+        }
+
+        Some(RunningQueryTable::try_from((meta?, table?)))
+    }
+}
+
+impl<'a> TryFrom<(Entry<'a>, Entry<'a>)> for RunningQueryTable<'a> {
+    type Error = Error;
+
+    fn try_from(value: (Entry<'a>, Entry<'a>)) -> Result<Self, Self::Error> {
+        let timestamp = Self::extract_timestamp(value.0);
+        todo!()
+    }
 }
