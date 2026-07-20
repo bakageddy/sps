@@ -79,10 +79,10 @@ static PGSQL_STATE_CHANGE_FORMAT: &[time::format_description::FormatItem<'static
     "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond][offset_hour sign:mandatory]:[offset_minute]"
 );
 
-pub static PGSQL_TIMESTAMP_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
+static PGSQL_TIMESTAMP_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
 
-pub static PGSQL_TIMESTAMP_DATE_FORMAT: &[time::format_description::FormatItem<'static>] =
+static PGSQL_TIMESTAMP_DATE_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[day]-[month]-[year]");
 
 impl<'a> StuckQueryTable<'a> {
@@ -101,7 +101,7 @@ impl<'a> TryFrom<&'a str> for StuckQueryTable<'a> {
         match Kind::detect(value.as_bytes()) {
             Some(Kind::PGSQL) => Ok(StuckQueryTable::PGSQL(PGSQLTable::try_from(value)?)),
             Some(Kind::MSSQL) => Ok(StuckQueryTable::MSSQL(MSSQLTable::try_from(value)?)),
-            None => Err(stuckquery::Error::UnableToDetectKind),
+            None => Err(Self::Error::UnableToDetectKind),
         }
     }
 }
@@ -159,7 +159,6 @@ impl<'a> TryFrom<&'a str> for PGSQLTable<'a> {
 impl<'a> TryFrom<&'a str> for PGSQLQuery<'a> {
     type Error = PGParse;
 
-    // TODO: Migrate to scanner
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         let mut scanner = Scanner::new(value);
         let pid = scanner

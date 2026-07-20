@@ -4,7 +4,7 @@ use sps::{
     persistence::store::Store,
     util::{self, LogFiles},
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 // use std::net::Ipv4Addr;
 // use std::process::exit;
 // use std::str::FromStr;
@@ -218,7 +218,7 @@ use tracing::{info, warn};
 fn main() -> util::Result<()> {
     tracing_subscriber::fmt().init();
 
-    info!("Parsing Application Arguements: {:?}", std::env::args());
+    debug!("Parsing Application Arguements: {:?}", std::env::args());
     let args = sps::arg::AppArgs::parse();
 
     if let Command::Parse { path, database, .. } = args.command {
@@ -238,8 +238,10 @@ fn main() -> util::Result<()> {
             stuckqueries,
             stuckthreads,
             threaddumps,
+            runningqueries,
         } = util::get_logfiles_sorted(util::get_entries(&path)?);
 
+        // TODO: Add running queries parser and connection dump parser.
         std::thread::scope(|s| {
             s.spawn(|| {
                 let _ =
@@ -274,6 +276,13 @@ fn main() -> util::Result<()> {
                 let _ =
                     util::parse_and_persist_threaddump(threaddumps, pool.clone()).map_err(|e| {
                         warn!("Error during Parsing/Persisting thread dumps: {e}");
+                    });
+            });
+
+            s.spawn(|| {
+                let _ = util::parse_and_persist_running_queries(runningqueries, pool.clone())
+                    .map_err(|e| {
+                        warn!("Error during Parsing/Persisting Running Queries: {e}");
                     });
             });
         });

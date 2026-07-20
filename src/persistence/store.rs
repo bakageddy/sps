@@ -36,23 +36,26 @@ impl Store {
         Ok(())
     }
 
-    pub fn insert_stuckthread<'a>(
+    pub fn insert_stuckthreads<'a>(
         stuckthread_appender: &mut Appender,
         stacktrace_appender: &mut Appender,
-        iter: Vec<StuckThread<'a>>,
+        events: Vec<StuckThread<'a>>,
     ) -> Result<()> {
-        for event in iter {
+        let mut traces = Vec::new();
+        for event in &events {
             match &event.0 {
-                Event::Begin(begin, trace) => Self::insert_stuckthread_stacktrace(
-                    stacktrace_appender,
-                    begin.tid,
-                    begin.start,
-                    trace,
-                )?,
+                Event::Begin(begin, trace) => {
+                    traces.push((begin.tid, begin.start, trace));
+                }
                 _ => {}
             };
             stuckthread_appender.append_row(event.map_to_row())?;
         }
+
+        for (tid, start, trace) in traces {
+            Store::insert_stuckthread_stacktrace(stacktrace_appender, tid, start, trace)?;
+        }
+
         Ok(())
     }
 
@@ -75,7 +78,6 @@ impl Store {
         }
         Ok(())
     }
-
 
     pub fn insert_stuckquery_pgsql_table(
         appender: &mut Appender,

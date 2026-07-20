@@ -1,5 +1,6 @@
 // TODO: Join multiple byte slices into one.
 
+pub mod kind;
 pub mod stuckthread;
 pub mod running_queries;
 pub mod threaddump;

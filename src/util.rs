@@ -13,6 +13,8 @@ use tracing::{info, warn};
 use memmap2::Mmap;
 
 use crate::error;
+use crate::ingest;
+use crate::ingest::running_queries::RunningQueriesIterator;
 use crate::parser::stuckquery::Kind;
 use crate::parser::stuckquery::StuckQueryTable;
 use crate::{
@@ -37,6 +39,7 @@ pub struct LogFiles {
     pub cpumemstats: Vec<PathBuf>,
     pub stuckthreads: Vec<PathBuf>,
     pub stuckqueries: Vec<PathBuf>,
+    pub runningqueries: Vec<PathBuf>,
 }
 
 pub fn get_logfiles_sorted(entries: impl Iterator<Item = PathBuf>) -> LogFiles {
@@ -53,6 +56,8 @@ pub fn get_logfiles_sorted(entries: impl Iterator<Item = PathBuf>) -> LogFiles {
                 logfiles.stuckqueries.push(entry);
             } else if filename.starts_with("cpumemstats") {
                 logfiles.cpumemstats.push(entry);
+            } else if filename.starts_with("runningqueries") {
+                logfiles.runningqueries.push(entry);
             }
         }
     }
@@ -96,11 +101,20 @@ pub fn get_logfiles_sorted(entries: impl Iterator<Item = PathBuf>) -> LogFiles {
             .and_then(|n| n.parse::<u8>().ok())
     });
 
+    logfiles.runningqueries.sort_by_key(|p| {
+        p.file_name()
+            .and_then(|f| f.to_str())
+            .and_then(|f| f.strip_prefix("runningqueries"))
+            .and_then(|f| f.strip_suffix(".txt"))
+            .and_then(|n| n.parse::<u8>().ok())
+    });
+
     logfiles.threaddumps.reverse();
     logfiles.stuckqueries.reverse();
     logfiles.stuckthreads.reverse();
     logfiles.cpumonitoring.reverse();
     logfiles.cpumemstats.reverse();
+    logfiles.runningqueries.reverse();
 
     logfiles
 }
@@ -186,18 +200,14 @@ where
         }
     }
     let cnx = pool.get()?;
-    let mut stuckthread_appender = cnx.appender("stuckthread_events")?;
-    let mut stuckthread_stacktrace_appender = cnx.appender("stuckthread_stacktraces")?;
+    let mut appender = cnx.appender("stuckthread_events")?;
+    let mut stacktrace_appender = cnx.appender("stuckthread_stacktraces")?;
     info!("Start Phase: Persist Stuck Threads");
-    Store::insert_stuckthread(
-        &mut stuckthread_appender,
-        &mut stuckthread_stacktrace_appender,
-        events,
-    )?;
+    Store::insert_stuckthreads(&mut appender, &mut stacktrace_appender, events)?;
     info!("Finish Phase: Persist Stuck Threads");
 
-    stuckthread_appender.flush()?;
-    stuckthread_stacktrace_appender.flush()?;
+    appender.flush()?;
+    stacktrace_appender.flush()?;
     Ok(())
 }
 
@@ -270,6 +280,26 @@ where
         }
     };
     Ok(())
+}
+
+pub fn parse_and_persist_running_queries<P>(
+    entries: Vec<P>,
+    pool: Pool<DuckdbConnectionManager>,
+) -> Result<()>
+where
+    P: AsRef<Path>,
+{
+    let maps: Result<Vec<Mmap>> = entries.iter().map(map_file).collect();
+    let maps = maps?;
+    for (map, entry) in maps.iter().zip(&entries) {
+        let entry = entry.as_ref();
+        info!("Parsing: {:?}", entry.display());
+        for chunk in RunningQueriesIterator(map) {
+            todo!()
+        }
+    }
+
+    todo!("Running Queries need to be implemented")
 }
 
 pub fn parse_and_persist_cpumonitoring<P>(

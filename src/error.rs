@@ -253,9 +253,7 @@ pub mod running_query {
         #[error("Error during Extracting PGSQL Running Query: Waiting State: {0}")]
         WaitingExtraction(scanner::Error),
         #[error("Error during Parsing PGSQL Running Query: Waiting State: {got}")]
-        InvalidWaitingState {
-            got: String,
-        },
+        InvalidWaitingState { got: String },
         #[error("Error during Parsing PGSQL Running Query, `Query` {0}")]
         QueryExtraction(scanner::Error),
         #[error("Error during Parsing PGSQL Running Query, `Query` {0}")]
@@ -274,10 +272,107 @@ pub mod running_query {
         ClientPortParsing(ParseIntError),
         #[error("Error during Extraction PGSQL Running Query, `Client Host` {0}")]
         ClientHostExtraction(scanner::Error),
+        #[error("Error during PGSQL Table Parsing: UnrecognizedEntryType")]
+        InvalidEntryType,
+        #[error(
+            "Error during PGSQL Table Parsing: Unable to extract meta information from PGSQL table {0}"
+        )]
+        TableHeaderMetaExtraction(scanner::Error),
+        #[error(
+            "Error during PGSQL Table Parsing: Unable to parse table header meta information: {0}"
+        )]
+        TableHeaderMetaTimeParse(time::error::Parse),
     }
 
     #[derive(Debug, thiserror::Error)]
-    pub enum MSParse {}
+    pub enum MSParse {
+        #[error("Error during extracting MSSQL Running Query Table: Session ID {0}")]
+        SessionIDExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Session ID {0}")]
+        SessionID(ParseIntError),
+        #[error("Error during extracting MSSQL Running Query Table: Status {0}")]
+        StatusExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: Transaction ID {0}")]
+        TxnIDExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Transaction ID {0}")]
+        TxnID(ParseIntError),
+        #[error("Error during extracting MSSQL Running Query Table: Blocked By {0}")]
+        BlockedByExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: Wait Type {0}")]
+        WaitTypeExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: Wait Resource {0}")]
+        WaitResourceExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: Wait Time {0}")]
+        WaitTimeExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Wait Time {0}")]
+        WaitTime(ParseFloatError),
+        #[error("Error during extracting MSSQL Running Query Table: CPU Time {0}")]
+        CPUTimeExtraction(scanner::Error),
+        #[error("Error during Parsing MSSQL Running Query Table: CPU Time {0}")]
+        CPUTime(ParseFloatError),
+        #[error("Error during extracting MSSQL Running Query Table: Logical Reads {0}")]
+        LogicalReadsExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Logical Reads {0}")]
+        LogicalReads(ParseIntError),
+        #[error("Error during extracting MSSQL Running Query Table: Physical Reads {0}")]
+        PhysicalReadsExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Physical Reads {0}")]
+        PhysicalReads(ParseIntError),
+        #[error("Error during extracting MSSQL Running Query Table: Physical Writes {0}")]
+        PhysicalWritesExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Physical Writes {0}")]
+        PhysicalWrites(ParseIntError),
+        #[error("Error during extracting MSSQL Running Query Table: Elapsed Time {0}")]
+        ElapsedTimeExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Elapsed Time {0}")]
+        ElapsedTime(ParseFloatError),
+        #[error("Error during extracting MSSQL Running Query Table: Statement {0}")]
+        StatementExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: Command Text {0}")]
+        CommandTextExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: Command {0}")]
+        CommandExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: Login Name {0}")]
+        LoginNameExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: Host Name {0}")]
+        HostNameExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: Program Name {0}")]
+        ProgramNameExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: DB Name {0}")]
+        DBNameExtraction(scanner::Error),
+        #[error("Error during extracting MSSQL Running Query Table: HostProcessID {0}")]
+        HostProcessIDExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: HostProcessID {0}")]
+        HostProcessID(ParseIntError),
+        #[error("Error during extracting MSSQL Running Query Table: Last Request End {0}")]
+        LastRequestEndExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Last Request End {0}")]
+        LastRequestEnd(time::error::Parse),
+        #[error("Error during extracting MSSQL Running Query Table: Login Time {0}")]
+        LoginTimeMSExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Login Time {0}")]
+        LoginTimeMS(time::error::Parse),
+        #[error("Error during extracting MSSQL Running Query Table: Open Transaction Count {0}")]
+        OpenTransactionCountExtraction(scanner::Error),
+        #[error("Error during parsing MSSQL Running Query Table: Open Transaction Count {0}")]
+        OpenTransactionCount(ParseIntError),
+        #[error("Error during extracting Table Header Meta Information: {0}")]
+        TableHeaderMetaExtraction(scanner::Error),
+        #[error("Error during parsing Table Header Meta Information: {0}")]
+        TableHeaderMetaParse(time::error::Parse),
+        #[error("Error during parsing: Invalid Entry Type found")]
+        InvalidEntryType,
+        #[error("Error during extracting Table Header Information: {0}")]
+        TableHeaderExtraction(scanner::Error),
+        #[error(
+            "Error during extracting Table Header: Unknown MSSQL Running Query Table Header {0}"
+        )]
+        InvalidTableHeader(String),
+        #[error("Error during extraction SPWho2 Column: spid {0}")]
+        SpWho2ExtractionSPID(scanner::Error),
+        #[error("Error during parsing SPWho2 Column: spid {0}")]
+        SpWho2ParseSPID(ParseIntError),
+    }
 }
 
 pub mod cpumonitoring {
