@@ -1,4 +1,5 @@
 PRAGMA memory_limit = '1GB';
+SET preserve_insertion_order = false;
 
 CREATE TABLE IF NOT EXISTS stuckthread_events (
 	tid	UBIGINT NOT NULL,

@@ -1,4 +1,4 @@
-use std::{net::Ipv4Addr, num::ParseIntError};
+use std::{iter::Peekable, net::Ipv4Addr, num::ParseIntError};
 
 use time::{Date, PrimitiveDateTime, Time, UtcDateTime, macros::format_description};
 use tracing::warn;
@@ -6,7 +6,7 @@ use tracing::warn;
 use crate::{
     error::running_query::{Error, MSParse, PGParse},
     ingest::running_queries::Entry,
-    parser::scanner::Scanner,
+    parser::{scanner::Scanner, stuckquery::Kind},
     util::ToUnixMillis,
 };
 
@@ -29,7 +29,7 @@ pub enum RunningQueryTable<'a> {
 }
 
 #[derive(Debug)]
-pub struct PGSQLRunningQuery<'a> {
+pub struct PGSQLQuery<'a> {
     pub pid: u64,
     pub query_time_ms: u64,
     pub txn_time_ms: u64,
@@ -46,7 +46,7 @@ pub struct PGSQLRunningQuery<'a> {
 
 #[derive(Debug)]
 pub struct PGSQLRunningQueryTable<'a> {
-    pub queries: Vec<PGSQLRunningQuery<'a>>,
+    pub queries: Vec<PGSQLQuery<'a>>,
     pub timestamp: u64,
 }
 
@@ -72,7 +72,7 @@ pub struct MSSQLCurrentRunningQueryTable<'a> {
 #[derive(Debug)]
 pub struct SPWho2Table<'a> {
     pub timestamp: u64,
-    pub entries: Vec<SPWho2Entry>,
+    pub entries: Vec<SPWho2Entry<'a>>,
 }
 
 #[derive(Debug)]
@@ -149,6 +149,17 @@ impl<'a> From<&'a str> for Status<'a> {
     }
 }
 
+impl<'a> From<&'a str> for SPWho2Status<'a> {
+    fn from(value: &'a str) -> Self {
+        match value {
+            "sleeping" => Self::Sleeping,
+            "BACKGROUND" => Self::Background,
+            "RUNNABLE" => Self::Runnable,
+            unknown => Self::Unknown(unknown),
+        }
+    }
+}
+
 impl<'a> PGSQLRunningQueryTable<'a> {
     fn extract_timestamp(meta: &str) -> Result<u64, PGParse> {
         let mut scanner = Scanner::new(meta);
@@ -196,7 +207,9 @@ impl<'a> TryFrom<(Entry<'a>, Entry<'a>)> for PGSQLRunningQueryTable<'a> {
             }
         };
 
-        let timestamp = Self::extract_timestamp(meta)?;
+        let timestamp = Self::extract_timestamp(meta)
+            .map_err(|e| warn!("Error during parsing timestamp due to {}", e))
+            .unwrap_or(0);
         let mut scanner = Scanner::new(table);
         for _ in 0..5 {
             let line = scanner.take_until("\n");
@@ -215,7 +228,7 @@ impl<'a> TryFrom<(Entry<'a>, Entry<'a>)> for PGSQLRunningQueryTable<'a> {
                 break;
             }
 
-            match PGSQLRunningQuery::try_from(line) {
+            match PGSQLQuery::try_from(line) {
                 Ok(x) => queries.push(x),
                 Err(e) => warn!("Cannot parse {line} due to {e:?}"),
             }
@@ -224,7 +237,7 @@ impl<'a> TryFrom<(Entry<'a>, Entry<'a>)> for PGSQLRunningQueryTable<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a str> for PGSQLRunningQuery<'a> {
+impl<'a> TryFrom<&'a str> for PGSQLQuery<'a> {
     type Error = PGParse;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
@@ -600,7 +613,32 @@ impl<'a> TryFrom<(Entry<'a>, Entry<'a>)> for MSSQLRunningQueryTable<'a> {
         scanner.skip_whitespace();
 
         match table_header {
-            "sp Who2" => todo!(),
+            "sp Who2" => {
+                for _ in 0..3 {
+                    let line = scanner.take_until("\n");
+                    if line.is_none() {
+                        warn!("Table is empty, skipping parsing");
+                        return Ok(Self::SPWho2(SPWho2Table {
+                            timestamp,
+                            entries: Vec::new(),
+                        }));
+                    }
+                }
+
+                let mut entries = Vec::with_capacity(40);
+                while let Some(line) = scanner.take_until("\n") {
+                    if !line.trim().starts_with("|") {
+                        break;
+                    }
+
+                    match SPWho2Entry::try_from(line) {
+                        Ok(entry) => entries.push(entry),
+                        Err(e) => warn!("Cannot parse spwho2 entry due to {e:?}"),
+                    }
+                }
+
+                return Ok(Self::SPWho2(SPWho2Table { timestamp, entries }));
+            }
             "Currently Running Queries" => {
                 for _ in 0..3 {
                     let line = scanner.take_until("\n");
@@ -646,70 +684,197 @@ impl<'a> TryFrom<&'a str> for SPWho2Entry<'a> {
             .take_within_exclusive("|", "|")
             .map_err(MSParse::SpWho2ExtractionSPID)?
             .trim()
-            .parse().map_err(MSParse::SpWho2ParseSPID)?;
+            .parse()
+            .map_err(MSParse::SpWho2ParseSPID)?;
+
+        let status = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionStatus)?
+            .trim();
+
+        let status = SPWho2Status::from(status);
+
+        let login = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionLogin)?
+            .trim();
+
+        let hostname = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionHostname)?
+            .trim();
+
+        let blocked_by = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionBlockedBy)?
+            .trim();
+
+        let blocked_by = if blocked_by == "." {
+            None
+        } else {
+            blocked_by.parse().ok()
+        };
+
+        let db_name = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionDBName)?
+            .trim();
+
+        let command = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionCommand)?
+            .trim();
+
+        let cpu_time = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionCPUTime)?
+            .trim()
+            .parse()
+            .map_err(MSParse::SpWho2ParseCPUTime)?;
+
+        let disk_io = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionDiskIO)?
+            .trim()
+            .parse()
+            .map_err(MSParse::SpWho2ParseDiskIO)?;
+
+        let last_batch = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionBatch)?
+            .trim();
+
+        let program_name = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionProgramName)?
+            .trim();
+
+        let request_id = scanner
+            .take_within_exclusive("|", "|")
+            .map_err(MSParse::SpWho2ExtractionRequestID)?
+            .trim();
 
         Ok(Self {
             spid,
-            status: todo!(),
-            login: todo!(),
-            hostname: todo!(),
-            blocked_by: todo!(),
-            db_name: todo!(),
-            command: todo!(),
-            cpu_time: todo!(),
-            disk_io: todo!(),
-            last_batch: todo!(),
-            program_name: todo!(),
-            request_id: todo!(),
+            status,
+            login,
+            hostname,
+            blocked_by,
+            db_name,
+            command,
+            cpu_time,
+            disk_io,
+            last_batch,
+            program_name,
+            request_id,
         })
-        todo!()
     }
 }
 
-pub struct RunningQueryParser<T>(pub T);
+pub struct RunningQueryParser<'a, T>(pub Peekable<T>, pub Kind)
+where
+    T: Iterator<Item = Entry<'a>>;
 
-impl<'a, T> RunningQueryParser<T> {
-    pub fn new(iter: T) -> Self
+impl<'a, T> RunningQueryParser<'a, T>
+where
+    T: Iterator<Item = Entry<'a>>,
+{
+    pub fn new(kind: Kind, iter: T) -> Self
     where
         T: Iterator<Item = Entry<'a>>,
     {
-        Self(iter)
+        Self(iter.peekable(), kind)
     }
 }
 
-impl<'a> RunningQueryTable<'a> {
-    pub fn extract_timestamp(meta: Entry) -> Option<Result<u64, ParseIntError>> {
-        if let Entry::Meta(meta) = meta {
-            Some(meta.parse())
+impl<'a, T> Iterator for RunningQueryParser<'a, T>
+where
+    T: Iterator<Item = Entry<'a>>,
+{
+    type Item = Result<RunningQueryTable<'a>, Error>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut last_meta = None;
+        let mut table = None;
+        while let Some(entry) = self.0.next() {
+            if !matches!(entry, Entry::Meta(_)) {
+                continue;
+            }
+
+            last_meta = Some(entry);
+            break;
+        }
+
+        while let Some(entry) = self.0.next() {
+            match entry {
+                Entry::Meta(_) => last_meta = Some(entry),
+                Entry::Table(_) => table = Some(entry),
+                _ => continue,
+            }
+        }
+
+        if let (Some(meta), Some(table)) = (last_meta, table) {
+            Some(RunningQueryTable::try_from((self.1.clone(), meta, table)))
         } else {
             None
         }
     }
 }
 
-impl<'a, T> Iterator for RunningQueryParser<T>
-where
-    T: Iterator<Item = Entry<'a>>,
-{
-    type Item = Result<RunningQueryTable<'a>, Error>;
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut meta = None;
-        let mut table = None;
-        while let Some(entry) = self.0.next() {
-            if let Entry::Meta(_) = entry {
-                meta = Some(entry);
-                break;
-            }
-        }
+impl<'a> TryFrom<(Kind, Entry<'a>, Entry<'a>)> for RunningQueryTable<'a> {
+    type Error = Error;
 
-        while let Some(entry) = self.0.next() {
-            if let Entry::Table(_) = entry {
-                table = Some(entry);
-                break;
-            }
-        }
+    fn try_from(value: (Kind, Entry<'a>, Entry<'a>)) -> Result<Self, Self::Error> {
+        let value = match value.0 {
+            Kind::PGSQL => Self::PGSQL(PGSQLRunningQueryTable::try_from((value.1, value.2))?),
+            Kind::MSSQL => Self::MSSQL(MSSQLRunningQueryTable::try_from((value.1, value.2))?),
+        };
+        Ok(value)
+    }
+}
 
-        // Some(RunningQueryTable::try_from((meta?, table?)))
-        todo!()
+#[cfg(test)]
+mod test {
+    use std::net::Ipv4Addr;
+
+    use crate::{
+        ingest::running_queries::Entry,
+        parser::running_queries::{PGSQLQuery, PGSQLRunningQueryTable, State},
+        util,
+    };
+    #[test]
+    fn running_query_pgsql_single_line() {
+        let query = "|  13852  |  0.022713        |  1.095177      |  servicedesk  |  idle in transaction  |  f        |  INSERT INTO PendingIndexRecords (RECORDID,MODULEID,PKCOLUMNVALUE,OPERATIONID,HELPDESKID) VALUES ($1,$2,$3,$4,$5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |  2026-04-10 16:54:44.171349+05:30  |  PostgreSQL JDBC Driver  |  127.0.0.1       |                   |  64361        |";
+        let result = PGSQLQuery::try_from(query);
+        assert!(
+            result.is_ok(),
+            "Error during parsing: {}",
+            result.unwrap_err()
+        );
+        let query = result.unwrap();
+        assert_eq!(query.pid, 13852);
+        assert_eq!(query.query_time_ms, 22);
+        assert_eq!(query.txn_time_ms, 1095);
+        assert_eq!(query.db_name, "servicedesk");
+        assert!(matches!(query.state, State::Idle));
+        assert_eq!(query.waiting, false);
+        assert_eq!(query.application_name, "PostgreSQL JDBC Driver");
+        assert_eq!(query.client_address, Some(Ipv4Addr::LOCALHOST));
+        assert_eq!(query.client_hostname, None);
+        assert_eq!(query.client_port, Some(64361));
+    }
+
+    #[test]
+    fn running_query_pgsql_table() {
+        let map = util::map_file("test/pgsql_running_query_single_table.txt").unwrap();
+        let table = str::from_utf8(&map).unwrap();
+        let result = PGSQLRunningQueryTable::try_from((Entry::Meta(""), Entry::Table(table)));
+        assert!(
+            result.is_ok(),
+            "Error during parsing table: {}",
+            result.unwrap_err()
+        );
+        let table = result.unwrap();
+        assert_eq!(table.queries.len(), 15);
+        assert_eq!(table.timestamp, 0);
     }
 }

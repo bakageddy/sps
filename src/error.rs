@@ -372,6 +372,32 @@ pub mod running_query {
         SpWho2ExtractionSPID(scanner::Error),
         #[error("Error during parsing SPWho2 Column: spid {0}")]
         SpWho2ParseSPID(ParseIntError),
+        #[error("Error during extraction SPWho2 Column: status {0}")]
+        SpWho2ExtractionStatus(scanner::Error),
+        #[error("Error during extraction SPWho2 Column: login {0}")]
+        SpWho2ExtractionLogin(scanner::Error),
+        #[error("Error during extraction SPWho2 Column: hostname {0}")]
+        SpWho2ExtractionHostname(scanner::Error),
+        #[error("Error during extraction SPWho2 Column: cputime {0}")]
+        SpWho2ExtractionCPUTime(scanner::Error),
+        #[error("Error during parsing SPWho2 Column: cputime {0}")]
+        SpWho2ParseCPUTime(ParseIntError),
+        #[error("Error during extraction SPWho2 Column: command {0}")]
+        SpWho2ExtractionCommand(scanner::Error),
+        #[error("Error during extraction SPWho2 Column: db_name {0}")]
+        SpWho2ExtractionDBName(scanner::Error),
+        #[error("Error during extraction SPWho2 Column: request_id {0}")]
+        SpWho2ExtractionRequestID(scanner::Error),
+        #[error("Error during extraction SPWho2 Column: program_name {0}")]
+        SpWho2ExtractionProgramName(scanner::Error),
+        #[error("Error during extraction SPWho2 Column: last_batch {0}")]
+        SpWho2ExtractionBatch(scanner::Error),
+        #[error("Error during extraction SPWho2 Column: disk_io {0}")]
+        SpWho2ExtractionDiskIO(scanner::Error),
+        #[error("Error during parsing SPWho2 Column: disk_io {0}")]
+        SpWho2ParseDiskIO(ParseIntError),
+        #[error("Error during extraction SPWho2 Column: blocked_by {0}")]
+        SpWho2ExtractionBlockedBy(scanner::Error),
     }
 }
 
