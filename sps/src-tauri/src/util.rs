@@ -1,9 +1,14 @@
 use memmap2::Advice;
 use memmap2::Mmap;
+use time::Date;
+use time::PlainDateTime;
+use time::Time;
+use time::error::Parse;
 use std::fs;
 use std::ops::Deref;
 use std::path::Path;
 use std::path::PathBuf;
+use time::format_description::BorrowedFormatItem;
 use tracing::info;
 use tracing::warn;
 
@@ -11,7 +16,9 @@ use crate::parser::cpumemstats::CPUMemStatsParser;
 use crate::parser::cpumonitoring::CPUMonitoringParser;
 use crate::store;
 use crate::store::Store;
+use crate::types;
 use crate::types::LogFiles;
+use crate::types::TimestampError;
 
 pub type Result<T> = std::result::Result<T, crate::error::Error>;
 
@@ -23,6 +30,36 @@ where
     let map = unsafe { memmap2::Mmap::map(&handle)? };
     let _ = map.advise(Advice::Sequential)?;
     Ok(map)
+}
+
+pub fn unix_timestamp_millis(
+    time: &str,
+    date: &str,
+    time_fmt: &[BorrowedFormatItem],
+    date_fmt: &[BorrowedFormatItem],
+) -> std::result::Result<u64, TimestampError> {
+    let parsed_time = Time::parse(time, time_fmt)?;
+    let parsed_date = Date::parse(date, date_fmt)?;
+
+    let timestamp = PlainDateTime::new(parsed_date, parsed_time).assume_utc().unix_timestamp_nanos();
+    let timestamp = timestamp / 1_000_000;
+    let timestamp = u64::try_from(timestamp)?;
+    Ok(timestamp)
+}
+
+pub fn parse_comma_separated_u32(value: &str) -> Option<u32> {
+    let mut result = 0u32;
+    for c in value.bytes() {
+        match c {
+            b'0'..=b'9' => {
+                result *= 10;
+                result += (c - b'0') as u32;
+            }
+            b',' => continue,
+            _ => return None,
+        };
+    }
+    Some(result)
 }
 
 /// Reads the root directory and strips the entry file with the suffix and prefix

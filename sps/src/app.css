@@ -1,0 +1,113 @@
+/*
+ * Structural tokens + global reset.
+ *
+ * COLOR tokens (--bg, --fg, --accent, --chart-*, ...) are NOT defined here:
+ * the palettes live as typed data in src/lib/theme.svelte.ts, which writes
+ * them onto <html> as CSS custom properties before first paint. Components
+ * keep consuming them as var(--bg) etc. — this file only owns the
+ * non-thematic constants and the reset.
+ */
+
+/* Space Mono (OFL) — bundled in static/fonts so the app never fetches
+   fonts from the network. font-display: swap = render with the fallback
+   immediately, swap in Space Mono when loaded (a local file, so instantly). */
+/* Space Grotesk — the UI face AND the wordmark (variable, 300–700).
+   Won the brand-font experiment 2026-08-30; Inter/Geist/Jost removed. */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-var.woff2") format("woff2");
+}
+
+/* Icon glyphs (Private Use Area) for Icon.svelte */
+@font-face {
+  font-family: "Symbols Nerd Font";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block; /* icons: better invisible for 100ms than tofu-then-swap */
+  src: url("/fonts/symbols-nerd-font.woff2") format("woff2");
+}
+
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-700.woff2") format("woff2");
+}
+
+:root {
+  --radius: 8px;
+  /* Hairline: chrome separators derived from the palette's fg instead of
+     its editor-tuned border color — softer, and consistent across themes */
+  --hairline: color-mix(in srgb, var(--fg) 14%, transparent);
+  --shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+  /* ui-monospace = the OS's own mono font (SF Mono on macOS, etc.);
+     generic `monospace` is the last-resort fallback */
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* system-ui = the OS's native UI font, the right first fallback */
+  --font-ui: "Space Grotesk", system-ui, sans-serif;
+}
+
+/* Minimal reset — border-box everywhere is the one non-negotiable */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+  /* var() fallback covers the instant before theme.svelte.ts runs —
+     note an earlier `background-color: <literal>;` line would NOT work
+     as a fallback: an undefined var() computes to `unset`, it doesn't
+     revert to a previous declaration. */
+  background-color: var(--bg, #2e3440);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Modern control base: no outlines-as-borders. Buttons are borderless —
+   affordance comes from surface + hover fill; focus comes from a ring. */
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    opacity 0.12s ease;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

@@ -17,6 +17,7 @@ const CPU_MONITORING_DATE_FORMAT: &[BorrowedFormatItem] =
 #[derive(Debug)]
 pub struct CPUMonitoringParser<'a>(&'a str, ParserState);
 
+// FIXME: when we return Some(Err(e)), call tok.remaining()
 // TODO: Do not construct separate tokenizers
 impl<'a> Iterator for CPUMonitoringParser<'a> {
     type Item = Result<CPUMonitoring<'a>, Error>;

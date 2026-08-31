@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%sveltekit.assets%/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sps — log analyzer</title>
+    <!-- No pre-paint theme script needed: this is an SPA (ssr=false), so
+         nothing renders until the bundle runs, and theme.svelte.ts applies
+         the saved theme at module init — before the first paint. -->
+    %sveltekit.head%
+  </head>
+  <body data-sveltekit-preload-data="hover">
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>
