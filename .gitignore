@@ -30,3 +30,10 @@ output.*
 
 # Ignore Test related resources
 /test
+
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target
