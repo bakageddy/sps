@@ -1,6 +1,6 @@
 use error::Error;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
+use std::{borrow::Cow, str::Utf8Error};
 use time::{format_description::BorrowedFormatItem, macros::format_description};
 
 use crate::{
@@ -25,6 +25,11 @@ impl<'a> Iterator for StuckthreadParser<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let mut tok = Tokenizer::new(self.0);
         tok.skip_whitespace();
+        if tok.is_empty() {
+            return None;
+        }
+
+        self.1 = ParserState::Initial;
         while let Some(line) = tok.peek_line()
             && line.trim_start().starts_with("[")
         {
@@ -38,7 +43,11 @@ impl<'a> Iterator for StuckthreadParser<'a> {
         }
 
         let header = tok.get_line()?;
-        let has_stacktrace = tok.peek_line()?.trim().starts_with(Self::PREAMBLE);
+        let has_stacktrace = tok
+            .peek_line()
+            .unwrap_or("")
+            .trim()
+            .starts_with(Self::PREAMBLE);
         let mut thread = match Self::parse_header(header, has_stacktrace) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
@@ -56,9 +65,19 @@ impl<'a> Iterator for StuckthreadParser<'a> {
                     Err(e) => return Some(Err(e)),
                 };
                 trace.0.push(frame);
+                let _ = tok.get_line()?;
             }
         }
+        self.0 = tok.remaining();
         Some(Ok(thread))
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for StuckthreadParser<'a> {
+    type Error = Utf8Error;
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        let value = std::str::from_utf8(value)?;
+        Ok(Self::new(value))
     }
 }
 
@@ -104,6 +123,7 @@ impl<'a> StuckthreadParser<'a> {
             };
 
             Ok(Stuckthread::End {
+                start,
                 tid,
                 name,
                 duration,
@@ -114,6 +134,7 @@ impl<'a> StuckthreadParser<'a> {
             // parsing
             let _ = tok.take_within("[", "]")?;
             let request = tok.take_within("[", "]")?.trim().into();
+
             // This information is not needed: configured threshold for this StuckThreadDetectionValve is [10] seconds
             // but is still important for parsing
             let _ = tok.take_within("[", "]")?;
@@ -135,6 +156,7 @@ impl<'a> StuckthreadParser<'a> {
                 start,
                 tid,
                 name,
+                duration,
                 request,
                 trace: Default::default(),
                 active,
@@ -148,12 +170,14 @@ pub enum Stuckthread<'a> {
     Begin {
         start: u64,
         tid: u64,
+        duration: u64,
         name: Cow<'a, str>,
         request: Cow<'a, str>,
         trace: Trace<'a>,
         active: Option<u64>,
     },
     End {
+        start: u64,
         tid: u64,
         name: Cow<'a, str>,
         duration: u64,
@@ -210,15 +234,116 @@ pub mod error {
 
 #[cfg(test)]
 pub mod test {
-    use crate::parser::{stuckthread::Frame, tokenizer::Parser};
+    use std::ops::Deref;
+
+    use crate::{
+        parser::{
+            stuckthread::{Frame, Stuckthread, StuckthreadParser},
+            tokenizer::Parser,
+        },
+        util,
+    };
 
     #[test]
     fn stuckthread_frame_parse() {
         let data = "	at java.base@17.0.17/java.lang.Thread.run(Unknown Source)";
         let frame = Frame::parse(data);
-        assert!(frame.is_ok(), "Error during parsing: {}", frame.unwrap_err());
+        assert!(
+            frame.is_ok(),
+            "Error during parsing: {}",
+            frame.unwrap_err()
+        );
         let frame = frame.unwrap();
-        assert_eq!(frame.method, "java.base@17.0.17/java.lang.Thread.run"); 
+        assert_eq!(frame.method, "java.base@17.0.17/java.lang.Thread.run");
         assert_eq!(frame.source, "Unknown Source");
+    }
+
+    #[test]
+    fn stuckthread_begin_full_stacktrace() {
+        let mmap = util::map_file("test/stuckthread/begin_full.txt").unwrap();
+        let mut parser = StuckthreadParser::try_from(mmap.deref()).unwrap();
+        let event = parser.next();
+        assert!(event.is_some(), "Error during parsing!");
+        let event = event.unwrap();
+        assert!(
+            event.is_ok(),
+            "Error during parsing: {}",
+            event.unwrap_err()
+        );
+        let event = event.unwrap();
+        match event {
+            Stuckthread::Begin {
+                start,
+                tid,
+                name,
+                duration,
+                request,
+                trace,
+                active,
+            } => {
+                assert_ne!(start, 0);
+                assert_eq!(tid, 109);
+                assert_eq!(name, "/WOListView.do-1775544330127_###_");
+                assert_eq!(duration, 11932);
+                assert_eq!(
+                    request,
+                    "http://sdploadcom-1:8080/WOListView.do?noheader=true&_=1687436370255"
+                );
+                assert_eq!(active, Some(1));
+                assert_eq!(trace.0.len(), 114);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn stuckthread_end() {
+        let data = "[12:13:48.978]|[07-04-2026]|[org.apache.catalina.valves.StuckThreadDetectionValve]|[WARN]|[75]| :: Thread [] (id=[184]) was previously reported to be stuck but has completed. It was active for approximately [11,113] milliseconds. There is/are still [1] thread(s) that are monitored by this Valve and may be stuck.\n";
+        let mut parser = StuckthreadParser::new(data);
+        let event = parser.next();
+        assert!(event.is_some(), "Error during parsing");
+        let event = event.unwrap();
+        assert!(
+            event.is_ok(),
+            "Error during parsing: {}",
+            event.unwrap_err()
+        );
+        let event = event.unwrap();
+        match event {
+            Stuckthread::End {
+                start,
+                tid,
+                name,
+                duration,
+                active,
+            } => {
+                assert_eq!(start, 1775564028978);
+                assert_eq!(tid, 184);
+                assert_eq!(duration, 11113);
+                assert_eq!(active, Some(1));
+                assert_eq!(name, "");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn stuckthread_full() {
+        let map = util::map_file("test/stuckthread/stuckthread0.txt").unwrap();
+        let parser = StuckthreadParser::try_from(map.deref()).unwrap();
+
+        let mut count = 0;
+        for event in parser {
+            assert!(
+                event.is_ok(),
+                "Error during parsing: {}",
+                event.unwrap_err()
+            );
+            // if event.is_ok() {
+            count += 1;
+            // }
+        }
+
+        assert_eq!(count, 1111);
     }
 }
