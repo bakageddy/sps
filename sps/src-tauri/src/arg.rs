@@ -3,7 +3,7 @@ use std::path::PathBuf;
 #[derive(clap::Parser)]
 pub struct AppArgs {
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(clap::Subcommand)]

@@ -5,6 +5,7 @@ use time::PlainDateTime;
 use time::Time;
 use time::error::Parse;
 use std::fs;
+use std::num::ParseIntError;
 use std::ops::Deref;
 use std::path::Path;
 use std::path::PathBuf;
@@ -47,13 +48,13 @@ pub fn unix_timestamp_millis(
     Ok(timestamp)
 }
 
-pub fn parse_comma_separated_u32(value: &str) -> Option<u32> {
-    let mut result = 0u32;
+pub fn parse_comma_separated_u64(value: &str) -> Option<u64> {
+    let mut result = 0u64;
     for c in value.bytes() {
         match c {
             b'0'..=b'9' => {
                 result *= 10;
-                result += (c - b'0') as u32;
+                result += (c - b'0') as u64;
             }
             b',' => continue,
             _ => return None,

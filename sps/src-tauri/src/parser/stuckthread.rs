@@ -62,37 +62,47 @@ impl<'a> Iterator for StuckthreadParser<'a> {
         };
 
         let name = match tok.take_within("[", "]").map_err(Error::InvalidFormat) {
-            Ok(x) => x.trim(),
-            Err(e) => return Some(Err(e))
+            Ok(x) => x.trim().into(),
+            Err(e) => return Some(Err(e)),
         };
 
         let id = match tok.take_within("[", "]").map_err(Error::InvalidFormat) {
             Ok(x) => x,
-            Err(e) => return Some(Err(e))
+            Err(e) => return Some(Err(e)),
         };
 
         let tid = match id.trim().parse().map_err(Error::ParseTID) {
             Ok(x) => x,
-            Err(e) => return Some(Err(e))
+            Err(e) => return Some(Err(e)),
         };
 
         let duration = match tok.take_within("[", "]").map_err(Error::InvalidFormat) {
-            Ok(x) => x,
-            Err(e) => return Some(Err(e))
+            Ok(x) => x.trim(),
+            Err(e) => return Some(Err(e)),
         };
+
+        let duration =
+            match util::parse_comma_separated_u64(duration).ok_or_else(|| Error::ParseDuration) {
+                Ok(x) => x,
+                Err(e) => return Some(Err(e)),
+            };
 
         let sentinel = match tok.take_within("[", "]") {
             Ok(x) => x,
-            Err(e) => {
-                tokenizer::error::Error::NotEnoughData => todo!(),
-                tokenizer::error::Error::Expected { expected, got } => todo!(),
-                tokenizer::error::Error::DelimiterNotFound(x) => {
-                    if (x == "[") {
-                        return Ok(Stuckthread::End { tid, name, duration: () })
+            Err(e) => match e {
+                tokenizer::error::Error::DelimiterNotFound(ref x) => {
+                    if x == "[" {
+                        return Some(Ok(Stuckthread::End {
+                            tid,
+                            name,
+                            duration,
+                        }));
+                    } else {
+                        return Some(Err(Error::InvalidFormat(e)));
                     }
                 }
-                tokenizer::error::Error::DelimiterNotFound(_) => todo!(),
-            }
+                _ => return Some(Err(Error::InvalidFormat(e))),
+            },
         };
 
         todo!()
@@ -160,5 +170,7 @@ pub mod error {
         HeaderNotFound,
         #[error("Cannot find header in stuckthread entry")]
         ParseTID(#[from] std::num::ParseIntError),
+        #[error("Cannot parse comma separated duration")]
+        ParseDuration,
     }
 }
