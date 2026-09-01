@@ -1,25 +1,17 @@
-use memmap2::Advice;
-use memmap2::Mmap;
-use time::Date;
-use time::PlainDateTime;
-use time::Time;
-use time::error::Parse;
-use std::fs;
-use std::num::ParseIntError;
-use std::ops::Deref;
-use std::path::Path;
-use std::path::PathBuf;
-use time::format_description::BorrowedFormatItem;
-use tracing::info;
-use tracing::warn;
+use memmap2::{Advice, Mmap};
+use std::{
+    fs,
+    ops::Deref,
+    path::{Path, PathBuf},
+};
+use time::{Date, PlainDateTime, Time, format_description::BorrowedFormatItem};
+use tracing::{info, warn};
 
-use crate::parser::cpumemstats::CPUMemStatsParser;
-use crate::parser::cpumonitoring::CPUMonitoringParser;
-use crate::store;
-use crate::store::Store;
-use crate::types;
-use crate::types::LogFiles;
-use crate::types::TimestampError;
+use crate::{
+    parser::{cpumemstats::CPUMemStatsParser, cpumonitoring::CPUMonitoringParser},
+    store::{self, Store},
+    types::{LogFiles, ParseInt, TimestampError},
+};
 
 pub type Result<T> = std::result::Result<T, crate::error::Error>;
 
@@ -42,13 +34,15 @@ pub fn unix_timestamp_millis(
     let parsed_time = Time::parse(time, time_fmt)?;
     let parsed_date = Date::parse(date, date_fmt)?;
 
-    let timestamp = PlainDateTime::new(parsed_date, parsed_time).assume_utc().unix_timestamp_nanos();
+    let timestamp = PlainDateTime::new(parsed_date, parsed_time)
+        .assume_utc()
+        .unix_timestamp_nanos();
     let timestamp = timestamp / 1_000_000;
     let timestamp = u64::try_from(timestamp)?;
     Ok(timestamp)
 }
 
-pub fn parse_comma_separated_u64(value: &str) -> Option<u64> {
+pub fn parse_comma_separated_u64(value: &str) -> std::result::Result<u64, ParseInt> {
     let mut result = 0u64;
     for c in value.bytes() {
         match c {
@@ -57,10 +51,10 @@ pub fn parse_comma_separated_u64(value: &str) -> Option<u64> {
                 result += (c - b'0') as u64;
             }
             b',' => continue,
-            _ => return None,
+            c => return Err(ParseInt::InvalidDigit(c)),
         };
     }
-    Some(result)
+    Ok(result)
 }
 
 /// Reads the root directory and strips the entry file with the suffix and prefix

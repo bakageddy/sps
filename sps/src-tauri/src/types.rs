@@ -17,3 +17,9 @@ pub enum TimestampError {
     #[error("Conversion to u64 failed: {0}")]
     Conversion(#[from] TryFromIntError),
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum ParseInt {
+    #[error("Invalid Digit found during parsing: {0}")]
+    InvalidDigit(u8),
+}
