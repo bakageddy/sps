@@ -12,9 +12,10 @@ use std::sync::Mutex;
 use crate::{arg::Command, store::Store, types::AppState};
 use arg::AppArgs;
 use clap::Parser;
-use handlers::{cpumemstats::*, cpumonitoring::*};
 use handlers::database::*;
 use handlers::parse::*;
+use handlers::stuckthread::*;
+use handlers::{cpumemstats::*, cpumonitoring::*};
 use tauri::Manager;
 use tracing::warn;
 use tracing_subscriber;
@@ -45,6 +46,7 @@ pub fn launch(database: Option<PathBuf>) {
             cpumem_path_series,
             cpumem_total_cpu,
             cpumem_total_memory,
+            stuckthread_bars,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

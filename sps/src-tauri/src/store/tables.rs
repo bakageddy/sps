@@ -4,6 +4,8 @@ pub enum Tables {
     WindowsCPUStats,
     WindowsMemoryStats,
     LinuxStats,
+    Stuckthread,
+    StuckthreadTraces,
 }
 
 impl Tables {
@@ -14,6 +16,8 @@ impl Tables {
             Self::WindowsCPUStats => "windows_cpu_stats",
             Self::WindowsMemoryStats => "windows_memory_stats",
             Self::LinuxStats => "linux_stats",
+            Self::Stuckthread => "stuckthread",
+            Self::StuckthreadTraces => "stuckthread_traces",
         }
     }
 }

@@ -22,20 +22,20 @@ CREATE TABLE IF NOT EXISTS main.cpumonitoring_stacktraces (
 
 CREATE TABLE IF NOT EXISTS main.windows_cpu_stats (
   timestamp UBIGINT NOT NULL,
-  total     FLOAT NOT NULL,
-  path      STRING NULL,
-  cpu		FLOAT NOT NULL,
-  pid		UBIGINT NOT NULL,
-  name		STRING NOT NULL,
+  total FLOAT NOT NULL,
+  path STRING NULL,
+  cpu FLOAT NOT NULL,
+  pid UBIGINT NOT NULL,
+  name STRING NOT NULL,
 );
 
 CREATE TABLE IF NOT EXISTS main.windows_memory_stats (
   timestamp UBIGINT NOT NULL,
-  total     FLOAT NOT NULL,
-  path      STRING NULL,
-  mem		FLOAT NOT NULL,
-  pid		UBIGINT NOT NULL,
-  name		STRING NOT NULL,
+  total FLOAT NOT NULL,
+  path STRING NULL,
+  mem FLOAT NOT NULL,
+  pid UBIGINT NOT NULL,
+  name STRING NOT NULL,
 );
 
 CREATE TABLE IF NOT EXISTS main.linux_stats (
@@ -48,4 +48,21 @@ CREATE TABLE IF NOT EXISTS main.linux_stats (
   cpu FLOAT NOT NULL,
   mem FLOAT NOT NULL,
   path STRING NOT NULL,
+);
+
+CREATE TABLE IF NOT EXISTS main.stuckthread (
+  timestamp UBIGINT NOT NULL,
+  tid UBIGINT NOT NULL,
+  duration UBIGINT NOT NULL,
+  name STRING NOT NULL,
+  request STRING NULL,
+  active UBIGINT NULL,
+);
+
+CREATE TABLE IF NOT EXISTS main.stuckthread_traces (
+  timestamp UBIGINT NOT NULL,
+  tid UBIGINT NOT NULL,
+  idx UBIGINT NOT NULL,
+  method STRING NOT NULL,
+  source STRING NOT NULL,
 );

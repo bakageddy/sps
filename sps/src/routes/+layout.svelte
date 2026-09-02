@@ -115,6 +115,7 @@
         { href: "/cpumemstats/linked", label: "Linked Dumps", icon: "link" },
       ],
     },
+    { href: "/stuckthreads", label: "Stuck Threads", icon: "stuck" },
   ];
 </script>
 

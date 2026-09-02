@@ -1,6 +1,3 @@
-use time::Date;
-use time::PlainDateTime;
-use time::Time;
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
 use tracing::warn;
@@ -8,6 +5,7 @@ use tracing::warn;
 use crate::parser::cpumonitoring::error::Error;
 use crate::parser::tokenizer;
 use crate::parser::tokenizer::{Parser, Tokenizer};
+use crate::util;
 
 const CPU_MONITORING_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
@@ -18,7 +16,6 @@ const CPU_MONITORING_DATE_FORMAT: &[BorrowedFormatItem] =
 pub struct CPUMonitoringParser<'a>(&'a str, ParserState);
 
 // FIXME: when we return Some(Err(e)), call tok.remaining()
-// TODO: Do not construct separate tokenizers
 impl<'a> Iterator for CPUMonitoringParser<'a> {
     type Item = Result<CPUMonitoring<'a>, Error>;
 
@@ -53,24 +50,14 @@ impl<'a> Iterator for CPUMonitoringParser<'a> {
                         Err(e) => return Some(Err(e)),
                     };
 
-                    let parsed_time = match Time::parse(time, CPU_MONITORING_TIME_FORMAT)
-                        .map_err(Error::ParseTimestamp)
-                    {
-                        Ok(time) => time,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    let parsed_date = match Date::parse(date, CPU_MONITORING_DATE_FORMAT)
-                        .map_err(Error::ParseTimestamp)
-                    {
-                        Ok(date) => date,
-                        Err(e) => return Some(Err(e)),
-                    };
+                    utc = util::unix_timestamp_millis(
+                        time,
+                        date,
+                        CPU_MONITORING_TIME_FORMAT,
+                        CPU_MONITORING_DATE_FORMAT,
+                    )
+                    .ok();
 
-                    let millis = PlainDateTime::new(parsed_date, parsed_time)
-                        .assume_utc()
-                        .unix_timestamp_nanos()
-                        / 1_000_000;
-                    utc = u64::try_from(millis).ok();
                     self.1 = ParserState::EntryID;
                     break;
                 } else {
@@ -218,7 +205,10 @@ pub struct CPUTrace<'a>(pub Vec<Frame<'a>>);
 impl<'a> Parser<'a> for CPUTrace<'a> {
     type Error = Error;
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error> where Self: Sized {
+    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
         let mut tok = Tokenizer::new(data);
         let mut frames = Vec::new();
         while let Some(line) = tok.get_line() {

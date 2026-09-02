@@ -3,15 +3,13 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::str::Utf8Error;
-use time::Date;
-use time::PlainDateTime;
-use time::Time;
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
 
 use crate::parser::cpumemstats::error::Error;
 use crate::parser::tokenizer::Parser;
 use crate::parser::tokenizer::Tokenizer;
+use crate::util;
 
 const CPUMEMSTATS_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
@@ -52,6 +50,7 @@ impl<'a> TryFrom<&'a [u8]> for CPUMemStatsParser<'a> {
     }
 }
 
+// FIXME: when we return Some(Err(e)), call tok.remaining()
 impl<'a> Iterator for CPUMemStatsParser<'a> {
     type Item = Result<StatTable<'a>, Error>;
 
@@ -81,26 +80,13 @@ impl<'a> Iterator for CPUMemStatsParser<'a> {
                         Err(e) => return Some(Err(e)),
                     };
 
-                    let parsed_time = match Time::parse(time, CPUMEMSTATS_TIME_FORMAT)
-                        .map_err(Error::ParseTimestamp)
-                    {
-                        Ok(time) => time,
-                        Err(e) => return Some(Err(e)),
-                    };
-
-                    let parsed_date = match Date::parse(date, CPUMEMSTATS_DATE_FORMAT)
-                        .map_err(Error::ParseTimestamp)
-                    {
-                        Ok(date) => date,
-                        Err(e) => return Some(Err(e)),
-                    };
-
-                    let millis = PlainDateTime::new(parsed_date, parsed_time)
-                        .assume_utc()
-                        .unix_timestamp_nanos()
-                        / 1_000_000;
-
-                    timestamp = u64::try_from(millis).ok();
+                    timestamp = util::unix_timestamp_millis(
+                        time,
+                        date,
+                        CPUMEMSTATS_TIME_FORMAT,
+                        CPUMEMSTATS_DATE_FORMAT,
+                    )
+                    .ok();
                     self.1 = ParserState::Timestamp;
                     break;
                 }

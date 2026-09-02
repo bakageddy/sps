@@ -42,3 +42,7 @@ opt-level = 3
 panic = "abort"
 strip = true
 incremental = false
+
+[profile.dev]
+incremental = true
+strip = false

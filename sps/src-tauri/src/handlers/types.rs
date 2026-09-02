@@ -74,3 +74,10 @@ pub struct CPUMemoryPoint {
     pub value: f32,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregatedStuckthreadMinimal {
+    pub timestamp: u64,
+    pub tid: u64,
+    pub duration_ms: u64,
+}

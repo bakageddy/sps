@@ -12,8 +12,10 @@ const STUCKTHREAD_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
 const STUCKTHREAD_DATE_FORMAT: &[BorrowedFormatItem] = format_description!("[day]-[month]-[year]");
 
+#[derive(Debug)]
 pub struct StuckthreadParser<'a>(&'a str, ParserState);
 
+#[derive(Debug)]
 enum ParserState {
     Initial,
     Header,
@@ -91,7 +93,7 @@ impl<'a> StuckthreadParser<'a> {
         let mut tok = Tokenizer::new(data);
         let raw_time = tok.take_within("[", "]")?;
         let raw_date = tok.take_within("[", "]")?;
-        let start = util::unix_timestamp_millis(
+        let timestamp = util::unix_timestamp_millis(
             raw_time,
             raw_date,
             STUCKTHREAD_TIME_FORMAT,
@@ -123,13 +125,14 @@ impl<'a> StuckthreadParser<'a> {
             };
 
             Ok(Stuckthread::End {
-                start,
+                end: timestamp,
                 tid,
                 name,
                 duration,
                 active,
             })
         } else {
+            let start = timestamp - duration;
             // This information is not needed: since [2/11/26 3:26 PM], but is still important for
             // parsing
             let _ = tok.take_within("[", "]")?;
@@ -177,10 +180,10 @@ pub enum Stuckthread<'a> {
         active: Option<u64>,
     },
     End {
-        start: u64,
+        end: u64,
         tid: u64,
-        name: Cow<'a, str>,
         duration: u64,
+        name: Cow<'a, str>,
         active: Option<u64>,
     },
 }
@@ -311,7 +314,7 @@ pub mod test {
         let event = event.unwrap();
         match event {
             Stuckthread::End {
-                start,
+                end: start,
                 tid,
                 name,
                 duration,
@@ -339,9 +342,7 @@ pub mod test {
                 "Error during parsing: {}",
                 event.unwrap_err()
             );
-            // if event.is_ok() {
             count += 1;
-            // }
         }
 
         assert_eq!(count, 1111);

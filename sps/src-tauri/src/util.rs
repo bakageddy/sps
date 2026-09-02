@@ -8,7 +8,10 @@ use time::{Date, PlainDateTime, Time, format_description::BorrowedFormatItem};
 use tracing::{info, warn};
 
 use crate::{
-    parser::{cpumemstats::CPUMemStatsParser, cpumonitoring::CPUMonitoringParser},
+    parser::{
+        cpumemstats::CPUMemStatsParser, cpumonitoring::CPUMonitoringParser,
+        stuckthread::StuckthreadParser,
+    },
     store::{self, Store},
     types::{LogFiles, ParseInt, TimestampError},
 };
@@ -98,9 +101,11 @@ where
 {
     let cpumonitoring = get_files_reverse_sort(&root, "CPUMonitoring", ".txt")?;
     let cpumemstats = get_files_reverse_sort(&root, "cpumemstats", ".txt")?;
+    let stuckthreads = get_files_reverse_sort(&root, "stuckthreads", ".txt")?;
     return Ok(LogFiles {
         cpumonitoring,
         cpumemstats,
+        stuckthreads,
     });
 }
 
@@ -111,6 +116,7 @@ where
     let LogFiles {
         cpumonitoring,
         cpumemstats,
+        stuckthreads,
     } = get_files(root)?;
     std::thread::scope(|s| {
         let _ = s.spawn(|| -> Result<()> {
@@ -122,6 +128,14 @@ where
         });
         let _ = s.spawn(|| -> Result<()> {
             let result = parse_cpumonitoring_and_persist(cpumonitoring, store.clone());
+            if let Err(ref e) = result {
+                warn!("Error during parsing/persisting: {e}");
+            }
+            result
+        });
+
+        let _ = s.spawn(|| -> Result<()> {
+            let result = parse_stuckthreads_and_persist(stuckthreads, store.clone());
             if let Err(ref e) = result {
                 warn!("Error during parsing/persisting: {e}");
             }
@@ -191,6 +205,43 @@ pub fn parse_cpumemstats_and_persist(entries: Vec<PathBuf>, store: Store) -> Res
         let parser = CPUMemStatsParser::try_from(mmap.deref());
         if let Ok(parser) = parser {
             let _ = store::append_cpumemstats(
+                &cnx,
+                parser.into_iter().flat_map(|item| {
+                    if item.is_ok() {
+                        item.ok()
+                    } else {
+                        warn!(
+                            "Error during parsing {:?} due to {}",
+                            entry.display(),
+                            item.unwrap_err()
+                        );
+                        None
+                    }
+                }),
+            )?;
+        } else {
+            warn!(
+                "Cannot convert bytes of {:?} to UTF8 due to {:?}",
+                entry.display(),
+                parser.unwrap_err()
+            );
+            continue;
+        }
+    }
+    Ok(())
+}
+
+pub fn parse_stuckthreads_and_persist(entries: Vec<PathBuf>, store: Store) -> Result<()> {
+    let entries = entries
+        .into_iter()
+        .flat_map(|e| -> Result<(Mmap, PathBuf)> { Ok((map_file(&e)?, e)) });
+
+    let cnx = store.get()?;
+    for (mmap, entry) in entries {
+        info!("Parsing and persisting: {:?}", entry.display());
+        let parser = StuckthreadParser::try_from(mmap.deref());
+        if let Ok(parser) = parser {
+            let _ = store::append_stuckthread(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if item.is_ok() {

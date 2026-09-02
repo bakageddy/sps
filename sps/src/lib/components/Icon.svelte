@@ -19,9 +19,12 @@
     stats: "\u{f080}", // nf-fa-bar_chart
     graph: "\u{f201}", // nf-fa-line_chart
     link: "\u{f0c1}", // nf-fa-link
+    stuck: "\u{f254}", // nf-fa-hourglass
     expand: "\u{f065}", // nf-fa-expand
     compress: "\u{f066}", // nf-fa-compress
     chevronLeft: "\u{f053}", // nf-fa-chevron_left
+    zoomIn: "\u{f00e}", // nf-fa-search_plus
+    zoomOut: "\u{f010}", // nf-fa-search_minus
     menu: "\u{f0c9}", // nf-fa-bars
   } as const;
   export type IconName = keyof typeof Icons;

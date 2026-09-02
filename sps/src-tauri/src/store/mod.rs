@@ -1,6 +1,7 @@
-pub mod cpumonitoring;
 pub mod cpumemstats;
+pub mod cpumonitoring;
 pub mod error;
+pub mod stuckthread;
 pub mod tables;
 pub mod types;
 
@@ -10,7 +11,7 @@ use duckdb::{Connection, DuckdbConnectionManager};
 use r2d2::{Pool, PooledConnection};
 
 use crate::{
-    parser::{cpumemstats::StatTable, cpumonitoring::CPUMonitoring},
+    parser::{cpumemstats::StatTable, cpumonitoring::CPUMonitoring, stuckthread::Stuckthread},
     store::{self, tables::Tables},
 };
 
@@ -141,5 +142,46 @@ pub fn append_cpumemstats<'a>(
     linux_stat.flush()?;
     windows_cpu.flush()?;
     windows_mem.flush()?;
+    Ok(())
+}
+
+pub fn append_stuckthread<'a>(
+    cnx: &Connection,
+    iter: impl Iterator<Item = Stuckthread<'a>>,
+) -> Result<(), store::error::Error> {
+    let mut appender = cnx.appender_to_db(Tables::Stuckthread.into_str(), "main")?;
+    let mut traces_appender = cnx.appender_to_db(Tables::StuckthreadTraces.into_str(), "main")?;
+    for event in iter {
+        let (timestamp, tid, duration, name, request, active) = match event {
+            Stuckthread::Begin {
+                start,
+                tid,
+                duration,
+                name,
+                request,
+                trace,
+                active,
+            } => {
+                for (idx, frame) in (0..).zip(trace.0) {
+                    traces_appender.append_row((
+                        start,
+                        tid,
+                        idx,
+                        frame.method,
+                        frame.source,
+                    ))?;
+                }
+                (start, tid, duration, name, Some(request), active)
+            }
+            Stuckthread::End {
+                end: timestamp,
+                tid,
+                duration,
+                name,
+                active,
+            } => (timestamp, tid, duration, name, None, active),
+        };
+        appender.append_row((timestamp, tid, duration, name, request, active))?;
+    }
     Ok(())
 }

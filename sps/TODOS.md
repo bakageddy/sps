@@ -21,6 +21,13 @@ the spec; reconcile against them, not memory.
       SUM over processes sharing a path, or a name when path is NULL) —
       requirements in `src/lib/api/cpumemstats.ts`. Frontend: rollup rows
       are clickable and plot it.
+- [ ] **Stuck-thread commands** (three, requirements in
+      `src/lib/api/stuckthread.ts`; page live at /stuckthreads):
+      `stuckthread_bars` (minimal {tid, timestamp, durationMs} for the
+      overview strip — timestamp MUST equal the span's start, the frontend
+      joins on it), `stuckthread_spans` (full episodes, paired IN RUST:
+      by name, start = ts - durationMs, orphaned ends reconstructed,
+      re-reports merged), `stuckthread_trace(tid, beginTimestamp)`.
 - [ ] **Overview commands**: `cpumem_total_cpu` / `cpumem_total_memory` —
       requirements in `src/lib/api/cpumemstats.ts` (frontend page is live at
       /cpumemstats/overview).
@@ -37,6 +44,42 @@ the spec; reconcile against them, not memory.
       backend shape settles.
 
 ## Backend — correctness
+
+### Stuckthread (from review 2026-09-01/02; Dinesh fixing)
+
+- [ ] Parser: header path violates the PROGRESS INVARIANT — a line not
+      starting with `[` is never consumed, so next() returns the same
+      Err(HeaderNotFound) forever (infinite loop). Real serverout files are
+      mixed-content, so this fires on normal input. (The `while ... break`
+      is an `if` in costume — original skip-until-header intent lost.)
+- [ ] Parser: add a mixed-content fixture (valve entries with foreign log
+      lines between them + one corrupt entry) asserting termination, one
+      Err per bad segment, and correct event count. Current fixtures are
+      pure valve lines and cannot catch the above.
+- [ ] Parser: `ParseTID` error message is a copy-paste of HeaderNotFound's
+      ("Cannot find header...") — lies at the boundary. Also
+      `timestamp - duration` is a naked u64 subtraction (garbled duration
+      → debug panic).
+- [ ] Parser: comment the atomically-written-record invariant where
+      `has_stacktrace` classifies Begin/End (it's load-bearing).
+- [ ] Aggregator (`get_stuckthreads_aggregate_minimal`): end path get()s
+      but never remove()s the pending begin → every paired episode emitted
+      TWICE (once at pair, again at flush).
+- [ ] Aggregator: orphaned ends (end with no pending begin) silently
+      dropped — the reconstruct branch was lost in the last revision.
+- [ ] Aggregator: emits raw begin log-line timestamp; contract requires
+      start = timestamp - durationMs (bars are ~threshold late and overrun
+      their true end; bars.timestamp must equal spans.start for the
+      frontend join). Parser now derives start correctly — use it.
+- [ ] Aggregator: output ordering — flush iterates a HashMap (random order
+      per run); contract requires timestamp ascending, and nondeterminism
+      makes future tests flaky.
+- [ ] Aggregator vs contract: re-reported begins currently displace-and-emit
+      as separate bars; contract says merge. Align one or the other.
+- [ ] Pairing safety net (from the ASOF discussion; end names are EMPTY so
+      name-join is impossible): verify pairs by deriving start from both
+      sides (begin.ts - begin.dur ≈ end.ts - end.dur within epsilon);
+      mispairs from missing ends fail this check by construction.
 
 - [ ] `get_stackframes`: add `ORDER BY idx` (row order is not guaranteed
       without it; preserve_insertion_order is likely, not promised).
