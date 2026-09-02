@@ -47,6 +47,7 @@ pub fn launch(database: Option<PathBuf>) {
             cpumem_total_cpu,
             cpumem_total_memory,
             stuckthread_bars,
+            stuckthread_trace,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

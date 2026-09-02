@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
 use tracing::warn;
@@ -123,7 +125,7 @@ impl<'a> Iterator for CPUMonitoringParser<'a> {
         }
 
         tok.skip_whitespace();
-        let name = tok.take_until(",");
+        let name = tok.take_until(",").map(|x| x.into());
         tok.skip_whitespace();
         if let Err(e) = tok.expect("Thread State:").map_err(Error::InvalidFormat) {
             return Some(Err(e));
@@ -194,7 +196,7 @@ pub struct CPUMonitoring<'a> {
     pub timestamp: u64,
     pub tid: u64,
     pub usage: f32,
-    pub name: Option<&'a str>,
+    pub name: Option<Cow<'a, str>>,
     pub state: State,
     pub trace: Option<CPUTrace<'a>>,
 }
@@ -221,8 +223,8 @@ impl<'a> Parser<'a> for CPUTrace<'a> {
 
 #[derive(Debug)]
 pub struct Frame<'a> {
-    pub method: &'a str,
-    pub source: &'a str,
+    pub method: Cow<'a, str>,
+    pub source: Cow<'a, str>,
 }
 
 impl<'a> Parser<'a> for Frame<'a> {
@@ -237,8 +239,12 @@ impl<'a> Parser<'a> for Frame<'a> {
         tok.skip_whitespace();
         let method = tok
             .take_until_exclusive("(")
-            .map_err(Error::InvalidFormat)?;
-        let source = tok.take_within("(", ")").map_err(Error::InvalidFormat)?;
+            .map_err(Error::InvalidFormat)?
+            .into();
+        let source = tok
+            .take_within("(", ")")
+            .map_err(Error::InvalidFormat)?
+            .into();
         Ok(Frame { method, source })
     }
 }
@@ -363,7 +369,7 @@ mod test {
         );
         let entry = entry.unwrap();
         assert!(entry.trace.is_some());
-        assert_eq!(entry.name, Some("Asset_8:XML"));
+        assert_eq!(entry.name, Some("Asset_8:XML".into()));
         assert_eq!(entry.usage, 1.7284292);
         assert_eq!(entry.state, State::TimedWaiting);
         assert_eq!(entry.tid, 5227u64);

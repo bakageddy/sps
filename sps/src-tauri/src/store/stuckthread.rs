@@ -1,10 +1,9 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use duckdb::Connection;
 
 use crate::{
-    handlers::types::AggregatedStuckthreadMinimal,
-    store::{error::Error, tables::Tables},
+    handlers::types::AggregatedStuckthreadMinimal, parser::stuckthread::Frame, store::{error::Error, tables::Tables},
 };
 
 pub fn get_stuckthreads_aggregate_minimal(
@@ -58,4 +57,26 @@ pub fn get_stuckthreads_aggregate_minimal(
         });
     }
     Ok(stuckthreads)
+}
+
+pub fn get_stuckthread_trace<'a>(
+    cnx: &Connection,
+    tid: u64,
+    timestamp: u64,
+) -> Result<Vec<Frame<'a>>, Error> {
+    let query = format!(
+        "SELECT {0}.method, {0}.source FROM {0} WHERE {0}.tid = $1 AND {0}.timestamp = $2 ORDER BY {0}.idx",
+        Tables::StuckthreadTraces.into_str()
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    let mut rows = stmt.query([tid, timestamp])?;
+    let mut frames = Vec::new();
+    while let Some(row) = rows.next()? {
+        let frame = Frame {
+            method: Cow::Owned(row.get(0)?),
+            source: Cow::Owned(row.get(1)?),
+        };
+        frames.push(frame);
+    }
+    Ok(frames)
 }
