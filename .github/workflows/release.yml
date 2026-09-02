@@ -1,0 +1,85 @@
+# Rolling release: every push to main rebuilds the "latest" prerelease with
+# fresh dmg / deb / rpm / msi bundles.
+#
+# Design notes:
+#  - The auto-injected GITHUB_TOKEN is read-only by default on new repos;
+#    `permissions: contents: write` is what allows creating releases.
+#  - The old release is deleted first (single job, before the matrix) because
+#    the app version rarely changes — re-uploading identically named assets
+#    to an existing release fails.
+#  - --bundles overrides tauri.conf.json's targets per platform, so each
+#    runner only builds its native formats.
+#  - macos-latest is Apple Silicon; the dmg is aarch64-only. Add a second
+#    macos entry with `args: --target x86_64-apple-darwin --bundles dmg`
+#    if Intel Macs need to be served.
+#  - Bundles are unsigned: macOS users right-click -> Open the first time,
+#    Windows shows a SmartScreen notice. Signing requires paid certificates.
+
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: drop previous rolling release
+        run: gh release delete latest --cleanup-tag --yes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    needs: refresh-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            bundles: dmg
+          - platform: ubuntu-22.04
+            bundles: deb,rpm
+          - platform: windows-latest
+            bundles: msi
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Caches target/ per platform; cuts warm builds down dramatically.
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: install linux system deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: latest
+          releaseName: sps latest (main)
+          releaseBody: Rolling build of the newest commit on main.
+          prerelease: true
+          args: --bundles ${{ matrix.bundles }}
