@@ -54,17 +54,20 @@ jobs:
         with:
           version: 11
 
+      # The app lives in the sps/ subdirectory of the repo, so every
+      # path-sensitive step below must point there explicitly.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: latest
           cache: pnpm
+          cache-dependency-path: sps/pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@stable
 
       # Caches target/ per platform; cuts warm builds down dramatically.
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: sps/src-tauri
 
       - name: install linux system deps
         if: matrix.platform == 'ubuntu-22.04'
@@ -73,11 +76,13 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - run: pnpm install --frozen-lockfile
+        working-directory: sps
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: sps
           tagName: latest
           releaseName: sps latest (main)
           releaseBody: Rolling build of the newest commit on main.
