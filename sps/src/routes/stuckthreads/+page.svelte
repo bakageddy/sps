@@ -19,6 +19,7 @@
   import { bounds, threadBar, threadKey, pathRollup, type StuckBar } from "$lib/stuckthread";
   import StuckOverview from "$lib/components/StuckOverview.svelte";
   import StuckPathTable from "$lib/components/StuckPathTable.svelte";
+  import TimeRangePicker from "$lib/components/TimeRangePicker.svelte";
   import { db } from "$lib/database.svelte";
   import { ingest } from "$lib/ingest.svelte";
   import { cached } from "$lib/query-cache";
@@ -204,10 +205,12 @@
 
   async function copyEpisode() {
     if (selected === null) return;
+    const active = [selected.activeStart, selected.activeEnd].filter((n) => n !== null);
     const lines = [
       `Request: ${selected.request ?? "unknown"}`,
       `Thread: ${selected.name || "(empty)"}`,
       `TID: ${selected.tid}`,
+      ...(active.length > 0 ? [`Active threads: ${active.join(" -> ")}`] : []),
       `Started: ${formatTimestamp(timeFormat, bounds(selected)[0])}`,
       selected.end !== null
         ? `Completed: ${formatTimestamp(timeFormat, selected.end)}`
@@ -271,6 +274,7 @@
     </span>
 
     <span class="zoom" role="group" aria-label="Time window">
+      <TimeRangePicker {domain} {view} onviewchange={(v) => (view = v)} />
       {#each PRESETS as preset (preset.ms)}
         <button
           class="preset"
@@ -390,12 +394,15 @@
               </dd>
               <dt>Stuck for</dt>
               <dd class="mono">{formatDuration(selected.duration)}</dd>
-              {#if selected.activeEnd !== null}
-                <dt>Active at end</dt>
-                <dd class="mono">{formatDuration(selected.activeEnd)}</dd>
-              {:else if selected.activeStart !== null}
-                <dt>Active at warning</dt>
-                <dd class="mono">{formatDuration(selected.activeStart)}</dd>
+              {#if selected.activeStart !== null || selected.activeEnd !== null}
+                <!-- a COUNT of threads active alongside this one, not a
+                     duration: "12 → 8" = at warning → at completion -->
+                <dt>Active threads</dt>
+                <dd class="mono">
+                  {[selected.activeStart, selected.activeEnd]
+                    .filter((n) => n !== null)
+                    .join(" → ")}
+                </dd>
               {/if}
             </dl>
 
@@ -442,7 +449,8 @@
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 12px;
+    flex-wrap: wrap; /* range picker + chips can exceed narrow windows */
+    gap: 8px 12px;
     padding: 6px 10px;
     border-bottom: 1px solid var(--hairline);
     flex-shrink: 0;

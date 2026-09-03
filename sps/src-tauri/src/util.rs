@@ -1,4 +1,7 @@
-use memmap2::{Advice, Mmap};
+use memmap2::Mmap;
+
+#[cfg(unix)]
+use memmap2::Advice;
 use std::{
     fs,
     ops::Deref,

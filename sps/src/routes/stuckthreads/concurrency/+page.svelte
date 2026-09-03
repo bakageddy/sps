@@ -15,6 +15,7 @@
   import { ingest } from "$lib/ingest.svelte";
   import { cached } from "$lib/query-cache";
   import { formatTimestamp } from "$lib/format";
+  import TimeRangePicker from "$lib/components/TimeRangePicker.svelte";
 
   let errorMessage = $state<string | null>(null);
   let threads = $state<StuckThread[]>([]);
@@ -142,9 +143,12 @@
       {/if}
       · avg <strong>{stats.average.toFixed(1)}</strong>
     </span>
-    <button class="reset" onclick={() => (view = null)} disabled={view === null}>
-      reset
-    </button>
+    <span class="controls">
+      <TimeRangePicker {domain} {view} onviewchange={(v) => (view = v)} />
+      <button class="reset" onclick={() => (view = null)} disabled={view === null}>
+        reset
+      </button>
+    </span>
   </div>
 
   {#if threads.length === 0}
@@ -206,6 +210,12 @@
   }
   .mono {
     font-family: var(--font-mono);
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .reset {

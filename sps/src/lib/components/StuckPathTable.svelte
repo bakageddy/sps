@@ -21,6 +21,7 @@
     <span class="col-path">Path</span>
     <span class="col-num">Episodes</span>
     <span class="col-num">Stuck</span>
+    <span class="col-num">Avg</span>
     <span class="col-num">Max</span>
     <span class="col-num">Total</span>
   </div>
@@ -31,6 +32,7 @@
         <span class="col-path">{r.path}</span>
         <span class="col-num mono">{r.episodes}</span>
         <span class="col-num mono" class:bad={r.open > 0}>{r.open}</span>
+        <span class="col-num mono">{formatDuration(Math.round(r.totalMs / r.episodes))}</span>
         <span class="col-num mono">{formatDuration(r.maxMs)}</span>
         <span class="col-num mono total">{formatDuration(r.totalMs)}</span>
       </button>
@@ -52,7 +54,7 @@
   .head,
   .row {
     display: grid;
-    grid-template-columns: minmax(150px, 1fr) 76px 60px 90px 100px;
+    grid-template-columns: minmax(150px, 1fr) 76px 60px 90px 90px 100px;
     gap: 10px;
     align-items: center;
     padding: 0 10px;
