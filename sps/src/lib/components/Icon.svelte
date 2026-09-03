@@ -25,6 +25,8 @@
     chevronLeft: "\u{f053}", // nf-fa-chevron_left
     zoomIn: "\u{f00e}", // nf-fa-search_plus
     zoomOut: "\u{f010}", // nf-fa-search_minus
+    copy: "\u{f0c5}", // nf-fa-copy
+    check: "\u{f00c}", // nf-fa-check
     menu: "\u{f0c9}", // nf-fa-bars
   } as const;
   export type IconName = keyof typeof Icons;

@@ -15,7 +15,8 @@
    * "zoom is broken" — with a seconds-wide window on an hours-wide log the
    * lens moved sub-pixel, so zoom clicks changed nothing visible.
    */
-  import type { StuckBar } from "$lib/api/stuckthread";
+  import type { StuckBar } from "$lib/stuckthread";
+  import { formatTimestamp } from "$lib/format";
 
   interface Props {
     bars: StuckBar[];
@@ -71,6 +72,17 @@
       ({ bar }) => bar.timestamp <= domain[1] && bar.timestamp + bar.durationMs >= domain[0],
     ),
   );
+
+  // --- fixed lane pitch + overflow ------------------------------------------
+  // Lines never scale or overlap: each lane owns LANE_PITCH px, the strip
+  // shows as many lanes as fit, and a counter says how many episodes are
+  // clipped below. Dragging the split divider taller reveals them.
+  const LANE_PITCH = 12; // 8px line + 4px breathing room
+  const LINE_HEIGHT = 8;
+  let stripHeight = $state(0);
+  const laneCapacity = $derived(Math.max(1, Math.floor(stripHeight / LANE_PITCH)));
+  const rendered = $derived(visibleBars.filter(({ lane }) => lane < laneCapacity));
+  const hiddenCount = $derived(visibleBars.length - rendered.length);
 
   const ticks = $derived.by(() => {
     const n = 8;
@@ -185,13 +197,14 @@
 <div class="overview">
   <div class="axis">
     {#each ticks as tick, i (i)}
-      <span class="tick" style:left="{tick.pct}%">{timeFormat.format(tick.t)}</span>
+      <span class="tick" style:left="{tick.pct}%">{formatTimestamp(timeFormat, tick.t)}</span>
     {/each}
   </div>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="strip"
     bind:this={strip}
+    bind:clientHeight={stripHeight}
     {onpointerdown}
     {onwheel}
     ondblclick={() => onviewchange(null)}
@@ -200,19 +213,26 @@
       <span class="gridline" style:left="{tick.pct}%"></span>
     {/each}
 
-    {#each visibleBars as { bar, lane } (`${bar.tid}:${bar.timestamp}`)}
-      <!-- a single thin line per episode, vertically centered in its lane -->
+    <!-- unkeyed: duplicate identities in corrupt data must not crash the each -->
+    {#each rendered as { bar, lane }}
+      <!-- a fixed-size line per episode, one LANE_PITCH row per lane -->
       <button
         class="bar"
         class:selected={isSelected(bar)}
         style:--bar-color="var({barColor(bar.tid)})"
         style:left="{pct(bar.timestamp)}%"
         style:width="{Math.max(0.3, pct(bar.timestamp + bar.durationMs) - pct(bar.timestamp))}%"
-        style:top="calc({(((lane + 0.5) / lanes.count) * 100).toFixed(3)}% - 4px)"
+        style:top="{lane * LANE_PITCH + (LANE_PITCH - LINE_HEIGHT) / 2}px"
         onclick={() => onbarclick(bar)}
         aria-label="Stuck episode, tid {bar.tid}"
       ></button>
     {/each}
+
+    {#if hiddenCount > 0}
+      <!-- clipped lanes exist: fade the cutoff + count what's below -->
+      <span class="fade"></span>
+      <span class="overflow">▾ {hiddenCount} more</span>
+    {/if}
 
     {#if dragging && dragFracStart !== null && dragFracCurrent !== null}
       <span
@@ -281,9 +301,32 @@
     background: var(--hairline);
   }
 
+  .fade {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 14px;
+    background: linear-gradient(transparent, var(--bg-hard));
+    pointer-events: none;
+  }
+
+  .overflow {
+    position: absolute;
+    right: 8px;
+    bottom: 4px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    pointer-events: none;
+  }
+
   .bar {
     position: absolute;
-    height: 8px; /* a line, never a block — lane count must not fatten bars */
+    height: 8px; /* a fixed line, never scaled — overflow is clipped + counted */
     min-width: 3px;
     border-radius: 2px;
     background: color-mix(in srgb, var(--bar-color) 35%, transparent);

@@ -115,7 +115,14 @@
         { href: "/cpumemstats/linked", label: "Linked Dumps", icon: "link" },
       ],
     },
-    { href: "/stuckthreads", label: "Stuck Threads", icon: "stuck" },
+    {
+      href: "/stuckthreads",
+      label: "Stuck Threads",
+      icon: "stuck",
+      children: [
+        { href: "/stuckthreads/concurrency", label: "Concurrency", icon: "graph" },
+      ],
+    },
   ];
 </script>
 

@@ -5,22 +5,24 @@
    * table below it, details side panel on row click (request, thread,
    * timings, stack trace).
    *
-   * Events are paired into episodes in Rust; requirements live in
-   * src/lib/api/stuckthread.ts.
+   * Episodes come aggregated from Rust (stuckthread_listview, mirrored in
+   * src/lib/api/stuckthread.ts); the frontend derives geometry only
+   * (lib/stuckthread.ts). One cached full-range fetch; windowing is
+   * client-side.
    */
   import { MediaQuery } from "svelte/reactivity";
   import {
-    stuckthreadBars,
-    stuckthreadSpans,
+    stuckthreadListview,
     stuckthreadTrace,
-    type StuckBar,
-    type StuckSpan,
+    type StuckThread,
   } from "$lib/api/stuckthread";
+  import { bounds, threadBar, threadKey, pathRollup, type StuckBar } from "$lib/stuckthread";
   import StuckOverview from "$lib/components/StuckOverview.svelte";
+  import StuckPathTable from "$lib/components/StuckPathTable.svelte";
   import { db } from "$lib/database.svelte";
   import { ingest } from "$lib/ingest.svelte";
   import { cached } from "$lib/query-cache";
-  import { formatDuration } from "$lib/format";
+  import { formatDuration, formatTimestamp } from "$lib/format";
   import SplitPane from "$lib/components/SplitPane.svelte";
   import StuckTable from "$lib/components/StuckTable.svelte";
   import StackTracePanel, {
@@ -29,12 +31,18 @@
   import Icon from "$lib/components/Icon.svelte";
 
   let errorMessage = $state<string | null>(null);
-  let bars = $state<StuckBar[]>([]);
-  let spans = $state<StuckSpan[]>([]);
-  let selected = $state<StuckSpan | null>(null);
+  let threads = $state<StuckThread[]>([]);
+  let selected = $state<StuckThread | null>(null);
   let trace = $state<TraceState>({ status: "idle" });
   /** overview brush window; null = full range */
   let view = $state<[number, number] | null>(null);
+
+  const bars = $derived(threads.map(threadBar));
+
+  // Table mode: per-episode list or per-path rollup.
+  const ViewMode = { Episodes: "episodes", Paths: "paths" } as const;
+  type ViewMode = (typeof ViewMode)[keyof typeof ViewMode];
+  let viewMode = $state<ViewMode>(ViewMode.Episodes);
 
   // --- time window controls -------------------------------------------------
   // Stuck episodes live on the seconds scale; the full log domain is hours.
@@ -50,22 +58,13 @@
   /** slider fully zoomed in = a 10 s window */
   const MIN_SPAN = 10_000;
 
-  // Domain = union of BOTH feeds, deliberately: bars and spans describe the
-  // same episodes, but each arrives from its own command — if one fails or
-  // isn't implemented yet, the zoom cluster must still work off the other.
-  // (Deriving from spans alone once bricked every control while only
-  // stuckthread_bars existed: domain collapsed to [0,1] and every window
-  // computation clamped to "full range".)
   const domain = $derived.by<[number, number]>(() => {
     let start = Infinity;
     let end = -Infinity;
-    for (const b of bars) {
-      start = Math.min(start, b.timestamp);
-      end = Math.max(end, b.timestamp + b.durationMs);
-    }
-    for (const s of spans) {
-      start = Math.min(start, s.start);
-      end = Math.max(end, s.end ?? s.start + s.durationMs);
+    for (const t of threads) {
+      const [s, e] = bounds(t);
+      start = Math.min(start, s);
+      end = Math.max(end, e);
     }
     if (start === Infinity) return [0, 1];
     return end > start ? [start, end] : [start, start + 1];
@@ -103,29 +102,44 @@
   let filterText = $state("");
   let statusFilter = $state<Status>(Status.All);
 
-  const filteredSpans = $derived.by(() => {
+  const filteredThreads = $derived.by(() => {
     const needle = filterText.trim().toLowerCase();
-    return spans.filter((s) => {
-      if (statusFilter === Status.Done && s.end === null) return false;
-      if (statusFilter === Status.Stuck && s.end !== null) return false;
+    return threads.filter((t) => {
+      if (statusFilter === Status.Done && t.end === null) return false;
+      if (statusFilter === Status.Stuck && t.end !== null) return false;
       if (needle === "") return true;
       return (
-        (s.request ?? "").toLowerCase().includes(needle) ||
-        s.key.toLowerCase().includes(needle) ||
-        String(s.tid).includes(needle)
+        (t.request ?? "").toLowerCase().includes(needle) ||
+        t.name.toLowerCase().includes(needle) ||
+        String(t.tid).includes(needle)
       );
     });
   });
 
-  // The overview joins to table rows on (tid, start) — the contract
-  // REQUIRES bar.timestamp === span.start for exactly this.
+  // Rollup respects both the toolbar filters and the zoom window.
+  const rollup = $derived.by(() => {
+    // capture: TS drops the null-narrowing of `view` inside the closure
+    const window_ = view;
+    const windowed =
+      window_ === null
+        ? filteredThreads
+        : filteredThreads.filter((t) => {
+            const [start, end] = bounds(t);
+            return start <= window_[1] && end >= window_[0];
+          });
+    return pathRollup(windowed);
+  });
+
+  // Bars join to rows on (tid, start) — threadBar builds them that way.
   const overviewSelected = $derived(
-    selected === null ? null : { tid: selected.tid, timestamp: selected.start },
+    selected === null ? null : { tid: selected.tid, timestamp: bounds(selected)[0] },
   );
 
   function onselectbar(bar: StuckBar) {
-    const span = spans.find((s) => s.tid === bar.tid && s.start === bar.timestamp);
-    if (span) onselect(span);
+    const thread = threads.find(
+      (t) => t.tid === bar.tid && bounds(t)[0] === bar.timestamp,
+    );
+    if (thread) onselect(thread);
   }
 
   const portrait = new MediaQuery("(orientation: portrait)");
@@ -137,14 +151,13 @@
   });
 
   async function refresh() {
-    const [barsResult, spansResult] = await Promise.allSettled([
-      cached("stuckthread_bars", stuckthreadBars),
-      cached("stuckthread_spans", stuckthreadSpans),
-    ]);
-    if (barsResult.status === "fulfilled") bars = barsResult.value;
-    else errorMessage = String(barsResult.reason);
-    if (spansResult.status === "fulfilled") spans = spansResult.value;
-    else errorMessage = String(spansResult.reason);
+    try {
+      // one cached full-range fetch; zooming windows client-side. The
+      // handler's (from, to) frame stays available for huge logs later.
+      threads = await cached("stuckthread_listview", () => stuckthreadListview());
+    } catch (e) {
+      errorMessage = String(e);
+    }
     view = lastWindow(PRESETS[0].ms); // default: last 5 minutes
   }
 
@@ -155,7 +168,7 @@
       errorMessage = null;
       refresh();
     } else {
-      spans = [];
+      threads = [];
       selected = null;
     }
   });
@@ -165,23 +178,52 @@
     refresh();
   });
 
-  async function onselect(span: StuckSpan) {
-    selected = span;
-    if (!span.hasBegin || span.beginTimestamp === null) {
-      // orphaned end event: no begin survived, so no trace exists
-      trace = { status: "ready", tid: span.tid, timestamp: span.start, frames: null };
+  async function onselect(thread: StuckThread) {
+    selected = thread;
+    if (thread.begin === null) {
+      // completion-only episode: no warning event, so no trace exists
+      trace = { status: "ready", tid: thread.tid, timestamp: bounds(thread)[0], frames: null };
       return;
     }
-    const tid = span.tid;
-    const timestamp = span.beginTimestamp;
+    const tid = thread.tid;
+    const timestamp = thread.begin;
     trace = { status: "loading", tid, timestamp };
     try {
       const frames = await cached(`stuckthread_trace:${tid}:${timestamp}`, () =>
         stuckthreadTrace(tid, timestamp),
       );
-      trace = { status: "ready", tid, timestamp, frames };
+      // the handler returns an empty Vec for "no trace captured"
+      trace = { status: "ready", tid, timestamp, frames: frames.length === 0 ? null : frames };
     } catch (e) {
       trace = { status: "error", message: String(e) };
+    }
+  }
+
+  // --- copy episode as text (for tickets/chat) ------------------------------
+  let copied = $state(false);
+
+  async function copyEpisode() {
+    if (selected === null) return;
+    const lines = [
+      `Request: ${selected.request ?? "unknown"}`,
+      `Thread: ${selected.name || "(empty)"}`,
+      `TID: ${selected.tid}`,
+      `Started: ${formatTimestamp(timeFormat, bounds(selected)[0])}`,
+      selected.end !== null
+        ? `Completed: ${formatTimestamp(timeFormat, selected.end)}`
+        : `Never completed in log`,
+      `Stuck for: ${formatDuration(selected.duration)}`,
+    ];
+    if (trace.status === "ready" && trace.frames !== null) {
+      lines.push("", "Stack trace:");
+      for (const frame of trace.frames) lines.push(`  at ${frame.method} (${frame.source})`);
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch (e) {
+      errorMessage = `Clipboard write failed: ${e}`;
     }
   }
 </script>
@@ -217,6 +259,17 @@
       >Stuck</button>
     </span>
 
+    <span class="chips" role="group" aria-label="Table mode">
+      <button
+        class:active={viewMode === ViewMode.Episodes}
+        onclick={() => (viewMode = ViewMode.Episodes)}
+      >Episodes</button>
+      <button
+        class:active={viewMode === ViewMode.Paths}
+        onclick={() => (viewMode = ViewMode.Paths)}
+      >Paths</button>
+    </span>
+
     <span class="zoom" role="group" aria-label="Time window">
       {#each PRESETS as preset (preset.ms)}
         <button
@@ -247,11 +300,21 @@
       >reset</button>
     </span>
 
-    <span class="count">{filteredSpans.length} / {spans.length}</span>
+    <span class="count">{filteredThreads.length} / {threads.length}</span>
   </div>
 
   <!-- Strip over table as a vertical split — the strip height is draggable. -->
   <div class="body">
+    <!-- A render error below (e.g. from corrupt rows) lands here as a
+         visible message instead of silently killing the page. -->
+    <svelte:boundary>
+      {#snippet failed(error, reset)}
+        <div class="crash" role="alert">
+          <p>Stuck Threads crashed while rendering:</p>
+          <pre>{error instanceof Error ? (error.stack ?? error.message) : String(error)}</pre>
+          <button onclick={reset}>try again</button>
+        </div>
+      {/snippet}
     <SplitPane direction="column" initial={0.18}>
       {#snippet a()}
         <div class="strip">
@@ -266,14 +329,22 @@
       {/snippet}
       {#snippet b()}
   <div class="content">
-    {#if selected === null}
-      <StuckTable spans={filteredSpans} selected={null} {onselect} {view} />
+    {#if viewMode === ViewMode.Paths}
+      <StuckPathTable
+        rollups={rollup}
+        onpick={(path) => {
+          filterText = path;
+          viewMode = ViewMode.Episodes;
+        }}
+      />
+    {:else if selected === null}
+      <StuckTable threads={filteredThreads} selected={null} {onselect} {view} />
     {:else}
       <SplitPane direction={portrait.current ? "column" : "row"} initial={0.55}>
         {#snippet a()}
           <StuckTable
-            spans={filteredSpans}
-            selected={selected?.key ?? null}
+            threads={filteredThreads}
+            selected={selected === null ? null : threadKey(selected)}
             {onselect}
             {view}
           />
@@ -285,32 +356,47 @@
           <div class="details">
             <header>
               <h3>Episode</h3>
-              <button
-                class="close"
-                onclick={() => (selected = null)}
-                aria-label="Close details"
-              ><Icon name="chevronLeft" size={12} /></button>
+              <span class="header-actions">
+                <button
+                  class="hbtn"
+                  onclick={copyEpisode}
+                  title="Copy episode as text"
+                  aria-label="Copy episode as text"
+                ><Icon name={copied ? "check" : "copy"} size={12} /></button>
+                <button
+                  class="hbtn close"
+                  onclick={() => (selected = null)}
+                  aria-label="Close details"
+                ><Icon name="chevronLeft" size={12} /></button>
+              </span>
             </header>
 
             <dl>
               <dt>Request</dt>
-              <dd class="mono wrap">{selected.request ?? "unknown (begin event lost)"}</dd>
+              <dd class="mono wrap">{selected.request ?? "unknown (warning lost)"}</dd>
               <dt>Thread</dt>
-              <dd class="mono wrap">{selected.key}</dd>
+              <dd class="mono wrap">{selected.name || "(empty in log)"}</dd>
               <dt>TID</dt>
               <dd class="mono">{selected.tid}</dd>
               <dt>Started</dt>
-              <dd class="mono">{timeFormat.format(selected.start)}</dd>
+              <dd class="mono">{formatTimestamp(timeFormat, bounds(selected)[0])}</dd>
               <dt>Status</dt>
               <dd>
                 {#if selected.end !== null}
-                  <span class="badge done">completed {timeFormat.format(selected.end)}</span>
+                  <span class="badge done">completed {formatTimestamp(timeFormat, selected.end)}</span>
                 {:else}
                   <span class="badge open">never completed in log</span>
                 {/if}
               </dd>
               <dt>Stuck for</dt>
-              <dd class="mono">{formatDuration(selected.durationMs)}</dd>
+              <dd class="mono">{formatDuration(selected.duration)}</dd>
+              {#if selected.activeEnd !== null}
+                <dt>Active at end</dt>
+                <dd class="mono">{formatDuration(selected.activeEnd)}</dd>
+              {:else if selected.activeStart !== null}
+                <dt>Active at warning</dt>
+                <dd class="mono">{formatDuration(selected.activeStart)}</dd>
+              {/if}
             </dl>
 
             <div class="trace">
@@ -324,6 +410,7 @@
   </div>
       {/snippet}
     </SplitPane>
+    </svelte:boundary>
   </div>
 </div>
 
@@ -438,6 +525,27 @@
     min-height: 0; /* lets the SplitPane shrink instead of overflowing */
   }
 
+  .crash {
+    padding: 16px;
+    color: var(--red);
+    font-size: 12.5px;
+  }
+  .crash pre {
+    padding: 10px;
+    background: var(--bg-hard);
+    border-radius: var(--radius);
+    overflow: auto;
+    font-size: 11.5px;
+    white-space: pre-wrap;
+  }
+  .crash button {
+    padding: 3px 12px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--bg-hard);
+    font-weight: 600;
+  }
+
   .strip {
     height: 100%; /* fills its pane; the split divider owns the sizing */
   }
@@ -486,16 +594,22 @@
     letter-spacing: 0.07em;
     color: var(--fg-muted);
   }
-  .close {
+  .header-actions {
+    display: flex;
+    gap: 2px;
+  }
+  .hbtn {
     display: grid;
     place-items: center;
     padding: 4px;
     color: var(--fg-muted);
-    transform: rotate(180deg); /* chevron points toward the panel edge */
   }
-  .close:hover {
+  .hbtn:hover {
     background: var(--bg-hover);
     color: var(--fg);
+  }
+  .close {
+    transform: rotate(180deg); /* chevron points toward the panel edge */
   }
 
   dl {

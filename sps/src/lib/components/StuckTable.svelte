@@ -1,23 +1,24 @@
 <script lang="ts">
   /**
-   * DevTools-style episode list: sortable Name / Status / TID / Started /
-   * Time columns. Pure data table by design — every time-position visual
-   * (bars, axis, sweep-zoom) lives in the overview strip; the table only
-   * FOLLOWS the active window by hiding rows outside it.
+   * Episode list over the Rust-aggregated rows: sortable Name / Status /
+   * TID / Started / Time columns. Pure data table — time visualization
+   * lives in the overview strip; the table FOLLOWS the active window by
+   * hiding episodes that don't intersect it.
    */
-  import type { StuckSpan } from "$lib/api/stuckthread";
-  import { formatDuration } from "$lib/format";
+  import type { StuckThread } from "$lib/api/stuckthread";
+  import { bounds, threadKey } from "$lib/stuckthread";
+  import { formatDuration, formatTimestamp } from "$lib/format";
 
   interface Props {
-    spans: StuckSpan[];
-    /** key of the selected span, or null */
+    threads: StuckThread[];
+    /** threadKey() of the selected row, or null */
     selected: string | null;
-    onselect: (span: StuckSpan) => void;
+    onselect: (thread: StuckThread) => void;
     /** active time window; rows outside it are hidden. null = all */
     view?: [number, number] | null;
   }
 
-  let { spans, selected, onselect, view = null }: Props = $props();
+  let { threads, selected, onselect, view = null }: Props = $props();
 
   const timeFormat = new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
@@ -40,28 +41,29 @@
     }
   }
 
-  function sortValue(s: StuckSpan): string | number {
+  function sortValue(t: StuckThread): string | number {
     switch (sortKey) {
       case "name":
-        return shortRequest(s);
+        return label(t);
       case "status":
-        return s.end === null ? 0 : 1;
+        return t.end === null ? 0 : 1;
       case "tid":
-        return s.tid;
+        return t.tid;
       case "start":
-        return s.start;
+        return bounds(t)[0];
       case "duration":
-        return s.durationMs;
+        return t.duration;
     }
   }
 
   const visible = $derived.by(() => {
     const windowed =
       view === null
-        ? spans
-        : spans.filter(
-            (s) => s.start <= view[1] && (s.end ?? s.start + s.durationMs) >= view[0],
-          );
+        ? threads
+        : threads.filter((t) => {
+            const [start, end] = bounds(t);
+            return start <= view[1] && end >= view[0];
+          });
     return windowed.toSorted((a, b) => {
       const va = sortValue(a);
       const vb = sortValue(b);
@@ -75,16 +77,16 @@
     { key: "status", label: "Status", class: "col-status" },
     { key: "tid", label: "TID", class: "col-tid" },
     { key: "start", label: "Started", class: "col-start" },
-    { key: "duration", label: "Time", class: "col-time" },
+    { key: "duration", label: "Time", class: "col-duration" },
   ];
 
   /** request path without host — the interesting part at column width */
-  function shortRequest(span: StuckSpan): string {
-    if (span.request === null) return "(begin lost — unknown request)";
+  function label(t: StuckThread): string {
+    if (t.request === null) return t.name || "(warning lost — unknown request)";
     try {
-      return new URL(span.request).pathname;
+      return new URL(t.request).pathname;
     } catch {
-      return span.request;
+      return t.request;
     }
   }
 </script>
@@ -102,22 +104,24 @@
   </div>
 
   <div class="rows">
-    {#each visible as span (span.key)}
+    <!-- unkeyed on purpose: rows are stateless, and duplicate identities in
+         corrupt data (same tid+begin twice) must not crash the each -->
+    {#each visible as thread}
       <button
         class="row"
-        class:selected={selected === span.key}
-        onclick={() => onselect(span)}
-        title={span.request ?? span.key}
+        class:selected={selected === threadKey(thread)}
+        onclick={() => onselect(thread)}
+        title={thread.request ?? thread.name}
       >
-        <span class="col-name">{shortRequest(span)}</span>
+        <span class="col-name">{label(thread)}</span>
         <span class="col-status">
-          <span class="badge" class:done={span.end !== null} class:open={span.end === null}>
-            {span.end !== null ? "done" : "stuck"}
+          <span class="badge" class:done={thread.end !== null} class:open={thread.end === null}>
+            {thread.end !== null ? "done" : "stuck"}
           </span>
         </span>
-        <span class="col-tid mono">{span.tid}</span>
-        <span class="col-start mono">{timeFormat.format(span.start)}</span>
-        <span class="col-time mono">{formatDuration(span.durationMs)}</span>
+        <span class="col-tid mono">{thread.tid}</span>
+        <span class="col-start mono">{formatTimestamp(timeFormat, bounds(thread)[0])}</span>
+        <span class="col-duration mono">{formatDuration(thread.duration)}</span>
       </button>
     {:else}
       <p class="empty">
@@ -141,7 +145,7 @@
   .head,
   .row {
     display: grid;
-    grid-template-columns: minmax(150px, 1fr) 80px 64px 90px 90px;
+    grid-template-columns: minmax(150px, 1fr) 80px 64px 90px 100px;
     gap: 10px;
     align-items: center;
     padding: 0 10px;
@@ -169,7 +173,7 @@
   /* numeric columns are right-aligned; their headers must line up */
   .sort.col-tid,
   .sort.col-start,
-  .sort.col-time {
+  .sort.col-duration {
     text-align: right;
   }
   .arrow {
@@ -205,10 +209,10 @@
   }
   .col-tid,
   .col-start,
-  .col-time {
+  .col-duration {
     text-align: right;
   }
-  .col-time {
+  .col-duration {
     color: var(--yellow);
   }
   .mono {
