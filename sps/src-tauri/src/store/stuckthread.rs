@@ -3,59 +3,91 @@ use std::{borrow::Cow, collections::HashMap};
 use duckdb::Connection;
 
 use crate::{
-    handlers::types::AggregatedStuckthreadMinimal, parser::stuckthread::Frame, store::{error::Error, tables::Tables},
+    handlers::types::AggregatedStuckthread,
+    parser::stuckthread::Frame,
+    store::{error::Error, tables::Tables},
 };
 
-pub fn get_stuckthreads_aggregate_minimal(
+pub fn get_stuckthread_aggregates(
     cnx: &Connection,
-) -> Result<Vec<AggregatedStuckthreadMinimal>, Error> {
+    from: Option<u64>,
+    to: Option<u64>,
+) -> Result<Vec<AggregatedStuckthread>, Error> {
     let query = format!(
-        "SELECT timestamp, tid, duration, request FROM {} ORDER BY timestamp",
+        "SELECT {0}.timestamp, {0}.tid, {0}.duration, {0}.name, {0}.request, {0}.active FROM {0} WHERE timestamp BETWEEN $1 AND $2 ORDER BY timestamp",
         Tables::Stuckthread.into_str()
     );
+
+    let from = from.unwrap_or(0);
+    let to = to.unwrap_or(u64::MAX);
     let mut stmt = cnx.prepare_cached(&query)?;
-    let mut rows = stmt.query([])?;
+    let mut rows = stmt.query([from, to])?;
     let mut stuckthreads = Vec::new();
-    let mut aggregate_buffer: HashMap<u64, (u64, u64)> = HashMap::new();
+    let mut aggregate_buffer: HashMap<u64, (u64, u64, String, Option<String>, Option<u64>)> =
+        HashMap::new();
+
     while let Some(row) = rows.next()? {
-        let timestamp = row.get(0)?;
+        let timestamp: u64 = row.get(0)?;
         let tid = row.get(1)?;
         let duration = row.get(2)?;
-        let request: Option<String> = row.get(3)?;
-        if request.is_some() {
-            let old = aggregate_buffer.insert(tid, (timestamp, duration));
-            if let Some((prev_begin_timestamp, prev_begin_duration)) = old {
-                stuckthreads.push(AggregatedStuckthreadMinimal {
-                    timestamp: prev_begin_timestamp,
-                    tid,
-                    duration_ms: prev_begin_duration,
-                });
-            }
-        } else {
-            if let Some((begin_timestamp, _)) = aggregate_buffer.get(&tid) {
-                stuckthreads.push(AggregatedStuckthreadMinimal {
-                    timestamp: *begin_timestamp,
-                    tid,
-                    duration_ms: duration,
-                });
-                aggregate_buffer.remove(&tid);
+        let name = row.get(3)?;
+        let request: Option<String> = row.get(4)?;
+        let active = row.get(5)?;
+
+        if let Some((begin_timestamp, _, begin_name, begin_request, begin_active)) =
+            aggregate_buffer.get(&tid)
+        {
+            let end = if timestamp > *begin_timestamp + duration {
+                timestamp
             } else {
-                stuckthreads.push(AggregatedStuckthreadMinimal {
-                    timestamp: timestamp - duration,
+                *begin_timestamp + duration
+            };
+
+            let request = begin_request.clone();
+            stuckthreads.push(AggregatedStuckthread {
+                tid,
+                begin: Some(*begin_timestamp),
+                end: Some(end),
+                name: begin_name.to_string(),
+                request,
+                active_start: *begin_active,
+                active_end: active,
+                duration,
+            });
+            aggregate_buffer.remove(&tid);
+        } else {
+            if request.is_none() {
+                stuckthreads.push(AggregatedStuckthread {
                     tid,
-                    duration_ms: duration,
+                    begin: None,
+                    end: Some(timestamp),
+                    name,
+                    request: None,
+                    active_start: None,
+                    active_end: None,
+                    duration,
                 });
+            } else {
+                aggregate_buffer.insert(tid, (timestamp, duration, name, request, active));
             }
         }
     }
 
-    for (tid, (timestamp, duration)) in aggregate_buffer {
-        stuckthreads.push(AggregatedStuckthreadMinimal {
-            timestamp,
+    for (tid, (begin_timestamp, begin_duration, begin_name, begin_request, begin_active)) in
+        aggregate_buffer
+    {
+        stuckthreads.push(AggregatedStuckthread {
             tid,
-            duration_ms: duration,
+            begin: Some(begin_timestamp),
+            end: None,
+            name: begin_name,
+            duration: begin_duration,
+            request: begin_request,
+            active_start: begin_active,
+            active_end: None,
         });
     }
+
     Ok(stuckthreads)
 }
 

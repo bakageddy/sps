@@ -76,8 +76,14 @@ pub struct CPUMemoryPoint {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AggregatedStuckthreadMinimal {
-    pub timestamp: u64,
+pub struct AggregatedStuckthread {
     pub tid: u64,
-    pub duration_ms: u64,
+    // NOTE: an begin: None means that the end stuckthread event only occurred without any begin
+    pub begin: Option<u64>,
+    pub end: Option<u64>, 
+    pub name: String,
+    pub duration: u64,
+    pub request: Option<String>,
+    pub active_start: Option<u64>,
+    pub active_end: Option<u64>,
 }

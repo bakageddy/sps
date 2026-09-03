@@ -1,14 +1,15 @@
 use std::{ops::Deref, sync::Mutex};
 
 use crate::{
-    handlers::types::AggregatedStuckthreadMinimal, parser::stuckthread::Frame, store,
-    types::AppState,
+    handlers::types::AggregatedStuckthread, parser::stuckthread::Frame, store, types::AppState,
 };
 
 #[tauri::command]
-pub fn stuckthread_bars(
+pub fn stuckthread_listview(
+    from: Option<u64>,
+    to: Option<u64>,
     state: tauri::State<'_, Mutex<AppState>>,
-) -> Result<Vec<AggregatedStuckthreadMinimal>, String> {
+) -> Result<Vec<AggregatedStuckthread>, String> {
     let guard = state.lock().unwrap();
     let cnx = guard
         .store
@@ -16,7 +17,7 @@ pub fn stuckthread_bars(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::stuckthread::get_stuckthreads_aggregate_minimal(cnx.deref())
+    let result = store::stuckthread::get_stuckthread_aggregates(cnx.deref(), from, to)
         .map_err(|e| format!("Error during fetching stuckthread aggregates: {e}"));
 
     result
