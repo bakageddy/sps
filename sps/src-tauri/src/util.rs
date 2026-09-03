@@ -27,9 +27,10 @@ where
 {
     let handle = std::fs::File::open(path)?;
     let map = unsafe { memmap2::Mmap::map(&handle)? };
-    if !cfg!(target_os = "windows") {
-        let _ = map.advise(Advice::Sequential)?;
-    }
+
+    #[cfg(unix)]
+    let _ = map.advise(Advice::Sequential)?;
+
     Ok(map)
 }
 
