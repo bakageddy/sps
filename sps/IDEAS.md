@@ -91,3 +91,18 @@ Each entry: the idea, why it might matter, and the trigger that should revive it
 
 - **Ingest "indexing…" phase in IngestState** if bulk-load-then-index lands
   (parse_logs gets a finalize tail; surface it via a new event).
+
+- **Stuckquery correlation** — stuckquery logs print the queries running in
+  the DB whenever a stuckthread fires; correlate them with episodes. Panel
+  in episode details: "queries in flight at this moment" (nearest dump(s) to
+  the episode window). SCHEMA ADVICE captured 2026-09: per-query rows with a
+  `dump_timestamp` column (u64 ms, join key); raw query text unmodified
+  (future FTS); capture the executing thread/tid if the log has it — a tid
+  match turns "around the same time" into "this thread ran this query".
+  *Trigger: stuckquery parser lands.*
+
+- **Stuckthread episode extras** (small, post-aggregator-fix): re-report
+  count on episodes ("warned 4×") once re-reports merge instead of
+  splitting; duration histogram for the window; episode → nearest
+  cpumonitoring dump via the existing `?t=` link pattern.
+  *Trigger: aggregator re-report fix lands / Dinesh asks.*

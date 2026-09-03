@@ -29,9 +29,9 @@ export interface StuckThread {
   duration: number;
   /** request URL from the warning; null when the warning was lost */
   request: string | null;
-  /** valve's "active for" ms at the warning, when logged */
+  /** COUNT of threads active alongside this one when the warning was logged */
   activeStart: number | null;
-  /** valve's "active for" ms at completion, when logged */
+  /** COUNT of threads active alongside this one at completion */
   activeEnd: number | null;
 }
 
