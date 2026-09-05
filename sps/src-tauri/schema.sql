@@ -4,11 +4,20 @@ USE main;
 SET
   preserve_insertion_order = false;
 
+CREATE TYPE main.cpumonitoring_thread_state AS ENUM (
+  'RUNNABLE',
+  'NEW',
+  'BLOCKED',
+  'WAITING',
+  'TIMED_WAITING',
+  'TERMINATED'
+);
+
 CREATE TABLE IF NOT EXISTS main.cpumonitoring (
   tid UBIGINT NOT NULL,
   timestamp UBIGINT NOT NULL,
   cpu FLOAT NOT NULL,
-  state STRING NOT NULL,
+  state main.cpumonitoring_thread_state NOT NULL,
   name STRING NULL,
 );
 
