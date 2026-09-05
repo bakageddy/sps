@@ -7,7 +7,7 @@ use std::{
     ops::Deref,
     path::{Path, PathBuf},
 };
-use time::{Date, PlainDateTime, Time, format_description::BorrowedFormatItem};
+use time::{Date, PlainDateTime, Time, UtcDateTime, format_description::BorrowedFormatItem};
 use tracing::{info, warn};
 
 use crate::{
@@ -49,6 +49,15 @@ pub fn unix_timestamp_millis(
     let timestamp = timestamp / 1_000_000;
     let timestamp = u64::try_from(timestamp)?;
     Ok(timestamp)
+}
+
+pub fn utc_unix_timestamp_millis(
+    time: &str,
+    time_fmt: &[BorrowedFormatItem],
+) -> std::result::Result<u64, TimestampError> {
+    let time = UtcDateTime::parse(time, time_fmt)?;
+    let timestamp = time.unix_timestamp_nanos() / 1_000_000;
+    Ok(u64::try_from(timestamp)?)
 }
 
 pub fn parse_comma_separated_u64(value: &str) -> std::result::Result<u64, ParseInt> {

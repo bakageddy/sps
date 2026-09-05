@@ -4,3 +4,8 @@ pub mod stuckthread;
 pub mod stuckquery;
 pub mod error;
 pub mod tokenizer;
+
+pub enum DBKind {
+    PGSQL,
+    MSSQL,
+}
