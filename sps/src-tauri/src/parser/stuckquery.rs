@@ -508,6 +508,89 @@ pub struct BlockingQuery<'a> {
     txn_id: u64,
     blocking_session_id: u64,
     wait_type: Option<WaitType>,
+    wait_duration: u64,
+    wait_resource: Option<Cow<'a, str>>,
+    statement_start_offset: u64,
+    statement_end_offset: u64,
+    plan_handle: Cow<'a, str>,
+    sql_handle: Cow<'a, str>,
+    most_recent_sql_handle: Cow<'a, str>,
+    level: u64,
+    blocker_query_or_most_recent_query: Cow<'a, str>,
+}
+
+impl<'a> Parser<'a> for BlockingQuery<'a> {
+    type Error = Error;
+
+    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        let mut tok = Tokenizer::new(data);
+        let head_blocker = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| {
+                Error::Parse(
+                    "Head Blocker Session ID".to_owned(),
+                    ColumnDataError::Integer(e),
+                )
+            })?;
+
+        let session_id = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Session ID".to_owned(), ColumnDataError::Integer(e)))?;
+
+        let txn_id = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Txn ID".to_owned(), ColumnDataError::Integer(e)))?;
+
+        let blocking_session_id = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| {
+                Error::Parse(
+                    "Blocking Session ID".to_owned(),
+                    ColumnDataError::Integer(e),
+                )
+            })?;
+
+        let wait_type = tok.take_within_exclusive("|", "|")?.trim();
+        let wait_type = if wait_type.is_empty() {
+            None
+        } else {
+            Some(WaitType::parse(wait_type))
+        };
+
+        let wait_duration = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Wait Duration".to_owned(), ColumnDataError::Integer(e)))?;
+
+        Ok(Self {
+            head_blocker,
+            session_id,
+            txn_id,
+            blocking_session_id,
+            wait_type,
+            wait_duration: todo!(),
+            wait_resource: todo!(),
+            statement_start_offset: todo!(),
+            statement_end_offset: todo!(),
+            plan_handle: todo!(),
+            sql_handle: todo!(),
+            most_recent_sql_handle: todo!(),
+            level: todo!(),
+            blocker_query_or_most_recent_query: todo!(),
+        })
+    }
 }
 
 pub mod error {
