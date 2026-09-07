@@ -503,20 +503,20 @@ impl<'a> Parser<'a> for RunningQuery<'a> {
 
 #[derive(Debug)]
 pub struct BlockingQuery<'a> {
-    head_blocker: u64,
-    session_id: u64,
-    txn_id: u64,
-    blocking_session_id: u64,
-    wait_type: Option<WaitType>,
-    wait_duration: u64,
-    wait_resource: Option<Cow<'a, str>>,
-    statement_start_offset: u64,
-    statement_end_offset: u64,
-    plan_handle: Cow<'a, str>,
-    sql_handle: Cow<'a, str>,
-    most_recent_sql_handle: Cow<'a, str>,
-    level: u64,
-    blocker_query_or_most_recent_query: Cow<'a, str>,
+    pub head_blocker: u64,
+    pub session_id: u64,
+    pub txn_id: u64,
+    pub blocking_session_id: u64,
+    pub wait_type: Option<WaitType>,
+    pub wait_duration: u64,
+    pub wait_resource: Option<Cow<'a, str>>,
+    pub statement_start_offset: u64,
+    pub statement_end_offset: u64,
+    pub plan_handle: Cow<'a, str>,
+    pub sql_handle: Cow<'a, str>,
+    pub most_recent_sql_handle: Cow<'a, str>,
+    pub level: u64,
+    pub blocker_query_or_most_recent_query: Cow<'a, str>,
 }
 
 impl<'a> Parser<'a> for BlockingQuery<'a> {
@@ -574,21 +574,60 @@ impl<'a> Parser<'a> for BlockingQuery<'a> {
             .parse()
             .map_err(|e| Error::Parse("Wait Duration".to_owned(), ColumnDataError::Integer(e)))?;
 
+        let wait_resource = tok.take_within_exclusive("|", "|")?.trim();
+        let wait_resource = if wait_resource.is_empty() {
+            None
+        } else {
+            Some(wait_resource.into())
+        };
+
+        let statement_start_offset = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| {
+                Error::Parse(
+                    "Statement Start Offset".to_owned(),
+                    ColumnDataError::Integer(e),
+                )
+            })?;
+
+        let statement_end_offset = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| {
+                Error::Parse(
+                    "Statement End Offset".to_owned(),
+                    ColumnDataError::Integer(e),
+                )
+            })?;
+
+        let plan_handle = tok.take_within_exclusive("|", "|")?.trim().into();
+        let sql_handle = tok.take_within_exclusive("|", "|")?.trim().into();
+        let most_recent_sql_handle = tok.take_within_exclusive("|", "|")?.trim().into();
+        let level = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Level".to_owned(), ColumnDataError::Integer(e)))?;
+        let blocker_query_or_most_recent_query = tok.take_within_exclusive("|", "|")?.trim().into();
+
         Ok(Self {
             head_blocker,
             session_id,
             txn_id,
             blocking_session_id,
             wait_type,
-            wait_duration: todo!(),
-            wait_resource: todo!(),
-            statement_start_offset: todo!(),
-            statement_end_offset: todo!(),
-            plan_handle: todo!(),
-            sql_handle: todo!(),
-            most_recent_sql_handle: todo!(),
-            level: todo!(),
-            blocker_query_or_most_recent_query: todo!(),
+            wait_duration,
+            wait_resource,
+            statement_start_offset,
+            statement_end_offset,
+            plan_handle,
+            sql_handle,
+            most_recent_sql_handle,
+            level,
+            blocker_query_or_most_recent_query,
         })
     }
 }
