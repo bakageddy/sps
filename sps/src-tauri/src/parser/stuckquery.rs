@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashSet, net::Ipv4Addr, str::FromStr};
 
 use crate::{
     parser::{
-        DBKind,
+        DBKind, WaitType,
         stuckquery::error::{ColumnDataError, MSSQLStatusParse, PGSQLStateParse},
         tokenizer::{Parser, Tokenizer},
     },
@@ -10,6 +10,7 @@ use crate::{
 };
 use error::Error;
 use time::{format_description::BorrowedFormatItem, macros::format_description};
+use tracing::warn;
 
 const STUCKQUERY_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
@@ -17,6 +18,8 @@ const STUCKQUERY_DATE_FORMAT: &[BorrowedFormatItem] = format_description!("[day]
 const STUCKQUERY_STATE_CHANGE_FORMAT: &[BorrowedFormatItem] = format_description!(
     "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond][offset_hour sign:mandatory]:[offset_minute]"
 );
+const STUCKQUERY_LOGIN_TIME_FORMAT: &[BorrowedFormatItem] =
+    format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]");
 
 #[derive(Debug)]
 pub struct StuckqueryParser<'a>(&'a str, ParserState);
@@ -34,7 +37,7 @@ impl<'a> StuckqueryParser<'a> {
         Ok(timestamp)
     }
 
-    fn detect_kind(table_header_lines: Vec<&str>) -> Option<DBKind> {
+    fn detect_kind(table_header_lines: &[&str]) -> Option<DBKind> {
         let table_column_names = table_header_lines.get(table_header_lines.len() - 2)?;
         let mut tok = Tokenizer::new(*table_column_names);
         let mut columns = HashSet::new();
@@ -49,6 +52,12 @@ impl<'a> StuckqueryParser<'a> {
         } else {
             None
         }
+    }
+
+    fn extract_table_name<'s, 'b>(table_header_lines: &'b [&'s str]) -> Option<&'s str> {
+        let table_name = table_header_lines.get(1)?;
+        let mut tok = Tokenizer::new(*table_name);
+        tok.take_within("|", "|").ok().map(|s| s.trim())
     }
 }
 
@@ -103,14 +112,21 @@ impl<'a> Iterator for StuckqueryParser<'a> {
             return Some(Err(Error::InvalidTableHeader));
         }
 
-        let table_kind = Self::detect_kind(table_header_lines);
+        let table_kind = Self::detect_kind(&table_header_lines);
         if table_kind.is_none() {
             self.0 = tok.remaining();
             return Some(Err(Error::UnableToDetectTableKind));
         }
 
+        let table_name = Self::extract_table_name(&table_header_lines);
+        if table_name.is_none() {
+            self.0 = tok.remaining();
+            return Some(Err(Error::UnableToDetectTableKind));
+        }
+
         let table_kind = table_kind.unwrap();
-        let queries = Vec::new();
+        let table_name = table_name.unwrap();
+        let mut queries = Vec::new();
         while let Some(line) = tok.peek_line()
             && line.starts_with("|")
         {
@@ -123,11 +139,22 @@ impl<'a> Iterator for StuckqueryParser<'a> {
                     Stuckquery::PGSQL(query.unwrap())
                 }
                 DBKind::MSSQL => {
-                    let query = MSSQLQuery::parse(line);
-                    if query.is_err() {
-                        return Some(Err(query.unwrap_err()));
+                    if table_name.eq("Currently Running Queries") {
+                        let query = RunningQuery::parse(line);
+                        if query.is_err() {
+                            return Some(Err(query.unwrap_err()));
+                        }
+                        Stuckquery::MSSQL(MSSQLQuery::Running(query.unwrap()))
+                    } else if table_name.eq("Currently Blocking Query Details") {
+                        let query = BlockingQuery::parse(line);
+                        if query.is_err() {
+                            return Some(Err(query.unwrap_err()));
+                        }
+                        Stuckquery::MSSQL(MSSQLQuery::Blocking(query.unwrap()))
+                    } else {
+                        warn!("Unknown table name: {}", table_name);
+                        continue;
                     }
-                    Stuckquery::MSSQL(query.unwrap());
                 }
             };
 
@@ -203,8 +230,10 @@ impl<'a> Parser<'a> for PGSQLQuery<'a> {
             })?;
         let txn_time = (txn_time * 1000.0f32).trunc() as u64;
         let db_name = tok.take_within_exclusive("|", "|")?.trim().into();
-        let state = tok.take_within_exclusive("|", "|")?.trim();
-        let state = PGSQLState::try_from(state)
+        let state = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
             .map_err(|e| Error::Parse(String::from("state"), ColumnDataError::PGSQLState(e)))?;
         let waiting = tok.take_within_exclusive("|", "|")?.trim() == "t";
         let query = tok.take_within_exclusive("|", "|")?.trim().into();
@@ -274,8 +303,7 @@ impl FromStr for PGSQLState {
 
 #[derive(Debug)]
 pub enum MSSQLQuery<'a> {
-    // Blocking(BlockingQuery<'a>),
-    Blocking,
+    Blocking(BlockingQuery<'a>),
     Running(RunningQuery<'a>),
 }
 
@@ -297,8 +325,8 @@ pub struct RunningQuery<'a> {
     pub status: MSSQLStatus,
     pub txn_id: u64,
     pub blocked_by: u64,
-    pub wait_type:,
-    pub wait_resource: Cow<'a, str>,
+    pub wait_type: Option<WaitType>,
+    pub wait_resource: Option<Cow<'a, str>>,
     pub wait_time_ms: u64,
     pub cpu_time_ms: u64,
     pub logical_reads: u64,
@@ -311,7 +339,7 @@ pub struct RunningQuery<'a> {
     pub host: Cow<'a, str>,
     pub db: Cow<'a, str>,
     pub program: Cow<'a, str>,
-    pub host_process: Cow<'a, str>,
+    pub host_process: u64,
     pub last_request_end: u64,
     pub login_time: u64,
     pub open_txn: u64,
@@ -371,35 +399,116 @@ impl<'a> Parser<'a> for RunningQuery<'a> {
             .parse()
             .map_err(|e| Error::Parse("Blocked by".to_owned(), ColumnDataError::Integer(e)))?;
 
+        let wait_type = tok.take_within_exclusive("|", "|")?.trim();
+        let wait_type = if wait_type.is_empty() {
+            None
+        } else {
+            Some(WaitType::parse(wait_type))
+        };
+
+        let wait_resource = tok.take_within_exclusive("|", "|")?.trim();
+        let wait_resource = if wait_resource.is_empty() {
+            None
+        } else {
+            Some(wait_resource.into())
+        };
+
+        let wait_time_ms: f32 = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Wait Time".to_owned(), ColumnDataError::Float(e)))?;
+        let wait_time_ms = (wait_time_ms * 1000.0f32).trunc() as u64;
+
+        let cpu_time_ms: f32 = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("CPU Time".to_owned(), ColumnDataError::Float(e)))?;
+        let cpu_time_ms = (cpu_time_ms * 1000.0f32).trunc() as u64;
+
+        let logical_reads = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Logical Reads".to_owned(), ColumnDataError::Integer(e)))?;
+
+        let reads = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Physical Reads".to_owned(), ColumnDataError::Integer(e)))?;
+
+        let writes = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Physical Writes".to_owned(), ColumnDataError::Integer(e)))?;
+
+        let elapsed: f32 = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Elapsed Time".to_owned(), ColumnDataError::Float(e)))?;
+        let elapsed = (elapsed * 1000.0f32).trunc() as u64;
+
+        let statement = tok.take_within_exclusive("|", "|")?.trim().into();
+        let command = tok.take_within_exclusive("|", "|")?.trim().into();
+        let login = tok.take_within_exclusive("|", "|")?.trim().into();
+        let host = tok.take_within_exclusive("|", "|")?.trim().into();
+        let db = tok.take_within_exclusive("|", "|")?.trim().into();
+        let program = tok.take_within_exclusive("|", "|")?.trim().into();
+        let host_process = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Host Process ID".to_owned(), ColumnDataError::Integer(e)))?;
+        let last_request_end = tok.take_within_exclusive("|", "|")?.trim();
+        let last_request_end =
+            util::utc_unix_timestamp_millis(last_request_end, STUCKQUERY_LOGIN_TIME_FORMAT)?;
+        let login_time = tok.take_within_exclusive("|", "|")?.trim();
+        let login_time = util::utc_unix_timestamp_millis(login_time, STUCKQUERY_LOGIN_TIME_FORMAT)?;
+        let open_txn = tok
+            .take_within_exclusive("|", "|")?
+            .trim()
+            .parse()
+            .map_err(|e| Error::Parse("Open Txn".to_owned(), ColumnDataError::Integer(e)))?;
+
         Ok(Self {
             session_id,
             status,
             txn_id,
             blocked_by,
             wait_type,
-            wait_resource: todo!(),
-            wait_time_ms: todo!(),
-            cpu_time_ms: todo!(),
-            logical_reads: todo!(),
-            reads: todo!(),
-            writes: todo!(),
-            elapsed: todo!(),
-            statement: todo!(),
-            command: todo!(),
-            login: todo!(),
-            host: todo!(),
-            db: todo!(),
-            program: todo!(),
-            host_process: todo!(),
-            last_request_end: todo!(),
-            login_time: todo!(),
-            open_txn: todo!(),
+            wait_resource,
+            wait_time_ms,
+            cpu_time_ms,
+            logical_reads,
+            reads,
+            writes,
+            elapsed,
+            statement,
+            command,
+            login,
+            host,
+            db,
+            program,
+            host_process,
+            last_request_end,
+            login_time,
+            open_txn,
         })
     }
 }
 
-// #[derive(Debug)]
-// pub struct BlockingQuery<'a> {}
+#[derive(Debug)]
+pub struct BlockingQuery<'a> {
+    head_blocker: u64,
+    session_id: u64,
+    txn_id: u64,
+    blocking_session_id: u64,
+    wait_type: Option<WaitType>,
+}
 
 pub mod error {
     use std::{
