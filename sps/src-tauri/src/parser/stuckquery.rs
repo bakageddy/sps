@@ -1,4 +1,9 @@
-use std::{borrow::Cow, collections::HashSet, net::Ipv4Addr, str::FromStr};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    net::Ipv4Addr,
+    str::{FromStr, Utf8Error},
+};
 
 use crate::{
     parser::{
@@ -24,7 +29,11 @@ const STUCKQUERY_LOGIN_TIME_FORMAT: &[BorrowedFormatItem] =
 #[derive(Debug)]
 pub struct StuckqueryParser<'a>(&'a str, ParserState);
 impl<'a> StuckqueryParser<'a> {
-    fn parse_header(header: &str) -> Result<u64, Error> {
+    pub fn new(data: &'a str) -> Self {
+        Self(data, ParserState::Initial)
+    }
+
+    pub fn parse_header(header: &str) -> Result<u64, Error> {
         let mut htok = Tokenizer::new(header);
         let time = htok.take_within("[", "]")?;
         let date = htok.take_within("[", "]")?;
@@ -37,7 +46,7 @@ impl<'a> StuckqueryParser<'a> {
         Ok(timestamp)
     }
 
-    fn detect_kind(table_header_lines: &[&str]) -> Option<DBKind> {
+    pub fn detect_kind(table_header_lines: &[&str]) -> Option<DBKind> {
         let table_column_names = table_header_lines.get(table_header_lines.len() - 2)?;
         let mut tok = Tokenizer::new(*table_column_names);
         let mut columns = HashSet::new();
@@ -54,7 +63,7 @@ impl<'a> StuckqueryParser<'a> {
         }
     }
 
-    fn extract_table_name<'s, 'b>(table_header_lines: &'b [&'s str]) -> Option<&'s str> {
+    pub fn extract_table_name<'s, 'b>(table_header_lines: &'b [&'s str]) -> Option<&'s str> {
         let table_name = table_header_lines.get(1)?;
         let mut tok = Tokenizer::new(*table_name);
         tok.take_within("|", "|").ok().map(|s| s.trim())
@@ -65,6 +74,16 @@ impl<'a> StuckqueryParser<'a> {
 enum ParserState {
     Initial,
     Header,
+    QueryTable,
+}
+
+impl<'a> TryFrom<&'a [u8]> for StuckqueryParser<'a> {
+    type Error = Utf8Error;
+
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        let data = std::str::from_utf8(value)?;
+        Ok(Self::new(data))
+    }
 }
 
 // BUG: Fix state.0 = tok.remaining()
@@ -72,6 +91,7 @@ impl<'a> Iterator for StuckqueryParser<'a> {
     type Item = Result<StuckqueryTable<'a>, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         let mut tok = Tokenizer::new(self.0);
+        tok.skip_whitespace();
         if tok.is_empty() {
             return None;
         }
@@ -84,9 +104,14 @@ impl<'a> Iterator for StuckqueryParser<'a> {
                 self.1 = ParserState::Header;
                 break;
             }
+
+            tok.get_line()?;
         }
 
-        if !matches!(self.1, ParserState::Header) {}
+        if !matches!(self.1, ParserState::Header) {
+            self.0 = tok.remaining();
+            return Some(Err(Error::UnableToFindTableHeader));
+        }
 
         let header = tok.get_line()?;
         let timestamp = match Self::parse_header(header) {
@@ -128,6 +153,7 @@ impl<'a> Iterator for StuckqueryParser<'a> {
         let table_kind = table_kind.unwrap();
         let table_name = table_name.unwrap();
         let mut queries = Vec::new();
+        self.1 = ParserState::QueryTable;
         while let Some(line) = tok.peek_line()
             && line.starts_with("|")
         {
@@ -159,6 +185,7 @@ impl<'a> Iterator for StuckqueryParser<'a> {
                 }
             };
 
+            tok.get_line()?;
             queries.push(query);
         }
 
@@ -182,15 +209,15 @@ pub enum Stuckquery<'a> {
 #[derive(Debug)]
 pub struct PGSQLQuery<'a> {
     pub pid: u64,
-    pub query_time: u64,
-    pub txn_time: u64,
+    pub query_time: Option<u64>,
+    pub txn_time: Option<u64>,
     pub db_name: Cow<'a, str>,
     pub state: PGSQLState,
     pub waiting: bool,
     pub query: Cow<'a, str>,
     pub state_change: u64,
-    pub application_name: Cow<'a, str>,
-    pub client_addr: u32,
+    pub application_name: Option<Cow<'a, str>>,
+    pub client_addr: Option<u32>,
     pub client_host: Option<Cow<'a, str>>,
     pub client_port: Option<u16>,
 }
@@ -208,28 +235,32 @@ impl<'a> Parser<'a> for PGSQLQuery<'a> {
             .trim()
             .parse()
             .map_err(|e| Error::Parse(String::from("pid"), error::ColumnDataError::Integer(e)))?;
-        let query_time: f32 = tok
-            .take_within_exclusive("|", "|")?
-            .trim()
-            .parse()
-            .map_err(|e| {
+        let query_time = tok.take_within_exclusive("|", "|")?.trim();
+        let query_time = if query_time.is_empty() {
+            None
+        } else {
+            let query_time = query_time.parse::<f32>().map_err(|e| {
                 Error::Parse(
                     String::from("Query Time (s)"),
                     error::ColumnDataError::Float(e),
                 )
             })?;
-        let query_time = (query_time * 1000.0f32).trunc() as u64;
-        let txn_time: f32 = tok
-            .take_within_exclusive("|", "|")?
-            .trim()
-            .parse()
-            .map_err(|e| {
+            let query_time = (query_time * 1000.0f32).trunc() as u64;
+            Some(query_time)
+        };
+        let txn_time = tok.take_within_exclusive("|", "|")?.trim();
+        let txn_time = if txn_time.is_empty() {
+            None
+        } else {
+            let txn_time = txn_time.parse::<f32>().map_err(|e| {
                 Error::Parse(
                     String::from("Txn Time (s)"),
                     error::ColumnDataError::Float(e),
                 )
             })?;
-        let txn_time = (txn_time * 1000.0f32).trunc() as u64;
+            let txn_time = (txn_time * 1000.0f32).trunc() as u64;
+            Some(txn_time)
+        };
         let db_name = tok.take_within_exclusive("|", "|")?.trim().into();
         let state = tok
             .take_within_exclusive("|", "|")?
@@ -241,15 +272,26 @@ impl<'a> Parser<'a> for PGSQLQuery<'a> {
         let state_change = tok.take_within_exclusive("|", "|")?.trim();
         let state_change =
             util::utc_unix_timestamp_millis(state_change, STUCKQUERY_STATE_CHANGE_FORMAT)?;
-        let application_name = tok.take_within_exclusive("|", "|")?.trim().into();
-        let client_addr = tok
-            .take_within_exclusive("|", "|")?
-            .trim()
-            .parse::<Ipv4Addr>()
-            .map_err(|e| {
-                Error::Parse(String::from("Client Address"), ColumnDataError::IpV4Addr(e))
-            })?
-            .to_bits();
+        let application_name = tok.take_within_exclusive("|", "|")?.trim();
+        let application_name = if application_name.is_empty() {
+            None
+        } else {
+            Some(application_name.into())
+        };
+
+        let client_addr = tok.take_within_exclusive("|", "|")?.trim();
+        let client_addr = if client_addr.is_empty() {
+            None
+        } else {
+            Some(
+                client_addr
+                    .parse::<Ipv4Addr>()
+                    .map_err(|e| {
+                        Error::Parse(String::from("Client Address"), ColumnDataError::IpV4Addr(e))
+                    })?
+                    .to_bits(),
+            )
+        };
 
         let client_host = tok.take_within_exclusive("|", "|")?.trim();
         let client_host = if client_host.is_empty() {
@@ -623,9 +665,69 @@ impl<'a> Parser<'a> for BlockingQuery<'a> {
 
 #[cfg(test)]
 pub mod test {
+    use std::{assert_matches, ops::Deref};
+
+    use crate::{
+        parser::{
+            stuckquery::{PGSQLQuery, PGSQLState, StuckqueryParser},
+            tokenizer::Parser,
+        },
+        util,
+    };
+
     #[test]
     fn stuckquery_pgsql_single_line() {
-        let line = "";
+        let line = "|  39704  |  1474.170226     |  1474.170226    |  servicedesk  |  active               |  f        |  autovacuum: VACUUM pg_toast.pg_toast_1153741                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |  2026-09-08 00:59:32.124624+05:30  |                          |                  |                   |               |";
+        let result = PGSQLQuery::parse(line);
+        assert!(
+            result.is_ok(),
+            "Error during parsing: {}",
+            result.unwrap_err()
+        );
+        let result = result.unwrap();
+        assert_eq!(39704, result.pid);
+        assert_eq!(Some(1474170), result.query_time);
+        assert_eq!(Some(1474170), result.txn_time);
+        assert_eq!("servicedesk", result.db_name);
+        assert_matches!(result.state, PGSQLState::Active);
+        assert_eq!(false, result.waiting);
+        assert_eq!(None, result.application_name);
+        assert_eq!(None, result.client_addr);
+        assert_eq!(None, result.client_host);
+        assert_eq!(None, result.client_port);
+    }
+
+    #[test]
+    fn stuckquery_pgsql_single_table() {
+        let map = util::map_file("test/stuckqueries/stuckquery_pgsql_single_table.txt").unwrap();
+        let mut parser = StuckqueryParser::try_from(map.deref()).unwrap();
+        let result = parser.next();
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert!(
+            result.is_ok(),
+            "Error during parsing: {}",
+            result.unwrap_err()
+        );
+        let result = result.unwrap();
+        assert_ne!(result.timestamp, 0);
+        assert_eq!(result.queries.len(), 35);
+    }
+
+    #[test]
+    fn stuckquery_pgsql_full_file() {
+        let map = util::map_file("test/stuckqueries/stuckquery_pgsql.txt").unwrap();
+        let parser = StuckqueryParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for result in parser {
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
+            count += 1;
+        }
+        assert_eq!(count, 41);
     }
 }
 
@@ -645,6 +747,8 @@ pub mod error {
         InvalidFormat(#[from] tokenizer::error::Error),
         #[error("Timestamp Parse Error: {0}")]
         TimestampParse(#[from] TimestampError),
+        #[error("Unable to find stuckquery table header")]
+        UnableToFindTableHeader,
         #[error("Expected Stuckquery Table header to be of length 5 lines")]
         InvalidTableHeader,
         #[error("Unable to detect Stuckquery Table Kind")]
