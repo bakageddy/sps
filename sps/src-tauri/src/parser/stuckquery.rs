@@ -67,6 +67,7 @@ enum ParserState {
     Header,
 }
 
+// BUG: Fix state.0 = tok.remaining()
 impl<'a> Iterator for StuckqueryParser<'a> {
     type Item = Result<StuckqueryTable<'a>, Error>;
     fn next(&mut self) -> Option<Self::Item> {
@@ -305,18 +306,6 @@ impl FromStr for PGSQLState {
 pub enum MSSQLQuery<'a> {
     Blocking(BlockingQuery<'a>),
     Running(RunningQuery<'a>),
-}
-
-impl<'a> Parser<'a> for MSSQLQuery<'a> {
-    type Error = Error;
-
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
-    where
-        Self: Sized,
-    {
-        // let mut tok = Tokenizer::new(data);
-        todo!()
-    }
 }
 
 #[derive(Debug)]
@@ -629,6 +618,14 @@ impl<'a> Parser<'a> for BlockingQuery<'a> {
             level,
             blocker_query_or_most_recent_query,
         })
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    #[test]
+    fn stuckquery_pgsql_single_line() {
+        let line = "";
     }
 }
 
