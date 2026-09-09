@@ -13,7 +13,7 @@ use tracing::{info, warn};
 use crate::{
     parser::{
         cpumemstats::CPUMemStatsParser, cpumonitoring::CPUMonitoringParser,
-        stuckthread::StuckthreadParser,
+        stuckquery::StuckqueryParser, stuckthread::StuckthreadParser,
     },
     store::{self, Store},
     types::{LogFiles, ParseInt, TimestampError},
@@ -117,10 +117,12 @@ where
     let cpumonitoring = get_files_reverse_sort(&root, "CPUMonitoring", ".txt")?;
     let cpumemstats = get_files_reverse_sort(&root, "cpumemstats", ".txt")?;
     let stuckthreads = get_files_reverse_sort(&root, "stuckthreads", ".txt")?;
+    let stuckqueries = get_files_reverse_sort(&root, "stuckqueries", ".txt")?;
     return Ok(LogFiles {
         cpumonitoring,
         cpumemstats,
         stuckthreads,
+        stuckqueries,
     });
 }
 
@@ -132,6 +134,7 @@ where
         cpumonitoring,
         cpumemstats,
         stuckthreads,
+        stuckqueries,
     } = get_files(root)?;
     std::thread::scope(|s| {
         let _ = s.spawn(|| -> Result<()> {
@@ -156,6 +159,14 @@ where
             }
             result
         });
+
+        let _ = s.spawn(|| -> Result<()> {
+            let result = parse_stuckqueries_and_persist(stuckqueries, store.clone());
+            if let Err(ref e) = result {
+                warn!("Error during parsing/persisting: {e}");
+            }
+            result
+        });
         // TODO:
         // let _cd
         // let _cpumemstats
@@ -167,6 +178,46 @@ where
         // let _pgsql_log
         // let _access_log
     });
+    Ok(())
+}
+
+fn parse_stuckqueries_and_persist(
+    entries: Vec<PathBuf>,
+    store: Store,
+) -> std::prelude::v1::Result<(), crate::error::Error> {
+    let entries = entries
+        .into_iter()
+        .flat_map(|e| -> Result<(Mmap, PathBuf)> { Ok((map_file(&e)?, e)) });
+
+    let cnx = store.get()?;
+    for (mmap, entry) in entries {
+        info!("Parsing and Persisting: {:?}", entry.display());
+        let result = StuckqueryParser::try_from(mmap.deref());
+        if let Ok(parser) = result {
+            let _ = store::append_stuckqueries(
+                &cnx,
+                parser.into_iter().flat_map(|item| {
+                    if item.is_ok() {
+                        item.ok()
+                    } else {
+                        warn!(
+                            "Error during parsing {:?} due to {}",
+                            entry.display(),
+                            item.unwrap_err()
+                        );
+                        None
+                    }
+                }),
+            )?;
+        } else {
+            warn!(
+                "Cannot convert bytes of {:?} to UTF8 due to {:?}",
+                entry.display(),
+                result.unwrap_err()
+            );
+            continue;
+        }
+    }
     Ok(())
 }
 

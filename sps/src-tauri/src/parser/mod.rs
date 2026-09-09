@@ -3945,7 +3945,7 @@ impl WaitType {
         }
     }
 
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             WaitType::ABR => "ABR",
             WaitType::AM_INDBUILD_ALLOCATION => "AM_INDBUILD_ALLOCATION",
@@ -4914,7 +4914,7 @@ impl WaitType {
             WaitType::XTP_HOST_PARALLEL_RECOVERY => "XTP_HOST_PARALLEL_RECOVERY",
             WaitType::XTP_PREEMPTIVE_TASK => "XTP_PREEMPTIVE_TASK",
             WaitType::XTP_TRUNCATION_LSN => "XTP_TRUNCATION_LSN",
-            WaitType::Unknown(s) => s,
+            WaitType::Unknown(_) => "UNKNOWN",
         }
     }
 

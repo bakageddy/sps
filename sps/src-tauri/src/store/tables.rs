@@ -6,6 +6,9 @@ pub enum Tables {
     LinuxStats,
     Stuckthread,
     StuckthreadTraces,
+    StuckqueryPGSQL,
+    StuckqueryMSSQL,
+    StuckqueryBlockingMSSQL
 }
 
 impl Tables {
@@ -18,6 +21,9 @@ impl Tables {
             Self::LinuxStats => "linux_stats",
             Self::Stuckthread => "stuckthread",
             Self::StuckthreadTraces => "stuckthread_traces",
+            Self::StuckqueryPGSQL => "stuckquery_pgsql",
+            Self::StuckqueryMSSQL => "stuckquery_mssql",
+            Self::StuckqueryBlockingMSSQL => "stuckquery_mssql_blocking",
         }
     }
 }

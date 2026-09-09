@@ -9,7 +9,7 @@ use crate::{
     parser::{
         DBKind, WaitType,
         stuckquery::error::{ColumnDataError, MSSQLStatusParse, PGSQLStateParse},
-        tokenizer::{Parser, Tokenizer},
+        tokenizer::{self, Parser, Tokenizer},
     },
     util,
 };
@@ -29,6 +29,9 @@ const STUCKQUERY_LOGIN_TIME_FORMAT: &[BorrowedFormatItem] =
 #[derive(Debug)]
 pub struct StuckqueryParser<'a>(&'a str, ParserState);
 impl<'a> StuckqueryParser<'a> {
+    // const STUCKQUERY_PGSQL_RUNNING_QUERY_HEADER: &'static str = "Currently Running Queries";
+    const STUCKQUERY_MSSQL_RUNNING_QUERY_HEADER: &'static str = "Currently Running Queries";
+    const STUCKQUERY_MSSQL_BLOCKING_QUERY_HEADER: &'static str = "Currently Blocking Query Details";
     pub fn new(data: &'a str) -> Self {
         Self(data, ParserState::Initial)
     }
@@ -66,7 +69,50 @@ impl<'a> StuckqueryParser<'a> {
     pub fn extract_table_name<'s, 'b>(table_header_lines: &'b [&'s str]) -> Option<&'s str> {
         let table_name = table_header_lines.get(1)?;
         let mut tok = Tokenizer::new(*table_name);
+        tok.skip_whitespace();
         tok.take_within("|", "|").ok().map(|s| s.trim())
+    }
+
+    pub fn extract_mssql_blocking_queries(
+        tok: &mut Tokenizer<'a>,
+    ) -> Result<Vec<Stuckquery<'a>>, Error> {
+        tok.skip_whitespace();
+        let mut table_header_lines: [&str; 5] = [""; 5];
+        let mut idx = 0;
+
+        while let Some(line) = tok.peek_line()
+            && line.trim_start().starts_with("|")
+        {
+            table_header_lines[idx] = line;
+            idx += 1;
+            let _ = tok.get_line();
+            if idx == 5 {
+                break;
+            }
+        }
+
+        if idx != 5 {
+            return Err(Error::InvalidTableHeader);
+        }
+
+        let table_name = Self::extract_table_name(&table_header_lines);
+        if let Some(name) = table_name
+            && name == Self::STUCKQUERY_MSSQL_BLOCKING_QUERY_HEADER
+        {
+            let mut queries = Vec::new();
+            while let Some(line) = tok.peek_line()
+                && line.trim_start().starts_with("|")
+            {
+                let query = BlockingQuery::parse(line)?;
+                queries.push(Stuckquery::MSSQL(MSSQLQuery::Blocking(query)));
+                let _ = tok.get_line();
+            }
+            Ok(queries)
+        } else {
+            return Err(Error::InvalidFormat(
+                tokenizer::error::Error::DelimiterNotFound("|".to_owned()),
+            ));
+        }
     }
 }
 
@@ -155,7 +201,7 @@ impl<'a> Iterator for StuckqueryParser<'a> {
         let mut queries = Vec::new();
         self.1 = ParserState::QueryTable;
         while let Some(line) = tok.peek_line()
-            && line.starts_with("|")
+            && line.trim_start().starts_with("|")
         {
             let query = match table_kind {
                 DBKind::PGSQL => {
@@ -166,13 +212,15 @@ impl<'a> Iterator for StuckqueryParser<'a> {
                     Stuckquery::PGSQL(query.unwrap())
                 }
                 DBKind::MSSQL => {
-                    if table_name.eq("Currently Running Queries") {
+                    // NOTE: I am not sure if i should refactor this code.
+                    // Maybe I should
+                    if table_name.eq(Self::STUCKQUERY_MSSQL_RUNNING_QUERY_HEADER) {
                         let query = RunningQuery::parse(line);
                         if query.is_err() {
                             return Some(Err(query.unwrap_err()));
                         }
                         Stuckquery::MSSQL(MSSQLQuery::Running(query.unwrap()))
-                    } else if table_name.eq("Currently Blocking Query Details") {
+                    } else if table_name.eq(Self::STUCKQUERY_MSSQL_BLOCKING_QUERY_HEADER) {
                         let query = BlockingQuery::parse(line);
                         if query.is_err() {
                             return Some(Err(query.unwrap_err()));
@@ -184,9 +232,15 @@ impl<'a> Iterator for StuckqueryParser<'a> {
                     }
                 }
             };
-
             tok.get_line()?;
             queries.push(query);
+        }
+
+        if matches!(table_kind, DBKind::MSSQL) {
+            let result = Self::extract_mssql_blocking_queries(&mut tok);
+            if let Ok(table) = result {
+                queries.extend(table);
+            }
         }
 
         self.0 = tok.remaining();
@@ -344,6 +398,15 @@ impl FromStr for PGSQLState {
     }
 }
 
+impl PGSQLState {
+    pub fn into(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Idle => "idle in transaction",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum MSSQLQuery<'a> {
     Blocking(BlockingQuery<'a>),
@@ -365,6 +428,7 @@ pub struct RunningQuery<'a> {
     pub writes: u64,
     pub elapsed: u64,
     pub statement: Cow<'a, str>,
+    pub command_text: Cow<'a, str>,
     pub command: Cow<'a, str>,
     pub login: Cow<'a, str>,
     pub host: Cow<'a, str>,
@@ -398,6 +462,19 @@ impl FromStr for MSSQLStatus {
             "background" => Ok(Self::Background),
             "suspended" => Ok(Self::Suspended),
             _ => Err(MSSQLStatusParse::UnknownStatus(s.to_owned())),
+        }
+    }
+}
+
+impl MSSQLStatus {
+    pub fn into_str(&self) -> &'static str {
+        match self {
+            MSSQLStatus::Background => "background",
+            MSSQLStatus::Rollback => "rollback",
+            MSSQLStatus::Running => "running",
+            MSSQLStatus::Runnable => "runnable",
+            MSSQLStatus::Sleeping => "sleeping",
+            MSSQLStatus::Suspended => "suspended",
         }
     }
 }
@@ -484,6 +561,7 @@ impl<'a> Parser<'a> for RunningQuery<'a> {
         let elapsed = (elapsed * 1000.0f32).trunc() as u64;
 
         let statement = tok.take_within_exclusive("|", "|")?.trim().into();
+        let command_text = tok.take_within_exclusive("|", "|")?.trim().into();
         let command = tok.take_within_exclusive("|", "|")?.trim().into();
         let login = tok.take_within_exclusive("|", "|")?.trim().into();
         let host = tok.take_within_exclusive("|", "|")?.trim().into();
@@ -519,6 +597,7 @@ impl<'a> Parser<'a> for RunningQuery<'a> {
             writes,
             elapsed,
             statement,
+            command_text,
             command,
             login,
             host,
@@ -541,8 +620,8 @@ pub struct BlockingQuery<'a> {
     pub wait_type: Option<WaitType>,
     pub wait_duration: u64,
     pub wait_resource: Option<Cow<'a, str>>,
-    pub statement_start_offset: u64,
-    pub statement_end_offset: u64,
+    pub statement_start_offset: i64,
+    pub statement_end_offset: i64,
     pub plan_handle: Cow<'a, str>,
     pub sql_handle: Cow<'a, str>,
     pub most_recent_sql_handle: Cow<'a, str>,
@@ -669,8 +748,11 @@ pub mod test {
 
     use crate::{
         parser::{
-            stuckquery::{PGSQLQuery, PGSQLState, StuckqueryParser},
-            tokenizer::Parser,
+            WaitType,
+            stuckquery::{
+                BlockingQuery, MSSQLStatus, PGSQLQuery, PGSQLState, RunningQuery, StuckqueryParser,
+            },
+            tokenizer::{Parser, Tokenizer},
         },
         util,
     };
@@ -728,6 +810,95 @@ pub mod test {
             count += 1;
         }
         assert_eq!(count, 41);
+    }
+
+    #[test]
+    fn stuckquery_mssql_single_running_query() {
+        let query = r"|  114         |  suspended  |  35839033162  |  0           |  PAGEIOLATCH_EX  |  5:1:134959573  |  0.000000       |  402.755000    |  144979671      |  5529498   |  2510814  |  1319.037000       |  DBCC SHRINKDATABASE(N'sdpload15140' )                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |                |  DbccFilesCompact  |  SDP-DB-W221\Administrator  |  SDP-DB-W221  |  sdpload15140  |  SQL Server Management Studio          |  24968            |  2026-09-07 23:15:39.013  |  2026-09-07 23:15:25.7    |  1                       |";
+        let result = RunningQuery::parse(query);
+        assert!(
+            result.is_ok(),
+            "Error during parsing: {}",
+            result.unwrap_err()
+        );
+        let result = result.unwrap();
+        assert_eq!(result.session_id, 114);
+        assert_matches!(result.status, MSSQLStatus::Suspended);
+        assert_eq!(result.txn_id, 35839033162);
+        assert_eq!(result.blocked_by, 0);
+        assert_matches!(result.wait_type, Some(WaitType::PAGEIOLATCH_EX));
+        assert_eq!(result.wait_resource, Some("5:1:134959573".into()));
+        assert_eq!(result.wait_time_ms, 0);
+        assert_eq!(result.cpu_time_ms, 402755);
+        assert_eq!(result.logical_reads, 144979671);
+        assert_eq!(result.reads, 5529498);
+    }
+
+    #[test]
+    fn stuckquery_mssql_single_running_query_table() {
+        let map = util::map_file("test/stuckqueries/stuckquery_mssql_single_table.txt").unwrap();
+        let parser = StuckqueryParser::try_from(map.deref()).unwrap();
+        for result in parser {
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
+            let result = result.unwrap();
+            assert_eq!(result.queries.len(), 18);
+            assert_ne!(result.timestamp, 0);
+        }
+    }
+
+    #[test]
+    fn stuckquery_mssql_single_blocking_query() {
+        let map =
+            util::map_file("test/stuckqueries/stuckquery_mssql_blocking_query_single_line.txt")
+                .unwrap();
+        let line = std::str::from_utf8(map.deref()).unwrap();
+        let result = BlockingQuery::parse(line);
+        assert!(
+            result.is_ok(),
+            "Error during parsing: {}",
+            result.unwrap_err()
+        );
+        let result = result.unwrap();
+        assert_eq!(result.head_blocker, 98);
+        assert_eq!(result.session_id, 98);
+        assert_eq!(result.txn_id, 35870378461);
+        assert_eq!(result.blocking_session_id, 0);
+        assert_eq!(result.wait_type, None);
+        assert_eq!(result.wait_duration, 0);
+        assert_eq!(result.wait_resource, None);
+        assert_eq!(result.statement_start_offset, 0);
+        assert_eq!(result.statement_end_offset, 2796);
+        assert_eq!(result.level, 0);
+    }
+
+    #[test]
+    fn stuckquery_mssql_single_blocking_query_table() {
+        let map =
+            util::map_file("test/stuckqueries/stuckquery_mssql_blocking_query_single_table.txt")
+                .unwrap();
+        let mut tok = Tokenizer::from_bytes(map.deref()).unwrap();
+        let queries = StuckqueryParser::extract_mssql_blocking_queries(&mut tok);
+        assert!(
+            queries.is_ok(),
+            "Error during parsing: {}",
+            queries.unwrap_err()
+        );
+        let queries = queries.unwrap();
+        assert_eq!(queries.len(), 35);
+    }
+
+    #[test]
+    fn stuckquery_mssql_full_file() {
+        let map =
+            util::map_file("test/stuckqueries/stuckquery_mssql.txt")
+                .unwrap();
+        let parser = StuckqueryParser::try_from(map.deref()).unwrap();
+        let result = parser.flatten().collect::<Vec<_>>();
+        assert_eq!(result.len(), 61);
     }
 }
 

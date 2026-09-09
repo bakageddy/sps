@@ -121,8 +121,10 @@
       icon: "stuck",
       children: [
         { href: "/stuckthreads/concurrency", label: "Concurrency", icon: "graph" },
+        { href: "/stuckthreads/queries", label: "Queries", icon: "database" },
       ],
     },
+    { href: "/stuckqueries", label: "Stuck Queries", icon: "database" },
   ];
 </script>
 

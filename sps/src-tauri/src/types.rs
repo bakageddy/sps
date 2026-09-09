@@ -9,6 +9,7 @@ pub struct LogFiles {
     pub cpumonitoring: Vec<PathBuf>,
     pub cpumemstats: Vec<PathBuf>,
     pub stuckthreads: Vec<PathBuf>,
+    pub stuckqueries: Vec<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]
