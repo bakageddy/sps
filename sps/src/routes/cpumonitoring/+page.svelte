@@ -12,7 +12,6 @@
    * cause them; the $effects only react to state owned elsewhere (database
    * opened, new data ingested from the topbar/Ingest page).
    */
-  import { MediaQuery } from "svelte/reactivity";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { nearestByTimestamp } from "$lib/nearest";
@@ -46,7 +45,6 @@
   let chartMaximized = $state(false);
   let trace = $state<TraceState>({ status: "idle" });
 
-  const portrait = new MediaQuery("(orientation: portrait)");
 
   function resetBelow(level: "dump" | "thread") {
     if (level === "dump") {
@@ -198,12 +196,12 @@
         ontoggleexpand={() => (chartMaximized = false)}
       />
     {:else}
-    <SplitPane direction={portrait.current ? "column" : "row"} initial={0.2}>
+    <SplitPane direction="row" initial={0.2}>
       {#snippet a()}
         <DumpList {dumps} selected={selectedDump} onselect={onselectdump} />
       {/snippet}
       {#snippet b()}
-        <SplitPane direction={portrait.current ? "column" : "row"} initial={0.45}>
+        <SplitPane direction="row" initial={0.45}>
           {#snippet a()}
             <ThreadTable {threads} selected={selectedTid} onselect={onselectthread} />
           {/snippet}

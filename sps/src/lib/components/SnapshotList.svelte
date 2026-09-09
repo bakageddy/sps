@@ -1,13 +1,20 @@
 <script lang="ts" module>
-  /** View model one page builds from either flavor's snapshot rollup. */
+  /**
+   * View model one page builds from the snapshot rollups. The same
+   * timestamp can appear TWICE — once as a query snapshot and once as a
+   * "blocking" row (blocking tables are fetched and displayed separately)
+   * — so identity is kind + timestamp, never timestamp alone.
+   */
   export interface SnapshotRow {
     timestamp: number;
-    kind: "mssql" | "pgsql";
+    kind: "mssql" | "pgsql" | "blocking";
     /** e.g. "21 queries · 3 blocked" */
     detail: string;
     /** true = something is wrong in this snapshot (blocked/idle-in-txn) */
     alert: boolean;
   }
+
+  export const snapshotKey = (row: SnapshotRow) => `${row.kind}:${row.timestamp}`;
 </script>
 
 <script lang="ts">
@@ -19,11 +26,19 @@
 
   interface Props {
     rows: SnapshotRow[];
-    selected: number | null;
+    /** snapshotKey() of the selected row, or null */
+    selected: string | null;
     onselect: (row: SnapshotRow) => void;
   }
 
   let { rows, selected, onselect }: Props = $props();
+
+  // The ONLY sort key is the timestamp — snapshots are moments in time,
+  // nothing else about them orders meaningfully. The header toggles it.
+  let descending = $state(false);
+  const sorted = $derived(
+    descending ? rows.toSorted((a, b) => b.timestamp - a.timestamp) : rows,
+  );
 
   const timeFormat = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -33,15 +48,21 @@
 </script>
 
 <div class="list">
-  {#each rows as row}
+  <div class="header">
+    <button class="sort" onclick={() => (descending = !descending)}>
+      Timestamp <span class="arrow">{descending ? "▼" : "▲"}</span>
+    </button>
+    <span class="count mono">{rows.length}</span>
+  </div>
+  {#each sorted as row}
     <button
       class="row"
-      class:selected={selected === row.timestamp}
+      class:selected={selected === snapshotKey(row)}
       onclick={() => onselect(row)}
     >
       <span class="when mono">{formatTimestamp(timeFormat, row.timestamp)}</span>
       <span class="meta">
-        <span class="kind">{row.kind}</span>
+        <span class="kind" class:blocking={row.kind === "blocking"}>{row.kind}</span>
         <span class="detail" class:alert={row.alert}>{row.detail}</span>
       </span>
     </button>
@@ -54,6 +75,40 @@
   .list {
     overflow: auto;
     height: 100%;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: var(--bg-soft);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--fg-muted);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .count {
+    font-size: 11px;
+  }
+  .sort {
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    border-radius: 0;
+  }
+  .sort:hover {
+    color: var(--accent);
+  }
+  .arrow {
+    font-size: 9px;
+    color: var(--accent);
   }
 
   .row {
@@ -94,6 +149,10 @@
     padding: 0 6px;
     border-radius: 999px;
     background: var(--bg-hard);
+  }
+  .kind.blocking {
+    background: color-mix(in srgb, var(--red) 18%, transparent);
+    color: var(--red);
   }
   .detail {
     font-size: 11.5px;

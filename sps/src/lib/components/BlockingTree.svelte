@@ -9,6 +9,8 @@
    */
   import type { MssqlBlockingRow } from "$lib/api/stuckquery";
   import { formatDuration } from "$lib/format";
+  import { copyText } from "$lib/clipboard";
+  import Icon from "$lib/components/Icon.svelte";
 
   interface Props {
     rows: MssqlBlockingRow[];
@@ -31,6 +33,25 @@
   /** `${headBlocker}:${sessionId}` of the expanded row, or null */
   let expanded = $state<string | null>(null);
   const rowKey = (r: MssqlBlockingRow) => `${r.headBlocker}:${r.sessionId}`;
+
+  let copiedChain = $state<number | null>(null);
+  /** whole chain as indented text — the shape that goes in a ticket */
+  async function copyChain(head: number, victims: MssqlBlockingRow[]) {
+    const lines = [
+      `Head blocker: session ${head} — blocking ${victims.length} session${victims.length === 1 ? "" : "s"}`,
+      ...victims.map(
+        (v) =>
+          `${"  ".repeat(v.level)}└─ session ${v.sessionId} (blocked by ${v.blockingSessionId})` +
+          ` wait ${v.waitType ?? "—"} ${formatDuration(v.waitDuration)}` +
+          (v.waitResource !== null ? ` on ${v.waitResource}` : "") +
+          `\n${"  ".repeat(v.level)}   ${v.blockerQueryOrMostRecentQuery}`,
+      ),
+    ];
+    if (await copyText(lines.join("\n"))) {
+      copiedChain = head;
+      setTimeout(() => (copiedChain = null), 1500);
+    }
+  }
 </script>
 
 <div class="tree">
@@ -40,6 +61,12 @@
         <span class="crown">head blocker</span>
         <span class="mono session">session {head}</span>
         <span class="count">blocking {victims.length} session{victims.length === 1 ? "" : "s"}</span>
+        <button
+          class="copy"
+          onclick={() => copyChain(head, victims)}
+          title="Copy chain as text"
+          aria-label="Copy chain as text"
+        ><Icon name={copiedChain === head ? "check" : "copy"} size={12} /></button>
       </div>
       {#each victims as v}
         <button
@@ -50,8 +77,8 @@
           <span class="elbow">└─</span>
           <span class="mono session">{v.sessionId}</span>
           <span class="mono wait" title={v.waitResource ?? undefined}>{v.waitType ?? "—"}</span>
-          <span class="mono dur">{formatDuration(v.waitDurationMs)}</span>
-          <span class="mono query">{v.query}</span>
+          <span class="mono dur">{formatDuration(v.waitDuration)}</span>
+          <span class="mono query">{v.blockerQueryOrMostRecentQuery}</span>
         </button>
         {#if expanded === rowKey(v)}
           <div class="expand" style:margin-left="{12 + v.level * 22}px">
@@ -62,7 +89,7 @@
               <dt>Offsets</dt>
               <dd class="mono">{v.statementStartOffset} → {v.statementEndOffset}</dd>
             </dl>
-            <pre>{v.query}</pre>
+            <pre>{v.blockerQueryOrMostRecentQuery}</pre>
           </div>
         {/if}
       {/each}
@@ -106,6 +133,17 @@
   .count {
     font-size: 11.5px;
     color: var(--fg-muted);
+  }
+  .copy {
+    display: grid;
+    place-items: center;
+    margin-left: auto;
+    padding: 4px;
+    color: var(--fg-muted);
+  }
+  .copy:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
   }
 
   .victim {

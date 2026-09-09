@@ -87,3 +87,28 @@ pub struct AggregatedStuckthread {
     pub active_start: Option<u64>,
     pub active_end: Option<u64>,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MSSQLSnapshot {
+    pub timestamp: u64,
+    pub queries: u64,
+    pub blocked: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockingSnapshot {
+    pub timestamp: u64,
+    pub chains: u64,
+    pub sessions: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PGSQLSnapshot {
+    pub timestamp: u64,
+    pub queries: u64,
+    pub waiting: u64,
+    pub idle_in_txn: u64,
+}

@@ -7,6 +7,9 @@
    */
   import type { PgsqlQuery } from "$lib/api/stuckquery";
   import { formatDuration } from "$lib/format";
+  import { slowThreshold } from "$lib/stuckquery-settings.svelte";
+  import { copyText } from "$lib/clipboard";
+  import Icon from "$lib/components/Icon.svelte";
 
   interface Props {
     queries: PgsqlQuery[];
@@ -38,9 +41,9 @@
       case "db":
         return q.dbName;
       case "queryTime":
-        return q.queryTimeMs ?? -1;
+        return q.queryTime ?? -1;
       case "txnTime":
-        return q.txnTimeMs ?? -1;
+        return q.txnTime ?? -1;
     }
   }
 
@@ -52,6 +55,21 @@
       return sortDescending ? -order : order;
     }),
   );
+
+  let copied = $state<number | null>(null);
+  async function copyQuery(q: PgsqlQuery) {
+    const lines = [
+      `PID: ${q.pid} (${q.state})  DB: ${q.dbName}  Waiting: ${q.waiting ? "yes" : "no"}`,
+      `Query time: ${q.queryTime === null ? "—" : formatDuration(q.queryTime)}  Txn time: ${q.txnTime === null ? "—" : formatDuration(q.txnTime)}`,
+      `Application: ${q.applicationName ?? "—"}  Client: ${q.clientHost ?? "—"}${q.clientPort !== null ? `:${q.clientPort}` : ""}`,
+      "",
+      q.query,
+    ];
+    if (await copyText(lines.join("\n"))) {
+      copied = q.pid;
+      setTimeout(() => (copied = null), 1500);
+    }
+  }
 
   const columns: { key: SortKey; label: string; class: string }[] = [
     { key: "pid", label: "PID", class: "col-num" },
@@ -78,21 +96,29 @@
     {#each sorted as q}
       <button
         class="row"
-        class:idle={q.state !== "active"}
+        class:slow={(q.queryTime ?? 0) > slowThreshold.value * 1000}
         onclick={() => (expanded = expanded === q.pid ? null : q.pid)}
       >
         <span class="col-num mono">{q.pid}</span>
         <span class="col-state">
-          <span class="badge" class:bad={q.state !== "active"}>{q.state}</span>
+          <span class="badge" class:idle={q.state !== "active"}>{q.state}</span>
         </span>
-        <span class="col-waiting mono" class:bad={q.waiting}>{q.waiting ? "yes" : "—"}</span>
+        <span class="col-waiting mono">{q.waiting ? "yes" : "—"}</span>
         <span class="col-db mono">{q.dbName}</span>
-        <span class="col-num mono">{q.queryTimeMs === null ? "—" : formatDuration(q.queryTimeMs)}</span>
-        <span class="col-num mono">{q.txnTimeMs === null ? "—" : formatDuration(q.txnTimeMs)}</span>
+        <span class="col-num mono">{q.queryTime === null ? "—" : formatDuration(q.queryTime)}</span>
+        <span class="col-num mono">{q.txnTime === null ? "—" : formatDuration(q.txnTime)}</span>
         <span class="col-query mono">{q.query}</span>
       </button>
       {#if expanded === q.pid}
         <div class="expand">
+          <div class="expand-actions">
+            <button
+              class="copy"
+              onclick={() => copyQuery(q)}
+              title="Copy query as text"
+              aria-label="Copy query as text"
+            ><Icon name={copied === q.pid ? "check" : "copy"} size={12} /></button>
+          </div>
           <dl>
             <dt>Application</dt><dd class="mono">{q.applicationName ?? "—"}</dd>
             <dt>Client</dt>
@@ -119,7 +145,9 @@
   .head,
   .row {
     display: grid;
-    grid-template-columns: 64px 130px 64px 110px 90px 90px 1fr;
+    /* waiting column must fit its own nowrap header ("Waiting ▼") — a
+       too-narrow track lets the sticky header bleed into the DB column */
+    grid-template-columns: 64px 130px 84px 110px 90px 90px 1fr;
     gap: 10px;
     align-items: center;
     padding: 0 10px;
@@ -169,7 +197,8 @@
   .row:hover {
     background: var(--bg-hover);
   }
-  .row.idle {
+  /* red is reserved for what matters: queries over the slow threshold */
+  .row.slow {
     background: color-mix(in srgb, var(--red) 8%, transparent);
   }
 
@@ -186,10 +215,6 @@
     font-family: var(--font-mono);
     font-size: 12px;
   }
-  .bad {
-    color: var(--red);
-    font-weight: 600;
-  }
 
   .badge {
     padding: 0 8px;
@@ -200,15 +225,32 @@
     color: var(--green);
     white-space: nowrap;
   }
-  .badge.bad {
-    background: color-mix(in srgb, var(--red) 18%, transparent);
-    color: var(--red);
+  /* noteworthy, not alarming — red stays reserved for over-threshold rows */
+  .badge.idle {
+    background: color-mix(in srgb, var(--yellow) 18%, transparent);
+    color: var(--yellow);
   }
 
   .expand {
+    position: relative;
     padding: 8px 12px;
     border-top: 1px solid var(--hairline);
     background: var(--bg-hard);
+  }
+  .expand-actions {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+  }
+  .copy {
+    display: grid;
+    place-items: center;
+    padding: 4px;
+    color: var(--fg-muted);
+  }
+  .copy:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
   }
   .expand dl {
     display: grid;

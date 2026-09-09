@@ -11,7 +11,6 @@
    *   middle: linked JVM dump's threads + stack traces
    *   right:  linked machine dump's processes (CPU|Memory toggle)
    */
-  import { MediaQuery } from "svelte/reactivity";
   import {
     cpuDumps,
     cpuDumpThreads,
@@ -62,7 +61,6 @@
   let cpuProcesses = $state<ProcessUsage[]>([]);
   let memoryProcesses = $state<ProcessUsage[]>([]);
 
-  const portrait = new MediaQuery("(orientation: portrait)");
 
   const activeProcesses = $derived<UsageRow[]>(
     metric === Metric.Cpu ? cpuProcesses : memoryProcesses,
@@ -212,7 +210,7 @@
   </div>
 
   <div class="content">
-    <SplitPane direction={portrait.current ? "column" : "row"} initial={0.28}>
+    <SplitPane direction="row" initial={0.28}>
       {#snippet a()}
         <SplitPane direction="column" initial={0.5}>
           {#snippet a()}
@@ -234,7 +232,7 @@
         </SplitPane>
       {/snippet}
       {#snippet b()}
-        <SplitPane direction={portrait.current ? "column" : "row"} initial={0.5}>
+        <SplitPane direction="row" initial={0.5}>
           {#snippet a()}
             <div class="pane-block">
               <h3>JVM threads</h3>

@@ -10,7 +10,6 @@
    * (lib/stuckthread.ts). One cached full-range fetch; windowing is
    * client-side.
    */
-  import { MediaQuery } from "svelte/reactivity";
   import {
     stuckthreadListview,
     stuckthreadTrace,
@@ -143,7 +142,6 @@
     if (thread) onselect(thread);
   }
 
-  const portrait = new MediaQuery("(orientation: portrait)");
 
   const timeFormat = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -344,7 +342,7 @@
     {:else if selected === null}
       <StuckTable threads={filteredThreads} selected={null} {onselect} {view} />
     {:else}
-      <SplitPane direction={portrait.current ? "column" : "row"} initial={0.55}>
+      <SplitPane direction="row" initial={0.55}>
         {#snippet a()}
           <StuckTable
             threads={filteredThreads}

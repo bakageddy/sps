@@ -24,8 +24,16 @@ export interface MssqlSnapshot {
   queries: number;
   /** rows with blocked_by != 0 */
   blocked: number;
-  /** rows in stuckquery_mssql_blocking at this timestamp (0 = no tree) */
-  blockingRows: number;
+}
+
+/** One dump moment that logged a "Currently Blocking Query Details" table. */
+export interface BlockingSnapshot {
+  /** ms epoch of the dump */
+  timestamp: number;
+  /** distinct head blockers at this timestamp */
+  chains: number;
+  /** total blocked sessions (rows) at this timestamp */
+  sessions: number;
 }
 
 export interface PgsqlSnapshot {
@@ -57,11 +65,38 @@ export function stuckqueryPgsqlSnapshots(): Promise<PgsqlSnapshot[]> {
   return invoke("stuckquery_pgsql_snapshots");
 }
 
+/**
+ * Blocking snapshots are a SEPARATE command (and separate list rows in the
+ * UI) — not a count folded into the mssql snapshot rollup.
+ *
+ * ```rust
+ * #[tauri::command]
+ * fn stuckquery_mssql_blocking_snapshots(state: ...) -> Result<Vec<BlockingSnapshot>, String>
+ * ```
+ * REQUIREMENTS: one row per distinct timestamp in stuckquery_mssql_blocking
+ * (GROUP BY: chains = COUNT(DISTINCT head_blocker), sessions = COUNT(*)),
+ * ordered by timestamp ascending; empty Vec when nothing ever blocked.
+ */
+export function stuckqueryMssqlBlockingSnapshots(): Promise<BlockingSnapshot[]> {
+  return invoke("stuckquery_mssql_blocking_snapshots");
+}
+
 // ---------------------------------------------------------------------------
 // Per-snapshot query rows
 // ---------------------------------------------------------------------------
 
-/** One row of "Currently Running Queries" (MSSQL). */
+/**
+ * One row of "Currently Running Queries" (MSSQL). Field names mirror
+ * parser::stuckquery::RunningQuery verbatim (camelCased by serde) — the
+ * parser is the source of truth, this file follows it. All durations ms.
+ *
+ * SERIALIZATION REQUIREMENTS on the Rust side:
+ *  - status must reach the wire lowercase ("runnable"…, rename_all) —
+ *    the badge styling keys off the exact strings;
+ *  - waitType must serialize as a PLAIN STRING (WaitType::as_str), not
+ *    serde's default externally-tagged enum — Unknown(String) would
+ *    otherwise arrive as {"Unknown": "..."}.
+ */
 export interface MssqlQuery {
   sessionId: number;
   /** runnable | running | rollback | sleeping | background | suspended */
@@ -76,20 +111,27 @@ export interface MssqlQuery {
   logicalReads: number;
   reads: number;
   writes: number;
-  elapsedMs: number;
+  elapsed: number;
   /** the statement excerpt from the table */
   statement: string;
   /** full batch text when logged */
   commandText: string;
   command: string;
   login: string;
+  host: string;
+  db: string;
+  program: string;
+  hostProcess: number;
+  lastRequestEnd: number;
+  loginTime: number;
+  openTxn: number;
 }
 
 /** One row of "Currently Running Queries" (PGSQL). */
 export interface PgsqlQuery {
   pid: number;
-  queryTimeMs: number | null;
-  txnTimeMs: number | null;
+  queryTime: number | null;
+  txnTime: number | null;
   dbName: string;
   /** active | idle in transaction */
   state: string;
@@ -124,7 +166,11 @@ export function stuckqueryPgsqlQueries(timestamp: number): Promise<PgsqlQuery[]>
 // Blocking chain (MSSQL only — PGSQL logs no blocking table)
 // ---------------------------------------------------------------------------
 
-/** One row of "Currently Blocking Query Details". */
+/**
+ * One row of "Currently Blocking Query Details". Field names mirror
+ * parser::stuckquery::BlockingQuery verbatim (camelCased by serde).
+ * waitType: same plain-string serialization requirement as MssqlQuery.
+ */
 export interface MssqlBlockingRow {
   /** session at the root of this chain */
   headBlocker: number;
@@ -133,17 +179,17 @@ export interface MssqlBlockingRow {
   /** direct blocker of this session */
   blockingSessionId: number;
   waitType: string | null;
-  waitDurationMs: number;
+  /** ms */
+  waitDuration: number;
   waitResource: string | null;
-  /** depth in the chain (1 = directly under the head blocker) */
-  level: number;
-  /** blocker query or most recent query for this session */
-  query: string;
   statementStartOffset: number;
   statementEndOffset: number;
   planHandle: string;
   sqlHandle: string;
   mostRecentSqlHandle: string;
+  /** depth in the chain (1 = directly under the head blocker) */
+  level: number;
+  blockerQueryOrMostRecentQuery: string;
 }
 
 /**

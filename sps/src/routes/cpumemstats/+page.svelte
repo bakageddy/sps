@@ -11,7 +11,6 @@
    * click grabs both series), so flipping the toggle re-renders everything
    * locally with zero IPC.
    */
-  import { MediaQuery } from "svelte/reactivity";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { nearestByTimestamp } from "$lib/nearest";
@@ -54,7 +53,6 @@
   let series = $state<ProcessSeries | null>(null);
   let chartMaximized = $state(false);
 
-  const portrait = new MediaQuery("(orientation: portrait)");
 
   // --- metric-driven views (all local; the toggle costs no IPC) ---------
   const activeProcesses = $derived<UsageRow[]>(
@@ -236,12 +234,12 @@
         ontoggleexpand={() => (chartMaximized = false)}
       />
     {:else}
-    <SplitPane direction={portrait.current ? "column" : "row"} initial={0.24}>
+    <SplitPane direction="row" initial={0.24}>
       {#snippet a()}
         <CpuMemDumpList {dumps} selected={selectedDump} onselect={onselectdump} />
       {/snippet}
       {#snippet b()}
-        <SplitPane direction={portrait.current ? "column" : "row"} initial={0.5}>
+        <SplitPane direction="row" initial={0.5}>
           {#snippet a()}
             <ProcessTable
               processes={activeProcesses}

@@ -16,6 +16,8 @@ use crate::{
 use error::Error;
 use time::{format_description::BorrowedFormatItem, macros::format_description};
 use tracing::warn;
+use serde::Serialize;
+use serde::Deserialize;
 
 const STUCKQUERY_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
@@ -260,7 +262,8 @@ pub enum Stuckquery<'a> {
     MSSQL(MSSQLQuery<'a>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PGSQLQuery<'a> {
     pub pid: u64,
     pub query_time: Option<u64>,
@@ -380,9 +383,11 @@ impl<'a> Parser<'a> for PGSQLQuery<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum PGSQLState {
+    #[serde(rename = "active")]
     Active,
+    #[serde(rename = "idle in transaction")]
     Idle,
 }
 
@@ -893,9 +898,7 @@ pub mod test {
 
     #[test]
     fn stuckquery_mssql_full_file() {
-        let map =
-            util::map_file("test/stuckqueries/stuckquery_mssql.txt")
-                .unwrap();
+        let map = util::map_file("test/stuckqueries/stuckquery_mssql.txt").unwrap();
         let parser = StuckqueryParser::try_from(map.deref()).unwrap();
         let result = parser.flatten().collect::<Vec<_>>();
         assert_eq!(result.len(), 61);

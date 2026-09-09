@@ -1,7 +1,8 @@
 pub mod cpumemstats;
 pub mod cpumonitoring;
-pub mod error;
 pub mod stuckthread;
+pub mod stuckquery;
+pub mod error;
 pub mod tables;
 pub mod types;
 

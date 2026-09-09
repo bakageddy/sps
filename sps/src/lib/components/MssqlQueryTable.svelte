@@ -6,6 +6,9 @@
    */
   import type { MssqlQuery } from "$lib/api/stuckquery";
   import { formatDuration } from "$lib/format";
+  import { slowThreshold } from "$lib/stuckquery-settings.svelte";
+  import { copyText } from "$lib/clipboard";
+  import Icon from "$lib/components/Icon.svelte";
 
   interface Props {
     queries: MssqlQuery[];
@@ -40,7 +43,27 @@
       case "cpu":
         return q.cpuTimeMs;
       case "elapsed":
-        return q.elapsedMs;
+        return q.elapsed;
+    }
+  }
+
+  let copied = $state<number | null>(null);
+  async function copyQuery(q: MssqlQuery) {
+    const lines = [
+      `Session: ${q.sessionId} (${q.status})  Txn: ${q.txnId}`,
+      q.blockedBy !== 0 ? `Blocked by: session ${q.blockedBy}` : null,
+      q.waitType !== null
+        ? `Wait: ${q.waitType} ${q.waitResource ?? ""} (${formatDuration(q.waitTimeMs)})`
+        : null,
+      `CPU: ${formatDuration(q.cpuTimeMs)}  Elapsed: ${formatDuration(q.elapsed)}`,
+      `Reads: ${q.logicalReads} logical / ${q.reads} physical  Writes: ${q.writes}`,
+      `Login: ${q.login}  Host: ${q.host}  DB: ${q.db}  Program: ${q.program}`,
+      "",
+      q.commandText || q.statement,
+    ].filter((l) => l !== null);
+    if (await copyText(lines.join("\n"))) {
+      copied = q.sessionId;
+      setTimeout(() => (copied = null), 1500);
     }
   }
 
@@ -78,22 +101,33 @@
     {#each sorted as q}
       <button
         class="row"
-        class:blocked={q.blockedBy !== 0}
+        class:slow={q.elapsed > slowThreshold.value * 1000}
         onclick={() => (expanded = expanded === q.sessionId ? null : q.sessionId)}
       >
         <span class="col-num mono">{q.sessionId}</span>
         <span class="col-status"><span class="badge {q.status}">{q.status}</span></span>
-        <span class="col-num mono">{q.blockedBy === 0 ? "—" : q.blockedBy}</span>
+        <span class="col-num mono" class:bad={q.blockedBy !== 0}>
+          {q.blockedBy === 0 ? "—" : q.blockedBy}
+        </span>
         <span class="col-wait mono" title={q.waitResource ?? undefined}>{q.waitType ?? "—"}</span>
         <span class="col-num mono">{formatDuration(q.cpuTimeMs)}</span>
-        <span class="col-num mono">{formatDuration(q.elapsedMs)}</span>
+        <span class="col-num mono">{formatDuration(q.elapsed)}</span>
         <span class="col-stmt mono">{q.statement}</span>
       </button>
       {#if expanded === q.sessionId}
         <div class="expand">
+          <div class="expand-actions">
+            <button
+              class="copy"
+              onclick={() => copyQuery(q)}
+              title="Copy query as text"
+              aria-label="Copy query as text"
+            ><Icon name={copied === q.sessionId ? "check" : "copy"} size={12} /></button>
+          </div>
           <dl>
             <dt>Txn</dt><dd class="mono">{q.txnId}</dd>
             <dt>Login</dt><dd class="mono">{q.login || "—"}</dd>
+            <dt>Host</dt><dd class="mono">{q.host || "—"} · db {q.db || "—"} · {q.program || "—"}</dd>
             <dt>Command</dt><dd class="mono">{q.command || "—"}</dd>
             <dt>Wait</dt>
             <dd class="mono">{q.waitType ?? "—"} {q.waitResource ?? ""} ({formatDuration(q.waitTimeMs)})</dd>
@@ -171,8 +205,13 @@
   .row:hover {
     background: var(--bg-hover);
   }
-  .row.blocked {
+  /* red is reserved for what matters: queries over the slow threshold */
+  .row.slow {
     background: color-mix(in srgb, var(--red) 8%, transparent);
+  }
+  .bad {
+    color: var(--red);
+    font-weight: 600;
   }
 
   .col-num {
@@ -212,9 +251,25 @@
   }
 
   .expand {
+    position: relative;
     padding: 8px 12px;
     border-top: 1px solid var(--hairline);
     background: var(--bg-hard);
+  }
+  .expand-actions {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+  }
+  .copy {
+    display: grid;
+    place-items: center;
+    padding: 4px;
+    color: var(--fg-muted);
+  }
+  .copy:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
   }
   .expand dl {
     display: grid;

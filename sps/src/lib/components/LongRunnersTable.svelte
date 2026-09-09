@@ -32,9 +32,11 @@
 
   interface Props {
     rows: LongRunnerRow[];
+    /** jump to the snapshot where this execution was last seen */
+    onjump?: (row: LongRunnerRow) => void;
   }
 
-  let { rows }: Props = $props();
+  let { rows, onjump }: Props = $props();
 
   let expanded = $state<string | null>(null);
 
@@ -75,6 +77,11 @@
             <dt>Last seen</dt><dd class="mono">{formatTimestamp(timeFormat, row.lastSeen)}</dd>
           </dl>
           <pre>{row.query}</pre>
+          {#if onjump}
+            <button class="jump" onclick={() => onjump(row)}>
+              view last snapshot →
+            </button>
+          {/if}
         </div>
       {/if}
     {:else}
@@ -180,6 +187,19 @@
     overflow-wrap: anywhere;
     max-height: 240px;
     overflow: auto;
+  }
+
+  .jump {
+    margin-top: 8px;
+    padding: 2px 12px;
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--accent);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .jump:hover {
+    background: var(--bg-hover);
   }
 
   .empty {

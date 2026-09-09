@@ -27,10 +27,12 @@ the spec; reconcile against them, not memory.
       the implemented shapes; frontend derives geometry only
       (`src/lib/stuckthread.ts`). Pages: /stuckthreads (strip + episodes /
       paths rollup + details/copy) and /stuckthreads/concurrency.
-- [ ] **Stuck-query commands** (seven, requirements in
+- [ ] **Stuck-query commands** (eight, requirements in
       `src/lib/api/stuckquery.ts`; pages live at /stuckqueries and
       /stuckthreads/queries; parser DONE): per flavor, NO unions —
       `stuckquery_{mssql,pgsql}_snapshots` (GROUP BY timestamp rollups),
+      `stuckquery_mssql_blocking_snapshots` (SEPARATE command + separate
+      list rows in the UI: chains + sessions per timestamp),
       `stuckquery_{mssql,pgsql}_queries(timestamp)`,
       `stuckquery_mssql_blocking(timestamp)` (pgsql has no blocking table),
       `stuckquery_{mssql,pgsql}_longrunning` (executions present in >1
