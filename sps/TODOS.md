@@ -27,7 +27,7 @@ the spec; reconcile against them, not memory.
       the implemented shapes; frontend derives geometry only
       (`src/lib/stuckthread.ts`). Pages: /stuckthreads (strip + episodes /
       paths rollup + details/copy) and /stuckthreads/concurrency.
-- [ ] **Stuck-query commands** (eight, requirements in
+- [ ] **Stuck-query commands** (nine, requirements in
       `src/lib/api/stuckquery.ts`; pages live at /stuckqueries and
       /stuckthreads/queries; parser DONE): per flavor, NO unions —
       `stuckquery_{mssql,pgsql}_snapshots` (GROUP BY timestamp rollups),
@@ -36,7 +36,9 @@ the spec; reconcile against them, not memory.
       `stuckquery_{mssql,pgsql}_queries(timestamp)`,
       `stuckquery_mssql_blocking(timestamp)` (pgsql has no blocking table),
       `stuckquery_{mssql,pgsql}_longrunning` (executions present in >1
-      snapshot; identity mssql = session_id+txn_id, pgsql = pid+query).
+      snapshot; identity mssql = session_id+txn_id, pgsql = pid+query),
+      `stuckquery_mssql_longtxns` (GROUP BY session_id+txn_id, >1 snapshot,
+      queries = DISTINCT statements in first-seen order).
 - [ ] **Overview commands**: `cpumem_total_cpu` / `cpumem_total_memory` —
       requirements in `src/lib/api/cpumemstats.ts` (frontend page is live at
       /cpumemstats/overview).

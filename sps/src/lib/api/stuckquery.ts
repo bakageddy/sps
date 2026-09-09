@@ -267,3 +267,40 @@ export function stuckqueryMssqlLongrunning(): Promise<MssqlLongRunner[]> {
 export function stuckqueryPgsqlLongrunning(): Promise<PgsqlLongRunner[]> {
 	return invoke("stuckquery_pgsql_longrunning");
 }
+
+// ---------------------------------------------------------------------------
+// Long-running transactions (MSSQL only — PGSQL logs no txn id)
+// ---------------------------------------------------------------------------
+
+/**
+ * One transaction observed across MULTIPLE snapshots, with every distinct
+ * statement logged under it. Unlike MssqlLongRunner this makes no
+ * same-statement assumption — a long transaction typically runs different
+ * statements over its life; the queries list is its story.
+ */
+export interface MssqlLongTxn {
+	sessionId: number;
+	txnId: number;
+	login: string;
+	/** distinct snapshots this transaction appears in */
+	snapshots: number;
+	/** ms epoch of the first/last snapshot containing it */
+	firstSeen: number;
+	lastSeen: number;
+	/** distinct statements observed, in first-seen order */
+	queries: string[];
+}
+
+/**
+ * ```rust
+ * #[tauri::command]
+ * fn stuckquery_mssql_longtxns(state: ...) -> Result<Vec<MssqlLongTxn>, String>
+ * ```
+ * REQUIREMENTS: GROUP BY session_id, txn_id over stuckquery_mssql; only
+ * groups present in MORE THAN ONE distinct timestamp; queries = distinct
+ * statement texts ordered by first appearance; ordered by snapshots desc,
+ * then (lastSeen - firstSeen) desc.
+ */
+export function stuckqueryMssqlLongtxns(): Promise<MssqlLongTxn[]> {
+	return invoke("stuckquery_mssql_longtxns");
+}

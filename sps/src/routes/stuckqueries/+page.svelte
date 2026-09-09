@@ -19,6 +19,8 @@
 		stuckqueryMssqlBlocking,
 		stuckqueryMssqlLongrunning,
 		stuckqueryPgsqlLongrunning,
+		stuckqueryMssqlLongtxns,
+		type MssqlLongTxn,
 		type MssqlSnapshot,
 		type PgsqlSnapshot,
 		type BlockingSnapshot,
@@ -36,6 +38,7 @@
 	import LongRunnersTable, {
 		type LongRunnerRow,
 	} from "$lib/components/LongRunnersTable.svelte";
+	import LongTxnsTable from "$lib/components/LongTxnsTable.svelte";
 	import SplitPane from "$lib/components/SplitPane.svelte";
 	import { db } from "$lib/database.svelte";
 	import { ingest } from "$lib/ingest.svelte";
@@ -54,8 +57,9 @@
 	let pgsqlQueries = $state<PgsqlQuery[]>([]);
 	let blocking = $state<MssqlBlockingRow[]>([]);
 	let longRunners = $state<LongRunnerRow[]>([]);
+	let longTxns = $state<MssqlLongTxn[]>([]);
 
-	const Mode = { Snapshot: "snapshot", Long: "long" } as const;
+	const Mode = { Snapshot: "snapshot", Long: "long", Txns: "txns" } as const;
 	type Mode = (typeof Mode)[keyof typeof Mode];
 	let mode = $state<Mode>(Mode.Snapshot);
 
@@ -147,10 +151,12 @@
 	}
 
 	async function loadLongRunners() {
-		const [mssqlResult, pgsqlResult] = await Promise.allSettled([
+		const [mssqlResult, pgsqlResult, txnsResult] = await Promise.allSettled([
 			cached("stuckquery_mssql_longrunning", stuckqueryMssqlLongrunning),
 			cached("stuckquery_pgsql_longrunning", stuckqueryPgsqlLongrunning),
+			cached("stuckquery_mssql_longtxns", stuckqueryMssqlLongtxns),
 		]);
+		if (txnsResult.status === "fulfilled") longTxns = txnsResult.value;
 		const out: LongRunnerRow[] = [];
 		if (mssqlResult.status === "fulfilled") {
 			for (const r of mssqlResult.value) {
@@ -217,6 +223,16 @@
 		mode = Mode.Snapshot;
 		onselect(target);
 	}
+
+	/** long-transaction drill-down: same jump, mssql by definition */
+	function onjumptxn(txn: MssqlLongTxn) {
+		const target = rows.find(
+			(r) => r.kind === "mssql" && r.timestamp === txn.lastSeen,
+		);
+		if (target === undefined) return;
+		mode = Mode.Snapshot;
+		onselect(target);
+	}
 </script>
 
 <div class="page">
@@ -251,6 +267,11 @@
 							onclick={() => (mode = Mode.Long)}
 							>Long-running</button
 						>
+						<button
+							class:active={mode === Mode.Txns}
+							onclick={() => (mode = Mode.Txns)}
+							>Transactions</button
+						>
 					</span>
 
 					<span class="right">
@@ -284,6 +305,8 @@
 							rows={longRunners}
 							onjump={onjumptosnapshot}
 						/>
+					{:else if mode === Mode.Txns}
+						<LongTxnsTable rows={longTxns} onjump={onjumptxn} />
 					{:else if selected === null}
 						<p class="empty">Select a snapshot.</p>
 					{:else if selected.kind === "blocking"}

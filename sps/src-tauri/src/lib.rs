@@ -51,6 +51,7 @@ pub fn launch(database: Option<PathBuf>) {
             stuckquery_mssql_queries,
             stuckquery_pgsql_queries,
             stuckquery_mssql_blocking,
+            stuckquery_mssql_longrunning,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

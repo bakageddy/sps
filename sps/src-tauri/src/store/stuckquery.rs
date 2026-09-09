@@ -2,11 +2,11 @@ use std::str::FromStr;
 
 use duckdb::Connection;
 
-use crate::handlers::types::{BlockingSnapshot, MSSQLSnapshot, PGSQLSnapshot};
-use crate::parser::WaitType;
-use crate::parser::stuckquery::{
-    BlockingQuery, MSSQLQuery, MSSQLStatus, PGSQLQuery, PGSQLState, RunningQuery,
+use crate::handlers::types::{
+    BlockingSnapshot, MSSQLLongRunningQuery, MSSQLSnapshot, PGSQLSnapshot,
 };
+use crate::parser::WaitType;
+use crate::parser::stuckquery::{BlockingQuery, MSSQLStatus, PGSQLQuery, PGSQLState, RunningQuery};
 use crate::store::error::Error;
 use crate::store::tables::Tables;
 
@@ -184,5 +184,34 @@ pub fn get_stuckquery_mssql_blocking<'a>(
         };
         queries.push(query);
     }
+    Ok(queries)
+}
+
+pub fn get_stuckquery_mssql_long_running(
+    cnx: &Connection,
+) -> Result<Vec<MSSQLLongRunningQuery>, Error> {
+    let query = format!(
+        "SELECT session_id, txn_id, statement, login, COUNT(timestamp), MIN(timestamp), MAX(timestamp), MAX(elapsed), MAX(cpu_time_ms), COUNT(blocked_by) FILTER (WHERE blocked_by != 0) FROM {0} GROUP BY timestamp, session_id, txn_id, statement, login ORDER BY timestamp",
+        Tables::StuckqueryMSSQL.into_str()
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    let mut rows = stmt.query([])?;
+    let mut queries = Vec::new();
+    while let Some(row) = rows.next()? {
+        let query = MSSQLLongRunningQuery {
+            session_id: row.get(0)?,
+            txn_id: row.get(1)?,
+            statement: row.get(2)?,
+            login: row.get(3)?,
+            snapshots: row.get(4)?,
+            first_seen: row.get(5)?,
+            last_seen: row.get(6)?,
+            max_elapsed: row.get(7)?,
+            max_cpu_time_ms: row.get(8)?,
+            blocked_in: row.get(9)?,
+        };
+        queries.push(query);
+    }
+
     Ok(queries)
 }

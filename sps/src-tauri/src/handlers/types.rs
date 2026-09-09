@@ -112,3 +112,18 @@ pub struct PGSQLSnapshot {
     pub waiting: u64,
     pub idle_in_txn: u64,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MSSQLLongRunningQuery {
+    pub session_id: u64,
+    pub txn_id: u64,
+    pub statement: String,
+    pub login: String,
+    pub snapshots: u64,
+    pub first_seen: u64,
+    pub last_seen: u64,
+    pub max_elapsed: u64,
+    pub max_cpu_time_ms: u64,
+    pub blocked_in: u64,
+}
