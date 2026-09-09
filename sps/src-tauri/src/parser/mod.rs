@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 pub mod cpumemstats;
 pub mod cpumonitoring;
 pub mod stuckthread;
@@ -15,7 +17,7 @@ pub enum DBKind {
 /// Microsoft ADDS wait types every release, so parsing NEVER fails:
 /// names not in this list land in Unknown(String).
 #[allow(non_camel_case_types)] // variants mirror the wire strings 1:1
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WaitType {
     /// Identified for informational purposes only. Not supported. Future compatibility isn't guaranteed.
     ABR,
@@ -2968,6 +2970,7 @@ pub enum WaitType {
     /// Applies to: SQL Server 2016 (13.x) and later versions.
     XTP_TRUNCATION_LSN,
     /// A wait type not present in the generated table.
+    #[serde(untagged)]
     Unknown(String),
 }
 

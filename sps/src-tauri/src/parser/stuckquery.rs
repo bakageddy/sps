@@ -418,7 +418,7 @@ pub enum MSSQLQuery<'a> {
     Running(RunningQuery<'a>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RunningQuery<'a> {
     pub session_id: u64,
     pub status: MSSQLStatus,
@@ -445,7 +445,8 @@ pub struct RunningQuery<'a> {
     pub open_txn: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum MSSQLStatus {
     Background,
     Rollback,
@@ -616,7 +617,7 @@ impl<'a> Parser<'a> for RunningQuery<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BlockingQuery<'a> {
     pub head_blocker: u64,
     pub session_id: u64,

@@ -3,7 +3,10 @@ use std::str::FromStr;
 use duckdb::Connection;
 
 use crate::handlers::types::{BlockingSnapshot, MSSQLSnapshot, PGSQLSnapshot};
-use crate::parser::stuckquery::{PGSQLQuery, PGSQLState};
+use crate::parser::WaitType;
+use crate::parser::stuckquery::{
+    BlockingQuery, MSSQLQuery, MSSQLStatus, PGSQLQuery, PGSQLState, RunningQuery,
+};
 use crate::store::error::Error;
 use crate::store::tables::Tables;
 
@@ -94,6 +97,90 @@ pub fn get_stuckquery_pgsql_queries<'a, 'b>(
             client_addr: None,
             client_host: row.get::<usize, Option<String>>(9)?.map(|h| h.into()),
             client_port: row.get::<usize, Option<u16>>(10)?,
+        };
+        queries.push(query);
+    }
+    Ok(queries)
+}
+
+pub fn get_stuckquery_mssql_queries<'a>(
+    cnx: &Connection,
+    timestamp: u64,
+) -> Result<Vec<RunningQuery<'a>>, Error> {
+    let query = format!(
+        "SELECT session_id, status, txn_id, blocked_by, wait_type, wait_resource, wait_time_ms, cpu_time_ms, logical_reads, reads, writes, elapsed, statement, command_text, command, login, host, db, program, host_process, last_request_end, login_time, open_txn FROM {0} WHERE {0}.timestamp = $1",
+        Tables::StuckqueryMSSQL.into_str()
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    let mut rows = stmt.query([timestamp])?;
+    let mut queries = Vec::new();
+    while let Some(row) = rows.next()? {
+        let status =
+            MSSQLStatus::from_str(&row.get::<usize, String>(1)?).unwrap_or(MSSQLStatus::Background);
+        let wait_type = row
+            .get::<usize, Option<String>>(4)?
+            .map(|s| WaitType::parse(&s));
+        let query = RunningQuery {
+            session_id: row.get(0)?,
+            status,
+            txn_id: row.get(2)?,
+            blocked_by: row.get(3)?,
+            wait_type,
+            wait_resource: row.get::<usize, Option<String>>(5)?.map(|s| s.into()),
+            wait_time_ms: row.get(6)?,
+            cpu_time_ms: row.get(7)?,
+            logical_reads: row.get(8)?,
+            reads: row.get(9)?,
+            writes: row.get(10)?,
+            elapsed: row.get(11)?,
+            statement: row.get::<usize, String>(12)?.into(),
+            command_text: row.get::<usize, String>(13)?.into(),
+            command: row.get::<usize, String>(14)?.into(),
+            login: row.get::<usize, String>(15)?.into(),
+            host: row.get::<usize, String>(16)?.into(),
+            db: row.get::<usize, String>(17)?.into(),
+            program: row.get::<usize, String>(18)?.into(),
+            host_process: row.get(19)?,
+            last_request_end: row.get(20)?,
+            login_time: row.get(21)?,
+            open_txn: row.get(22)?,
+        };
+        queries.push(query);
+    }
+    Ok(queries)
+}
+
+pub fn get_stuckquery_mssql_blocking<'a>(
+    cnx: &Connection,
+    timestamp: u64,
+) -> Result<Vec<BlockingQuery<'a>>, Error> {
+    let query = format!(
+        "SELECT head_blocker, session_id, txn_id, blocking_session_id, wait_type, wait_duration, wait_resource, statement_start_offset, statement_end_offset, plan_handle, sql_handle, most_recent_sql_handle, level, blocker_query_or_most_recent_query FROM {0} WHERE {0}.timestamp = $1",
+        Tables::StuckqueryBlockingMSSQL.into_str()
+    );
+
+    let mut stmt = cnx.prepare_cached(&query)?;
+    let mut rows = stmt.query([timestamp])?;
+    let mut queries = Vec::new();
+    while let Some(row) = rows.next()? {
+        let wait_type = row
+            .get::<usize, Option<String>>(4)?
+            .map(|s| WaitType::parse(&s));
+        let query = BlockingQuery {
+            head_blocker: row.get(0)?,
+            session_id: row.get(1)?,
+            txn_id: row.get(2)?,
+            blocking_session_id: row.get(3)?,
+            wait_type,
+            wait_duration: row.get(5)?,
+            wait_resource: row.get::<usize, Option<String>>(6)?.map(|s| s.into()),
+            statement_start_offset: row.get(7)?,
+            statement_end_offset: row.get(8)?,
+            plan_handle: row.get::<usize, String>(9)?.into(),
+            sql_handle: row.get::<usize, String>(10)?.into(),
+            most_recent_sql_handle: row.get::<usize, String>(11)?.into(),
+            level: row.get(12)?,
+            blocker_query_or_most_recent_query: row.get::<usize, String>(13)?.into(),
         };
         queries.push(query);
     }

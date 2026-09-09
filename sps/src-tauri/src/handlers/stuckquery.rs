@@ -3,7 +3,7 @@ use std::{ops::Deref, sync::Mutex};
 use tauri::State;
 
 use crate::handlers::types::{BlockingSnapshot, MSSQLSnapshot, PGSQLSnapshot};
-use crate::parser::stuckquery::PGSQLQuery;
+use crate::parser::stuckquery::{BlockingQuery, MSSQLQuery, PGSQLQuery, RunningQuery};
 use crate::store;
 use crate::types::AppState;
 
@@ -69,4 +69,38 @@ pub fn stuckquery_pgsql_queries<'a>(
     let result = store::stuckquery::get_stuckquery_pgsql_queries(cnx.deref(), timestamp)
         .map_err(|e| format!("Error during fetching PGSQL queries from database: {e}"));
     result
+}
+
+#[tauri::command]
+pub fn stuckquery_mssql_queries<'a>(
+    timestamp: u64,
+    state: State<'_, Mutex<AppState>>,
+) -> Result<Vec<RunningQuery<'a>>, String> {
+    let guard = state.lock().unwrap();
+    let cnx = guard
+        .store
+        .get()
+        .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
+    drop(guard);
+
+    let result = store::stuckquery::get_stuckquery_mssql_queries(cnx.deref(), timestamp)
+        .map_err(|e| format!("Error during fetching MSSQL queries from database: {e}"));
+
+    result
+}
+
+#[tauri::command]
+pub fn stuckquery_mssql_blocking<'a>(
+    timestamp: u64,
+    state: State<'_, Mutex<AppState>>,
+) -> Result<Vec<BlockingQuery<'a>>, String> {
+    let guard = state.lock().unwrap();
+    let cnx = guard
+        .store
+        .get()
+        .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
+    drop(guard);
+    let result = store::stuckquery::get_stuckquery_mssql_blocking(cnx.deref(), timestamp)
+        .map_err(|e| format!("Error during fetching MSSQL queries from database: {e}"));
+    todo!()
 }
