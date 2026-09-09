@@ -6,8 +6,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export interface DatabaseInfo {
-  /** Absolute path of the backing file; null when running in-memory. */
-  path: string | null;
+	/** Absolute path of the backing file; null when running in-memory. */
+	path: string | null;
 }
 
 /**
@@ -24,7 +24,7 @@ export interface DatabaseInfo {
  * REQUIREMENT: replaces any currently open database.
  */
 export function openDatabase(path: string | null): Promise<DatabaseInfo> {
-  return invoke("open_database", { path });
+	return invoke("open_database", { path });
 }
 
 /**
@@ -40,5 +40,5 @@ export function openDatabase(path: string | null): Promise<DatabaseInfo> {
  * ```
  */
 export function databaseInfo(): Promise<DatabaseInfo | null> {
-  return invoke("database_info");
+	return invoke("database_info");
 }

@@ -16,24 +16,24 @@
  * data. Malformed stored JSON falls back to the initial value.
  */
 export function persisted<T>(key: string, initial: T) {
-  let value = $state<T>(read());
+	let value = $state<T>(read());
 
-  function read(): T {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw === null ? initial : (JSON.parse(raw) as T);
-    } catch {
-      return initial;
-    }
-  }
+	function read(): T {
+		try {
+			const raw = localStorage.getItem(key);
+			return raw === null ? initial : (JSON.parse(raw) as T);
+		} catch {
+			return initial;
+		}
+	}
 
-  return {
-    get value(): T {
-      return value;
-    },
-    set value(next: T) {
-      value = next;
-      localStorage.setItem(key, JSON.stringify(next));
-    },
-  };
+	return {
+		get value(): T {
+			return value;
+		},
+		set value(next: T) {
+			value = next;
+			localStorage.setItem(key, JSON.stringify(next));
+		},
+	};
 }

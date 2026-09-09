@@ -20,36 +20,36 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** One row per dump — feeds the dump list. */
 export interface CpuMemDumpSummary {
-  /** ms epoch of the dump block */
-  timestamp: number;
-  totalCpu: number;
-  /** MB */
-  totalMemory: number;
+	/** ms epoch of the dump block */
+	timestamp: number;
+	totalCpu: number;
+	/** MB */
+	totalMemory: number;
 }
 
 /** One process in one metric's table. `value` is CPU % or MB depending on
  * which list it came from. */
 export interface ProcessUsage {
-  pid: number;
-  name: string;
-  /** Linux rows only; null for Windows rows */
-  user: string | null;
-  value: number;
-  /** null = the log had no path for this process (Option<Cow> backend-side) */
-  path: string | null;
+	pid: number;
+	name: string;
+	/** Linux rows only; null for Windows rows */
+	user: string | null;
+	value: number;
+	/** null = the log had no path for this process (Option<Cow> backend-side) */
+	path: string | null;
 }
 
 /** One point of a per-process series; `value` unit follows the series. */
 export interface MetricPoint {
-  /** ms epoch */
-  timestamp: number;
-  value: number;
+	/** ms epoch */
+	timestamp: number;
+	value: number;
 }
 
 /** A pid's history across all dumps, one array per metric. */
 export interface ProcessSeries {
-  cpu: MetricPoint[];
-  memory: MetricPoint[];
+	cpu: MetricPoint[];
+	memory: MetricPoint[];
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ export interface ProcessSeries {
  * present in only one of its two tables.
  */
 export function cpuMemDumps(): Promise<CpuMemDumpSummary[]> {
-  return invoke("cpumem_dumps");
+	return invoke("cpumem_dumps");
 }
 
 /**
@@ -89,7 +89,7 @@ export function cpuMemDumps(): Promise<CpuMemDumpSummary[]> {
  * descending; `user` null for Windows rows.
  */
 export function cpuMemCpuProcesses(timestamp: number): Promise<ProcessUsage[]> {
-  return invoke("cpumem_cpu_processes", { timestamp });
+	return invoke("cpumem_cpu_processes", { timestamp });
 }
 
 /**
@@ -104,8 +104,10 @@ export function cpuMemCpuProcesses(timestamp: number): Promise<ProcessUsage[]> {
  * ```
  * REQUIREMENTS: same as the cpu list, over the memory data.
  */
-export function cpuMemMemoryProcesses(timestamp: number): Promise<ProcessUsage[]> {
-  return invoke("cpumem_mem_processes", { timestamp });
+export function cpuMemMemoryProcesses(
+	timestamp: number,
+): Promise<ProcessUsage[]> {
+	return invoke("cpumem_mem_processes", { timestamp });
 }
 
 /**
@@ -121,7 +123,7 @@ export function cpuMemMemoryProcesses(timestamp: number): Promise<ProcessUsage[]
  * timestamp ascending (charts assume sorted).
  */
 export function cpuMemTotalCpu(): Promise<MetricPoint[]> {
-  return invoke("cpumem_total_cpu");
+	return invoke("cpumem_total_cpu");
 }
 
 /**
@@ -136,7 +138,7 @@ export function cpuMemTotalCpu(): Promise<MetricPoint[]> {
  * REQUIREMENTS: same as cpumem_total_cpu, over the memory totals.
  */
 export function cpuMemTotalMemory(): Promise<MetricPoint[]> {
-  return invoke("cpumem_total_memory");
+	return invoke("cpumem_total_memory");
 }
 
 /**
@@ -158,10 +160,10 @@ export function cpuMemTotalMemory(): Promise<MetricPoint[]> {
  * array ordered by timestamp ascending; spans both platforms.
  */
 export function cpuMemPathSeries(
-  path: string | null,
-  name: string | null,
+	path: string | null,
+	name: string | null,
 ): Promise<ProcessSeries> {
-  return invoke("cpumem_path_series", { path, name });
+	return invoke("cpumem_path_series", { path, name });
 }
 
 /**
@@ -180,5 +182,5 @@ export function cpuMemPathSeries(
  * sorted); spans both platforms' tables.
  */
 export function cpuMemSeries(pid: number): Promise<ProcessSeries> {
-  return invoke("cpumem_series", { pid });
+	return invoke("cpumem_series", { pid });
 }

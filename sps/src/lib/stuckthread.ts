@@ -7,10 +7,10 @@ import type { StuckThread } from "$lib/api/stuckthread";
 
 /** Minimal geometry the overview strip draws. */
 export interface StuckBar {
-  tid: number;
-  /** = episode start */
-  timestamp: number;
-  durationMs: number;
+	tid: number;
+	/** = episode start */
+	timestamp: number;
+	durationMs: number;
 }
 
 /**
@@ -20,17 +20,17 @@ export interface StuckBar {
  *  - completion only:  [end - duration, end]
  */
 export function bounds(t: StuckThread): [number, number] {
-  const start = t.begin ?? (t.end !== null ? t.end - t.duration : 0);
-  const end = t.end ?? (t.begin ?? 0) + t.duration;
-  return end > start ? [start, end] : [start, start + 1];
+	const start = t.begin ?? (t.end !== null ? t.end - t.duration : 0);
+	const end = t.end ?? (t.begin ?? 0) + t.duration;
+	return end > start ? [start, end] : [start, start + 1];
 }
 
 /** Stable row identity: tid + the first event timestamp we know of. */
 export const threadKey = (t: StuckThread) => `${t.tid}:${t.begin ?? t.end}`;
 
 export function threadBar(t: StuckThread): StuckBar {
-  const [start, end] = bounds(t);
-  return { tid: t.tid, timestamp: start, durationMs: end - start };
+	const [start, end] = bounds(t);
+	return { tid: t.tid, timestamp: start, durationMs: end - start };
 }
 
 // ---------------------------------------------------------------------------
@@ -39,8 +39,8 @@ export function threadBar(t: StuckThread): StuckBar {
 
 /** One step of the concurrency curve: `count` holds from `t` onward. */
 export interface ConcurrencyPoint {
-  t: number;
-  count: number;
+	t: number;
+	count: number;
 }
 
 /**
@@ -50,22 +50,22 @@ export interface ConcurrencyPoint {
  * of thread-pool exhaustion.
  */
 export function concurrencySteps(threads: StuckThread[]): ConcurrencyPoint[] {
-  const deltas: [number, number][] = [];
-  for (const t of threads) {
-    const [start, end] = bounds(t);
-    deltas.push([start, 1], [end, -1]);
-  }
-  deltas.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+	const deltas: [number, number][] = [];
+	for (const t of threads) {
+		const [start, end] = bounds(t);
+		deltas.push([start, 1], [end, -1]);
+	}
+	deltas.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
 
-  const points: ConcurrencyPoint[] = [];
-  let count = 0;
-  for (const [t, delta] of deltas) {
-    count += delta;
-    const last = points[points.length - 1];
-    if (last !== undefined && last.t === t) last.count = count;
-    else points.push({ t, count });
-  }
-  return points;
+	const points: ConcurrencyPoint[] = [];
+	let count = 0;
+	for (const [t, delta] of deltas) {
+		count += delta;
+		const last = points[points.length - 1];
+		if (last !== undefined && last.t === t) last.count = count;
+		else points.push({ t, count });
+	}
+	return points;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,38 +73,38 @@ export function concurrencySteps(threads: StuckThread[]): ConcurrencyPoint[] {
 // ---------------------------------------------------------------------------
 
 export interface PathRollup {
-  path: string;
-  episodes: number;
-  /** episodes never seen completing */
-  open: number;
-  maxMs: number;
-  totalMs: number;
+	path: string;
+	episodes: number;
+	/** episodes never seen completing */
+	open: number;
+	maxMs: number;
+	totalMs: number;
 }
 
 /** request path without host; completion-only rows group under one bucket */
 export function requestPath(t: StuckThread): string {
-  if (t.request === null) return "(unknown request)";
-  try {
-    return new URL(t.request).pathname;
-  } catch {
-    return t.request;
-  }
+	if (t.request === null) return "(unknown request)";
+	try {
+		return new URL(t.request).pathname;
+	} catch {
+		return t.request;
+	}
 }
 
 /** Group episodes per path, worst offenders (total stuck time) first. */
 export function pathRollup(threads: StuckThread[]): PathRollup[] {
-  const buckets = new Map<string, PathRollup>();
-  for (const t of threads) {
-    const path = requestPath(t);
-    let bucket = buckets.get(path);
-    if (bucket === undefined) {
-      bucket = { path, episodes: 0, open: 0, maxMs: 0, totalMs: 0 };
-      buckets.set(path, bucket);
-    }
-    bucket.episodes += 1;
-    if (t.end === null) bucket.open += 1;
-    bucket.maxMs = Math.max(bucket.maxMs, t.duration);
-    bucket.totalMs += t.duration;
-  }
-  return [...buckets.values()].toSorted((a, b) => b.totalMs - a.totalMs);
+	const buckets = new Map<string, PathRollup>();
+	for (const t of threads) {
+		const path = requestPath(t);
+		let bucket = buckets.get(path);
+		if (bucket === undefined) {
+			bucket = { path, episodes: 0, open: 0, maxMs: 0, totalMs: 0 };
+			buckets.set(path, bucket);
+		}
+		bucket.episodes += 1;
+		if (t.end === null) bucket.open += 1;
+		bucket.maxMs = Math.max(bucket.maxMs, t.duration);
+		bucket.totalMs += t.duration;
+	}
+	return [...buckets.values()].toSorted((a, b) => b.totalMs - a.totalMs);
 }

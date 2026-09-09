@@ -24,28 +24,28 @@ const cache = new Map<string, Promise<unknown>>();
 let token = "";
 
 export function cached<T>(key: string, fetch: () => Promise<T>): Promise<T> {
-  const current = `${ingest.generation}|${db.epoch}`;
-  if (current !== token) {
-    cache.clear();
-    token = current;
-  }
+	const current = `${ingest.generation}|${db.epoch}`;
+	if (current !== token) {
+		cache.clear();
+		token = current;
+	}
 
-  const hit = cache.get(key);
-  if (hit !== undefined) {
-    // LRU touch: move to the back of the insertion order
-    cache.delete(key);
-    cache.set(key, hit);
-    return hit as Promise<T>;
-  }
+	const hit = cache.get(key);
+	if (hit !== undefined) {
+		// LRU touch: move to the back of the insertion order
+		cache.delete(key);
+		cache.set(key, hit);
+		return hit as Promise<T>;
+	}
 
-  const promise = fetch().catch((error) => {
-    cache.delete(key); // never cache a failure
-    throw error;
-  });
-  cache.set(key, promise);
-  if (cache.size > MAX_ENTRIES) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
-  return promise;
+	const promise = fetch().catch((error) => {
+		cache.delete(key); // never cache a failure
+		throw error;
+	});
+	cache.set(key, promise);
+	if (cache.size > MAX_ENTRIES) {
+		const oldest = cache.keys().next().value;
+		if (oldest !== undefined) cache.delete(oldest);
+	}
+	return promise;
 }

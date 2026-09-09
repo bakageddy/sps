@@ -20,6 +20,12 @@
       title: "Stuck Threads",
       description: "Waterfall of requests Tomcat flagged as stuck, with their stack traces.",
     },
+    {
+      href: "/stuckqueries",
+      title: "Stuck Queries",
+      description:
+        "Database queries running at each stuck-thread moment — blocking chains and long runners.",
+    },
   ];
 </script>
 

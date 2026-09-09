@@ -27,5 +27,5 @@ import { invoke } from "@tauri-apps/api/core";
  * ingest:finished fires exactly once, after ALL parsers are done.
  */
 export function parseLogs(path: string): Promise<void> {
-  return invoke("parse_logs", { path });
+	return invoke("parse_logs", { path });
 }

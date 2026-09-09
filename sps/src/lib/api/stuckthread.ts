@@ -18,27 +18,27 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** One aggregated stuck episode. */
 export interface StuckThread {
-  tid: number;
-  /** warning log-line ts; null = only the completion notice survived */
-  begin: number | null;
-  /** completion ts (>= begin + duration when paired); null = never completed */
-  end: number | null;
-  /** thread name as logged (empty when only a completion notice exists) */
-  name: string;
-  /** reported stuck duration, ms (from the closing event when paired) */
-  duration: number;
-  /** request URL from the warning; null when the warning was lost */
-  request: string | null;
-  /** COUNT of threads active alongside this one when the warning was logged */
-  activeStart: number | null;
-  /** COUNT of threads active alongside this one at completion */
-  activeEnd: number | null;
+	tid: number;
+	/** warning log-line ts; null = only the completion notice survived */
+	begin: number | null;
+	/** completion ts (>= begin + duration when paired); null = never completed */
+	end: number | null;
+	/** thread name as logged (empty when only a completion notice exists) */
+	name: string;
+	/** reported stuck duration, ms (from the closing event when paired) */
+	duration: number;
+	/** request URL from the warning; null when the warning was lost */
+	request: string | null;
+	/** COUNT of threads active alongside this one when the warning was logged */
+	activeStart: number | null;
+	/** COUNT of threads active alongside this one at completion */
+	activeEnd: number | null;
 }
 
 /** One stack frame of a warning's captured trace. */
 export interface StuckFrame {
-  method: string;
-  source: string;
+	method: string;
+	source: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,10 +59,10 @@ export interface StuckFrame {
  * ```
  */
 export function stuckthreadListview(
-  from?: number,
-  to?: number,
+	from?: number,
+	to?: number,
 ): Promise<StuckThread[]> {
-  return invoke("stuckthread_listview", { from: from ?? null, to: to ?? null });
+	return invoke("stuckthread_listview", { from: from ?? null, to: to ?? null });
 }
 
 /**
@@ -80,8 +80,8 @@ export function stuckthreadListview(
  * ```
  */
 export function stuckthreadTrace(
-  tid: number,
-  timestamp: number,
+	tid: number,
+	timestamp: number,
 ): Promise<StuckFrame[]> {
-  return invoke("stuckthread_trace", { tid, timestamp });
+	return invoke("stuckthread_trace", { tid, timestamp });
 }

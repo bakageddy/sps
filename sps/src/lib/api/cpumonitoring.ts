@@ -24,37 +24,37 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** One row per dump — feeds the dump list. */
 export interface DumpSummary {
-  /** ms epoch of the dump's header line; identifies the dump everywhere */
-  timestamp: number;
-  /** number of thread entries in this dump */
-  threads: number;
-  maxCpu: number;
-  /** sum of all thread usage in this dump — overall load at that moment */
-  totalCpu: number;
+	/** ms epoch of the dump's header line; identifies the dump everywhere */
+	timestamp: number;
+	/** number of thread entries in this dump */
+	threads: number;
+	maxCpu: number;
+	/** sum of all thread usage in this dump — overall load at that moment */
+	totalCpu: number;
 }
 
 /** One thread entry within a single dump. Deliberately has no trace info:
  * frames load lazily via cpu_stacktrace when a thread is clicked, keeping
  * this query join-free. */
 export interface DumpThread {
-  tid: number;
-  name: string | null;
-  /** RUNNABLE, WAITING, ... */
-  state: string;
-  cpu: number;
+	tid: number;
+	name: string | null;
+	/** RUNNABLE, WAITING, ... */
+	state: string;
+	cpu: number;
 }
 
 export interface CpuPoint {
-  /** ms epoch */
-  timestamp: number;
-  cpu: number;
+	/** ms epoch */
+	timestamp: number;
+	cpu: number;
 }
 
 /** One stack frame captured alongside a sample. Arrives in trace order
  * (top frame first) — which is only true if the query orders by idx. */
 export interface StackFrame {
-  method: string;
-  source: string;
+	method: string;
+	source: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ export interface StackFrame {
  * ```
  */
 export function cpuDumps(): Promise<DumpSummary[]> {
-  return invoke("cpu_dumps");
+	return invoke("cpu_dumps");
 }
 
 /**
@@ -87,7 +87,7 @@ export function cpuDumps(): Promise<DumpSummary[]> {
  * ```
  */
 export function cpuDumpThreads(timestamp: number): Promise<DumpThread[]> {
-  return invoke("cpu_dump_threads", { timestamp });
+	return invoke("cpu_dump_threads", { timestamp });
 }
 
 /**
@@ -106,7 +106,7 @@ export function cpuDumpThreads(timestamp: number): Promise<DumpThread[]> {
  * REQUIREMENT: points ordered by timestamp ascending (chart assumes sorted).
  */
 export function cpuSeries(tid: number): Promise<CpuPoint[]> {
-  return invoke("cpu_series", { tid });
+	return invoke("cpu_series", { tid });
 }
 
 /**
@@ -126,8 +126,8 @@ export function cpuSeries(tid: number): Promise<CpuPoint[]> {
  * REQUIREMENT: frames ordered by idx ascending.
  */
 export function cpuStacktrace(
-  tid: number,
-  timestamp: number,
+	tid: number,
+	timestamp: number,
 ): Promise<StackFrame[] | null> {
-  return invoke("cpu_stacktrace", { tid, timestamp });
+	return invoke("cpu_stacktrace", { tid, timestamp });
 }

@@ -17,30 +17,30 @@
  */
 
 export const IngestEvent = {
-  Started: "ingest:started",
-  File: "ingest:file",
-  Error: "ingest:error",
-  Finished: "ingest:finished",
+	Started: "ingest:started",
+	File: "ingest:file",
+	Error: "ingest:error",
+	Finished: "ingest:finished",
 } as const;
 
 export interface IngestStarted {
-  path: string;
+	path: string;
 }
 
 /** One parsed file's contribution — additive. */
 export interface IngestFile {
-  /** log kind, e.g. "cpumonitoring", "cpumemstats" */
-  kind: string;
-  /** the file this delta came from */
-  file: string;
-  entries: number;
-  errors: number;
+	/** log kind, e.g. "cpumonitoring", "cpumemstats" */
+	kind: string;
+	/** the file this delta came from */
+	file: string;
+	entries: number;
+	errors: number;
 }
 
 /** A non-fatal problem (unreadable file, invalid UTF-8, append failure). */
 export interface IngestError {
-  file: string | null;
-  message: string;
+	file: string | null;
+	message: string;
 }
 
 /** `ingest:finished` is emitted with `()` — its payload arrives as null. */
