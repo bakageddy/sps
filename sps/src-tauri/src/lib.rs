@@ -12,7 +12,9 @@ use std::sync::Mutex;
 use crate::{arg::Command, store::Store, types::AppState};
 use arg::AppArgs;
 use clap::Parser;
-use handlers::{cpumemstats::*, cpumonitoring::*, database::*, parse::*, stuckthread::*, stuckquery::*};
+use handlers::{
+    cpumemstats::*, cpumonitoring::*, database::*, parse::*, stuckquery::*, stuckthread::*,
+};
 use tauri::Manager;
 use tracing::warn;
 use tracing_subscriber;
@@ -51,7 +53,9 @@ pub fn launch(database: Option<PathBuf>) {
             stuckquery_mssql_queries,
             stuckquery_pgsql_queries,
             stuckquery_mssql_blocking,
+            stuckquery_pgsql_longrunning,
             stuckquery_mssql_longrunning,
+            stuckquery_mssql_longtxns,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

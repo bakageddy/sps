@@ -56,9 +56,16 @@
 	const zoom = persisted("zoom", 1);
 
 	function applyZoom() {
-		getCurrentWebview()
-			.setZoom(zoom.value)
-			.catch((e) => console.warn("setZoom failed:", e));
+		// getCurrentWebview() THROWS (sync) outside Tauri — the .catch only
+		// covers the setZoom promise. Without the try, this line kills the
+		// whole app boot in any plain browser.
+		try {
+			getCurrentWebview()
+				.setZoom(zoom.value)
+				.catch((e) => console.warn("setZoom failed:", e));
+		} catch (e) {
+			console.warn("webview zoom unavailable:", e);
+		}
 	}
 
 	applyZoom(); // restore the saved level on startup

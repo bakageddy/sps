@@ -127,3 +127,28 @@ pub struct MSSQLLongRunningQuery {
     pub max_cpu_time_ms: u64,
     pub blocked_in: u64,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PGSQLLongRunningQuery {
+    pub pid: u64,
+    pub query: String,
+    pub db_name: String,
+    pub snapshots: u64,
+    pub first_seen: u64,
+    pub last_seen: u64,
+    pub max_query_time_ms: Option<u64>,
+    pub idle_in_txn_in: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MSSQLLongRunningTxn {
+    pub session_id: u64,
+    pub txn_id: u64,
+    pub login: String,
+    pub snapshots: u64,
+    pub first_seen: u64,
+    pub last_seen: u64,
+    pub queries: Vec<String>,
+}

@@ -106,3 +106,29 @@ Each entry: the idea, why it might matter, and the trigger that should revive it
   splitting; duration histogram for the window; episode → nearest
   cpumonitoring dump via the existing `?t=` link pattern.
   *Trigger: aggregator re-report fix lands / Dinesh asks.*
+
+## Parser architecture (discussed 2026-09-10)
+
+- **`Records` segmenter/parser split** — kill the infinite-loop bug class
+  structurally. One shared iterator whose ONLY job is slicing input into
+  record chunks ("header line + following non-header lines"), with the
+  progress invariant living in exactly one place (`rest` strictly shrinks,
+  debug_assert'ed). Each log kind's parser collapses to the existing pure
+  `Parser::parse(&str) -> Result<T, E>`, exposed as
+  `Records::new(input).map(T::parse)` — no hand-rolled next(), no
+  Some(Ok)/Some(Err) ceremony, corrupt records yield one Err and move on.
+  Boundary rule parameterizable if stuckquery tables need a different
+  terminator. Test: mixed-content fixture (foreign lines + one corrupt
+  record) asserting termination, one Err per bad segment, correct count.
+  *Trigger: next parser bug, or the mixed-content fixture TODO.*
+
+- **Compiler-style diagnostics via Span + ariadne** — errors carry a byte
+  `Span {start, len}` computed by pointer arithmetic (`span_of(input,
+  token)` — valid because every token aliases the one mmap slice; zero
+  happy-path cost, line/col computed lazily at render). Render either with
+  a ~40-line hand-rolled rustc-style formatter, or the `ariadne` crate
+  (prettiest output, render-only dep, byte-range API matches Span 1:1,
+  colors off for the wire). Ariadne earns its dep the day a report needs
+  TWO labels ("begin was here … this end doesn't match"). The rendered
+  text is exactly what `ingest:error` events should carry to the DropZone
+  report. *Trigger: event-driven parse_logs lands, or error-policy sweep.*

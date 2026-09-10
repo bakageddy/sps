@@ -14,10 +14,10 @@ use crate::{
     util,
 };
 use error::Error;
+use serde::Deserialize;
+use serde::Serialize;
 use time::{format_description::BorrowedFormatItem, macros::format_description};
 use tracing::warn;
-use serde::Serialize;
-use serde::Deserialize;
 
 const STUCKQUERY_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
@@ -82,6 +82,11 @@ impl<'a> StuckqueryParser<'a> {
         let mut table_header_lines: [&str; 5] = [""; 5];
         let mut idx = 0;
 
+        tok.skip_whitespace();
+        if tok.is_empty() {
+            return Ok(Vec::new());
+        }
+
         while let Some(line) = tok.peek_line()
             && line.trim_start().starts_with("|")
         {
@@ -94,6 +99,7 @@ impl<'a> StuckqueryParser<'a> {
         }
 
         if idx != 5 {
+            dbg!("Invalid Table Header: {:?}", table_header_lines);
             return Err(Error::InvalidTableHeader);
         }
 
@@ -144,25 +150,23 @@ impl<'a> Iterator for StuckqueryParser<'a> {
             return None;
         }
 
+        let mut header = None;
         self.1 = ParserState::Initial;
-        while let Some(line) = tok.peek_line()
-            && line.trim_start().starts_with("[")
-        {
-            if line.trim_end().ends_with("::") {
+        while let Some(line) = tok.get_line() {
+            if line.trim_start().starts_with("[") && line.trim_end().ends_with("::") {
+                header = Some(line);
                 self.1 = ParserState::Header;
                 break;
             }
-
-            tok.get_line()?;
         }
 
         if !matches!(self.1, ParserState::Header) {
+            tok.get_line()?;
             self.0 = tok.remaining();
             return Some(Err(Error::UnableToFindTableHeader));
         }
 
-        let header = tok.get_line()?;
-        let timestamp = match Self::parse_header(header) {
+        let timestamp = match Self::parse_header(header.unwrap()) {
             Ok(x) => x,
             Err(e) => return Some(Err(e)),
         };
@@ -171,14 +175,17 @@ impl<'a> Iterator for StuckqueryParser<'a> {
 
         let mut table_header_line_count = 0;
         let mut table_header_lines = Vec::new();
-        while let Some(line) = tok.peek_line()
-            && line.starts_with("|")
-            && table_header_line_count != 5
-        {
-            table_header_lines.push(line);
-
-            table_header_line_count += 1;
-            let _ = tok.get_line()?;
+        while let Some(line) = tok.peek_line() {
+            if table_header_line_count == 5 {
+                break;
+            }
+            if line.trim_start().starts_with("|") {
+                table_header_lines.push(line);
+                table_header_line_count += 1;
+                let _ = tok.get_line()?;
+            } else {
+                break;
+            }
         }
 
         if table_header_lines.len() != 5 {
@@ -202,9 +209,11 @@ impl<'a> Iterator for StuckqueryParser<'a> {
         let table_name = table_name.unwrap();
         let mut queries = Vec::new();
         self.1 = ParserState::QueryTable;
-        while let Some(line) = tok.peek_line()
-            && line.trim_start().starts_with("|")
-        {
+        while let Some(line) = tok.peek_line() {
+            if !line.trim_start().starts_with("|") || line.is_empty() {
+                break;
+            }
+
             let query = match table_kind {
                 DBKind::PGSQL => {
                     let query = PGSQLQuery::parse(line);
@@ -219,12 +228,14 @@ impl<'a> Iterator for StuckqueryParser<'a> {
                     if table_name.eq(Self::STUCKQUERY_MSSQL_RUNNING_QUERY_HEADER) {
                         let query = RunningQuery::parse(line);
                         if query.is_err() {
+                            self.0 = tok.remaining();
                             return Some(Err(query.unwrap_err()));
                         }
                         Stuckquery::MSSQL(MSSQLQuery::Running(query.unwrap()))
                     } else if table_name.eq(Self::STUCKQUERY_MSSQL_BLOCKING_QUERY_HEADER) {
                         let query = BlockingQuery::parse(line);
                         if query.is_err() {
+                            self.0 = tok.remaining();
                             return Some(Err(query.unwrap_err()));
                         }
                         Stuckquery::MSSQL(MSSQLQuery::Blocking(query.unwrap()))
@@ -238,14 +249,17 @@ impl<'a> Iterator for StuckqueryParser<'a> {
             queries.push(query);
         }
 
-        if matches!(table_kind, DBKind::MSSQL) {
+        if let DBKind::MSSQL = table_kind {
             let result = Self::extract_mssql_blocking_queries(&mut tok);
+            tok.skip_whitespace();
+            self.0 = tok.remaining();
             if let Ok(table) = result {
                 queries.extend(table);
             }
+        } else {
+            self.0 = tok.remaining();
         }
 
-        self.0 = tok.remaining();
         Some(Ok(StuckqueryTable { queries, timestamp }))
     }
 }
@@ -816,6 +830,19 @@ pub mod test {
             count += 1;
         }
         assert_eq!(count, 41);
+
+        let map = util::map_file("test/stuckqueries/stuckquery_pgsql_2.txt").unwrap();
+        let parser = StuckqueryParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for result in parser {
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
+            count += 1;
+        }
+        assert_eq!(count, 8);
     }
 
     #[test]
@@ -901,8 +928,29 @@ pub mod test {
     fn stuckquery_mssql_full_file() {
         let map = util::map_file("test/stuckqueries/stuckquery_mssql.txt").unwrap();
         let parser = StuckqueryParser::try_from(map.deref()).unwrap();
-        let result = parser.flatten().collect::<Vec<_>>();
-        assert_eq!(result.len(), 61);
+        let mut count = 0;
+        for result in parser {
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
+            count += 1;
+        }
+        assert_eq!(count, 61);
+
+        let map = util::map_file("test/stuckqueries/stuckquery_mssql_2.txt").unwrap();
+        let parser = StuckqueryParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for result in parser {
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
+            count += 1;
+        }
+        assert_eq!(count, 55);
     }
 }
 

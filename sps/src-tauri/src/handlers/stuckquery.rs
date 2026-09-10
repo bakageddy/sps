@@ -2,7 +2,10 @@ use std::{ops::Deref, sync::Mutex};
 
 use tauri::State;
 
-use crate::handlers::types::{BlockingSnapshot, MSSQLLongRunningQuery, MSSQLSnapshot, PGSQLSnapshot};
+use crate::handlers::types::{
+    BlockingSnapshot, MSSQLLongRunningQuery, MSSQLLongRunningTxn, MSSQLSnapshot,
+    PGSQLLongRunningQuery, PGSQLSnapshot,
+};
 use crate::parser::stuckquery::{BlockingQuery, PGSQLQuery, RunningQuery};
 use crate::store;
 use crate::types::AppState;
@@ -118,5 +121,38 @@ pub fn stuckquery_mssql_longrunning(
     let result = store::stuckquery::get_stuckquery_mssql_long_running(cnx.deref()).map_err(|e| {
         format!("Error during fetching MSSQL Long running queries from database: {e}")
     });
+    result
+}
+
+#[tauri::command]
+pub fn stuckquery_pgsql_longrunning(
+    state: State<'_, Mutex<AppState>>,
+) -> Result<Vec<PGSQLLongRunningQuery>, String> {
+    let guard = state.lock().unwrap();
+    let cnx = guard
+        .store
+        .get()
+        .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
+    drop(guard);
+
+    let result = store::stuckquery::get_stuckquery_pgsql_long_running(cnx.deref()).map_err(|e| {
+        format!("Error during fetching PGSQL long running queries from database: {e}")
+    });
+    result
+}
+
+#[tauri::command]
+pub fn stuckquery_mssql_longtxns(
+    state: State<'_, Mutex<AppState>>,
+) -> Result<Vec<MSSQLLongRunningTxn>, String> {
+    let guard = state.lock().unwrap();
+    let cnx = guard
+        .store
+        .get()
+        .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
+    drop(guard);
+
+    let result = store::stuckquery::get_stuckquery_mssql_long_running_txn(cnx.deref())
+        .map_err(|e| format!("Error during fetching MSSQL long running txn from database: {e}"));
     result
 }

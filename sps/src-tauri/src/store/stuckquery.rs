@@ -1,9 +1,11 @@
 use std::str::FromStr;
 
 use duckdb::Connection;
+use duckdb::types::Value;
 
 use crate::handlers::types::{
-    BlockingSnapshot, MSSQLLongRunningQuery, MSSQLSnapshot, PGSQLSnapshot,
+    BlockingSnapshot, MSSQLLongRunningQuery, MSSQLLongRunningTxn, MSSQLSnapshot,
+    PGSQLLongRunningQuery, PGSQLSnapshot,
 };
 use crate::parser::WaitType;
 use crate::parser::stuckquery::{BlockingQuery, MSSQLStatus, PGSQLQuery, PGSQLState, RunningQuery};
@@ -191,7 +193,7 @@ pub fn get_stuckquery_mssql_long_running(
     cnx: &Connection,
 ) -> Result<Vec<MSSQLLongRunningQuery>, Error> {
     let query = format!(
-        "SELECT session_id, txn_id, statement, login, COUNT(timestamp), MIN(timestamp), MAX(timestamp), MAX(elapsed), MAX(cpu_time_ms), COUNT(blocked_by) FILTER (WHERE blocked_by != 0) FROM {0} GROUP BY timestamp, session_id, txn_id, statement, login ORDER BY timestamp",
+        "SELECT session_id, txn_id, statement, login, COUNT(timestamp), MIN(timestamp), MAX(timestamp), MAX(elapsed), MAX(cpu_time_ms), COUNT(blocked_by) FILTER (WHERE blocked_by != 0) FROM {0} GROUP BY session_id, txn_id, statement, login HAVING COUNT(timestamp) > 1 ORDER BY timestamp",
         Tables::StuckqueryMSSQL.into_str()
     );
     let mut stmt = cnx.prepare_cached(&query)?;
@@ -214,4 +216,67 @@ pub fn get_stuckquery_mssql_long_running(
     }
 
     Ok(queries)
+}
+
+pub fn get_stuckquery_pgsql_long_running(
+    cnx: &Connection,
+) -> Result<Vec<PGSQLLongRunningQuery>, Error> {
+    let query = format!(
+        "SELECT pid, query, FIRST(db_name), COUNT(timestamp), MIN(timestamp), MAX(timestamp), MAX(query_time), COUNT(state) FILTER (WHERE state = 'idle in transaction') FROM {} GROUP BY pid, query HAVING COUNT(timestamp) > 1 ORDER BY timestamp",
+        Tables::StuckqueryPGSQL.into_str()
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    let mut rows = stmt.query([])?;
+    let mut queries = Vec::new();
+    while let Some(row) = rows.next()? {
+        let query = PGSQLLongRunningQuery {
+            pid: row.get(0)?,
+            query: row.get(1)?,
+            db_name: row.get(2)?,
+            snapshots: row.get(3)?,
+            first_seen: row.get(4)?,
+            last_seen: row.get(5)?,
+            max_query_time_ms: row.get(6)?,
+            idle_in_txn_in: row.get(7)?,
+        };
+        queries.push(query);
+    }
+    Ok(queries)
+}
+
+pub fn get_stuckquery_mssql_long_running_txn(
+    cnx: &Connection,
+) -> Result<Vec<MSSQLLongRunningTxn>, Error> {
+    let query = format!(
+        "SELECT session_id, txn_id, FIRST(login), COUNT(timestamps), MIN(timestamps), MAX(timestamps), LIST(statement_text) FROM {} GROUP BY session_id, txn_id ORDER BY timestamp",
+        Tables::StuckqueryMSSQL.into_str()
+    );
+
+    let mut stmt = cnx.prepare_cached(&query)?;
+    let mut rows = stmt.query([])?;
+    let mut result = Vec::new();
+    while let Some(row) = rows.next()? {
+        let queries: Value = row.get(6)?;
+        let queries: Vec<String> = match queries {
+            Value::List(items) => items
+                .into_iter()
+                .flat_map(|v| match v {
+                    Value::Text(s) => Ok(s),
+                    _ => Err(()),
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let query = MSSQLLongRunningTxn {
+            session_id: row.get(0)?,
+            txn_id: row.get(1)?,
+            login: row.get(2)?,
+            snapshots: row.get(3)?,
+            first_seen: row.get(4)?,
+            last_seen: row.get(5)?,
+            queries,
+        };
+        result.push(query);
+    }
+    Ok(result)
 }

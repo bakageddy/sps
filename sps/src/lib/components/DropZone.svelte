@@ -62,7 +62,16 @@
 	}
 
 	$effect(() => {
-		const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+		// getCurrentWebview() throws synchronously outside Tauri (browser
+		// dev/testing) — degrade to no drag-drop instead of killing boot.
+		let webview;
+		try {
+			webview = getCurrentWebview();
+		} catch (e) {
+			console.warn("drag-drop unavailable:", e);
+			return;
+		}
+		const unlisten = webview.onDragDropEvent((event) => {
 			if (
 				event.payload.type === "enter" ||
 				event.payload.type === "over"
