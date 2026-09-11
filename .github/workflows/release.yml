@@ -1,5 +1,6 @@
 # Rolling release: every push to main rebuilds the "latest" prerelease with
-# fresh dmg / deb / rpm / msi bundles.
+# fresh dmg / msi bundles plus deb/rpm/AppImage PER Ubuntu baseline
+# (suffixed _ubuntu-22.04 / _ubuntu-24.04 — pick the one matching your host).
 #
 # Design notes:
 #  - The auto-injected GITHUB_TOKEN is read-only by default on new repos;
@@ -42,7 +43,15 @@ jobs:
         include:
           - platform: macos-latest
             bundles: dmg
+          # BOTH Ubuntu baselines, deliberately: a bundle built on 22.04
+          # (GLib 2.72) breaks on 24.04 hosts ("undefined symbol:
+          # g_task_set_static_name" from newer gvfs modules) and vice versa
+          # for baseline libs — so each supported distro gets its own
+          # artifacts, suffixed by builder (see the upload step). 20.04
+          # runners are retired; 22.04 + 24.04 is the full hosted set.
           - platform: ubuntu-22.04
+            bundles: deb,appimage
+          - platform: ubuntu-24.04
             bundles: deb,rpm,appimage
           - platform: windows-latest
             bundles: msi
@@ -70,7 +79,7 @@ jobs:
           workspaces: sps/src-tauri
 
       - name: install linux system deps
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -78,7 +87,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
         working-directory: sps
 
+      # macOS/Windows: tauri-action builds AND uploads straight into the
+      # release (their filenames never collide across jobs).
       - uses: tauri-apps/tauri-action@v0
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -88,3 +100,32 @@ jobs:
           releaseBody: Rolling build of the newest commit on main.
           prerelease: true
           args: --bundles ${{ matrix.bundles }}
+
+      # Linux: build ONLY — both distro jobs produce identically named
+      # files (sps_0.1.0_amd64.deb), so we rename with the builder suffix
+      # and upload ourselves.
+      - uses: tauri-apps/tauri-action@v0
+        if: startsWith(matrix.platform, 'ubuntu')
+        with:
+          projectPath: sps
+          args: --bundles ${{ matrix.bundles }}
+
+      - name: upload linux bundles (distro-suffixed)
+        if: startsWith(matrix.platform, 'ubuntu')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          shopt -s nullglob
+          mkdir -p out
+          for f in sps/src-tauri/target/release/bundle/deb/*.deb \
+                   sps/src-tauri/target/release/bundle/rpm/*.rpm \
+                   sps/src-tauri/target/release/bundle/appimage/*.AppImage; do
+            base="$(basename "$f")"
+            cp "$f" "out/${base%.*}_${{ matrix.platform }}.${base##*.}"
+          done
+          # the release may not exist yet (created by whichever job gets
+          # there first; concurrent creates collapse into the || true)
+          gh release create latest --prerelease --title "sps latest (main)" \
+            --notes "Rolling build of the newest commit on main." 2>/dev/null || true
+          gh release upload latest out/* --clobber
