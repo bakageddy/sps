@@ -43,7 +43,7 @@ jobs:
           - platform: macos-latest
             bundles: dmg
           - platform: ubuntu-22.04
-            bundles: deb,rpm
+            bundles: deb,rpm,appimage
           - platform: windows-latest
             bundles: msi
     runs-on: ${{ matrix.platform }}
