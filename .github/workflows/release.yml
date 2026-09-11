@@ -1,5 +1,7 @@
 # Rolling release: every push to main rebuilds the "latest" prerelease with
-# fresh dmg / deb / rpm / msi bundles.
+# fresh dmg / msi bundles, deb/AppImage PER Ubuntu baseline (suffixed
+# _ubuntu-22.04 / _ubuntu-24.04 — pick the one matching your host), and an
+# rpm built in a real Fedora container (suffixed _fedora-42).
 #
 # Design notes:
 #  - The auto-injected GITHUB_TOKEN is read-only by default on new repos;
@@ -7,8 +9,15 @@
 #  - The old release is deleted first (single job, before the matrix) because
 #    the app version rarely changes — re-uploading identically named assets
 #    to an existing release fails.
-#  - --bundles overrides tauri.conf.json's targets per platform, so each
-#    runner only builds its native formats.
+#  - BOTH Ubuntu baselines on purpose: a bundle built on 22.04 (GLib 2.72)
+#    breaks on 24.04 hosts ("undefined symbol: g_task_set_static_name" from
+#    newer gvfs modules) and vice versa — each distro generation gets its
+#    own artifacts. 20.04 runners are retired.
+#  - An rpm built on Ubuntu links against Ubuntu libs/package names and is
+#    useless on Fedora — the rpm job runs in a fedora container instead.
+#  - gh in EVERY upload step gets GH_REPO + safe.directory: inside a
+#    container the checkout is owned by a different uid, and gh shelling
+#    out to git dies with "dubious ownership" otherwise.
 #  - macos-latest is Apple Silicon; the dmg is aarch64-only. Add a second
 #    macos entry with `args: --target x86_64-apple-darwin --bundles dmg`
 #    if Intel Macs need to be served.
@@ -33,6 +42,7 @@ jobs:
         run: gh release delete latest --cleanup-tag --yes || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
 
   build:
     needs: refresh-release
@@ -43,7 +53,9 @@ jobs:
           - platform: macos-latest
             bundles: dmg
           - platform: ubuntu-22.04
-            bundles: deb,rpm
+            bundles: deb,appimage
+          - platform: ubuntu-24.04
+            bundles: deb,appimage
           - platform: windows-latest
             bundles: msi
     runs-on: ${{ matrix.platform }}
@@ -70,7 +82,7 @@ jobs:
           workspaces: sps/src-tauri
 
       - name: install linux system deps
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -78,7 +90,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
         working-directory: sps
 
+      # macOS/Windows: tauri-action builds AND uploads straight into the
+      # release (their filenames never collide across jobs).
       - uses: tauri-apps/tauri-action@v0
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -88,3 +103,76 @@ jobs:
           releaseBody: Rolling build of the newest commit on main.
           prerelease: true
           args: --bundles ${{ matrix.bundles }}
+
+      # Linux: build ONLY — both distro jobs produce identically named
+      # files (sps_0.1.0_amd64.deb), so we rename with the builder suffix
+      # and upload ourselves.
+      - uses: tauri-apps/tauri-action@v0
+        if: startsWith(matrix.platform, 'ubuntu')
+        with:
+          projectPath: sps
+          args: --bundles ${{ matrix.bundles }}
+
+      - name: upload linux bundles (distro-suffixed)
+        if: startsWith(matrix.platform, 'ubuntu')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -e
+          shopt -s nullglob
+          mkdir -p out
+          for f in sps/src-tauri/target/release/bundle/deb/*.deb \
+                   sps/src-tauri/target/release/bundle/appimage/*.AppImage; do
+            base="$(basename "$f")"
+            cp "$f" "out/${base%.*}_${{ matrix.platform }}.${base##*.}"
+          done
+          # the release may not exist yet (created by whichever job gets
+          # there first; concurrent creates collapse into the || true)
+          gh release create latest --prerelease --title "sps latest (main)" \
+            --notes "Rolling build of the newest commit on main." 2>/dev/null || true
+          gh release upload latest out/* --clobber
+
+  # A real Fedora RPM must be BUILT on Fedora: same runner, fedora container.
+  build-fedora-rpm:
+    needs: refresh-release
+    runs-on: ubuntu-24.04
+    container: fedora:42
+    steps:
+      - name: install system deps
+        run: |
+          dnf install -y git rust cargo nodejs npm gh \
+            webkit2gtk4.1-devel openssl-devel gtk3-devel \
+            libappindicator-gtk3-devel librsvg2-devel \
+            gcc gcc-c++ make file wget xz
+
+      - uses: actions/checkout@v4
+
+      - name: install pnpm + frontend deps
+        run: |
+          npm install -g pnpm@11
+          pnpm --dir sps install --frozen-lockfile
+
+      - name: build rpm
+        run: pnpm --dir sps tauri build --bundles rpm
+
+      - name: upload fedora rpm (suffixed)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gh resolves the repo from this env var instead of shelling out
+          # to git — which would die on the container's uid mismatch with
+          # "detected dubious ownership in repository".
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -e
+          # belt and braces for anything else that runs git in here
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
+          shopt -s nullglob
+          mkdir -p out
+          for f in sps/src-tauri/target/release/bundle/rpm/*.rpm; do
+            base="$(basename "$f")"
+            cp "$f" "out/${base%.rpm}_fedora-42.rpm"
+          done
+          gh release create latest --prerelease --title "sps latest (main)" \
+            --notes "Rolling build of the newest commit on main." 2>/dev/null || true
+          gh release upload latest out/* --clobber

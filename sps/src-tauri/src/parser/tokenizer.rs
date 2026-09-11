@@ -60,6 +60,10 @@ impl<'a> Tokenizer<'a> {
         self.take_until("\n")
     }
 
+    pub fn peek(&mut self, needle: &str) -> bool {
+        self.0.starts_with(needle)
+    }
+
     pub fn peek_until(&mut self, needle: &str) -> Option<&'a str> {
         let (data, _) = self.0.split_once(needle)?;
         Some(data)
