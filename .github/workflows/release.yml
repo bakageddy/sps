@@ -1,6 +1,7 @@
 # Rolling release: every push to main rebuilds the "latest" prerelease with
-# fresh dmg / msi bundles plus deb/rpm/AppImage PER Ubuntu baseline
-# (suffixed _ubuntu-22.04 / _ubuntu-24.04 — pick the one matching your host).
+# fresh dmg / msi bundles, deb/AppImage PER Ubuntu baseline (suffixed
+# _ubuntu-22.04 / _ubuntu-24.04 — pick the one matching your host), and an
+# rpm built in a real Fedora container (suffixed _fedora-42).
 #
 # Design notes:
 #  - The auto-injected GITHUB_TOKEN is read-only by default on new repos;
@@ -52,7 +53,7 @@ jobs:
           - platform: ubuntu-22.04
             bundles: deb,appimage
           - platform: ubuntu-24.04
-            bundles: deb,rpm,appimage
+            bundles: deb,appimage
           - platform: windows-latest
             bundles: msi
     runs-on: ${{ matrix.platform }}
@@ -126,6 +127,46 @@ jobs:
           done
           # the release may not exist yet (created by whichever job gets
           # there first; concurrent creates collapse into the || true)
+          gh release create latest --prerelease --title "sps latest (main)" \
+            --notes "Rolling build of the newest commit on main." 2>/dev/null || true
+          gh release upload latest out/* --clobber
+
+  # An RPM built on Ubuntu is linked against Ubuntu's libs and dependency
+  # names — Fedora rejects it. A real Fedora RPM must be BUILT on Fedora:
+  # same runner, Fedora container.
+  build-fedora-rpm:
+    needs: refresh-release
+    runs-on: ubuntu-24.04
+    container: fedora:42
+    steps:
+      - name: install system deps
+        run: |
+          dnf install -y git rust cargo nodejs npm gh \
+            webkit2gtk4.1-devel openssl-devel gtk3-devel \
+            libappindicator-gtk3-devel librsvg2-devel \
+            gcc gcc-c++ make file wget xz
+
+      - uses: actions/checkout@v4
+
+      - name: install pnpm + frontend deps
+        run: |
+          npm install -g pnpm@11
+          pnpm --dir sps install --frozen-lockfile
+
+      - name: build rpm
+        run: pnpm --dir sps tauri build --bundles rpm
+
+      - name: upload fedora rpm (suffixed)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          shopt -s nullglob
+          mkdir -p out
+          for f in sps/src-tauri/target/release/bundle/rpm/*.rpm; do
+            base="$(basename "$f")"
+            cp "$f" "out/${base%.rpm}_fedora-42.rpm"
+          done
           gh release create latest --prerelease --title "sps latest (main)" \
             --notes "Rolling build of the newest commit on main." 2>/dev/null || true
           gh release upload latest out/* --clobber
