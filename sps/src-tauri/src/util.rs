@@ -12,8 +12,12 @@ use tracing::{info, warn};
 
 use crate::{
     parser::{
-        connectiondump::ConnectionDumpParser, cpumemstats::CPUMemStatsParser, cpumonitoring::CPUMonitoringParser, stuckquery::StuckqueryParser, stuckthread::StuckthreadParser,
-    }, store::{self, Store}, types::{LogFiles, ParseInt, TimestampError},
+        connectiondump::ConnectionDumpParser, cpumemstats::CPUMemStatsParser,
+        cpumonitoring::CPUMonitoringParser, stuckquery::StuckqueryParser,
+        stuckthread::StuckthreadParser,
+    },
+    store::{self, Store},
+    types::{LogFiles, ParseInt, TimestampError},
 };
 
 pub type Result<T> = std::result::Result<T, crate::error::Error>;
@@ -134,18 +138,11 @@ where
         cpumemstats,
         stuckthreads,
         stuckqueries,
-        connectiondump
+        connectiondump,
     } = get_files(root)?;
     std::thread::scope(|s| {
         let _ = s.spawn(|| -> Result<()> {
-            let result = parse_cpumemstats_and_persist(cpumemstats, store.clone());
-            if let Err(ref e) = result {
-                warn!("Error during parsing/persisting: {e}");
-            }
-            result
-        });
-        let _ = s.spawn(|| -> Result<()> {
-            let result = parse_cpumonitoring_and_persist(cpumonitoring, store.clone());
+            let result = parse_cpumemstats_and_persist(&cpumemstats, store.clone());
             if let Err(ref e) = result {
                 warn!("Error during parsing/persisting: {e}");
             }
@@ -153,7 +150,25 @@ where
         });
 
         let _ = s.spawn(|| -> Result<()> {
-            let result = parse_stuckthreads_and_persist(stuckthreads, store.clone());
+            let result = parse_cpumonitoring_and_persist(&cpumonitoring, store.clone());
+            if let Err(ref e) = result {
+                warn!("Error during parsing/persisting: {e}");
+            }
+            result
+        });
+
+        for chunk in stuckthreads.chunks(stuckthreads.len() / 2) {
+            s.spawn(|| -> Result<()> {
+                let result = parse_stuckthreads_and_persist(chunk, store.clone());
+                if let Err(ref e) = result {
+                    warn!("Error during parsing/persisting: {e}");
+                }
+                result
+            });
+        }
+
+        let _ = s.spawn(|| -> Result<()> {
+            let result = parse_stuckqueries_and_persist(&stuckqueries, store.clone());
             if let Err(ref e) = result {
                 warn!("Error during parsing/persisting: {e}");
             }
@@ -161,15 +176,7 @@ where
         });
 
         let _ = s.spawn(|| -> Result<()> {
-            let result = parse_stuckqueries_and_persist(stuckqueries, store.clone());
-            if let Err(ref e) = result {
-                warn!("Error during parsing/persisting: {e}");
-            }
-            result
-        });
-
-        let _ = s.spawn(|| -> Result<()> {
-            let result = parse_connectiondump_and_persist(connectiondump, store.clone());
+            let result = parse_connectiondump_and_persist(&connectiondump, store.clone());
             if let Err(ref e) = result {
                 warn!("Error during parsing/persisting: {e}");
             }
@@ -186,12 +193,12 @@ where
 }
 
 fn parse_stuckqueries_and_persist(
-    entries: Vec<PathBuf>,
+    entries: &[PathBuf],
     store: Store,
 ) -> std::result::Result<(), crate::error::Error> {
     let entries = entries
         .into_iter()
-        .flat_map(|e| -> Result<(Mmap, PathBuf)> { Ok((map_file(&e)?, e)) });
+        .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(&e)?, e)) });
 
     let cnx = store.get()?;
     for (mmap, entry) in entries {
@@ -225,12 +232,12 @@ fn parse_stuckqueries_and_persist(
     Ok(())
 }
 
-pub fn parse_cpumonitoring_and_persist(entries: Vec<PathBuf>, store: Store) -> Result<()>
+pub fn parse_cpumonitoring_and_persist(entries: &[PathBuf], store: Store) -> Result<()>
 where
 {
     let entries = entries
         .into_iter()
-        .flat_map(|e| -> Result<(Mmap, PathBuf)> { Ok((map_file(&e)?, e)) });
+        .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(&e)?, e)) });
 
     let cnx = store.get()?;
     for (mmap, entry) in entries {
@@ -264,10 +271,10 @@ where
     Ok(())
 }
 
-pub fn parse_cpumemstats_and_persist(entries: Vec<PathBuf>, store: Store) -> Result<()> {
+pub fn parse_cpumemstats_and_persist(entries: &[PathBuf], store: Store) -> Result<()> {
     let entries = entries
         .into_iter()
-        .flat_map(|e| -> Result<(Mmap, PathBuf)> { Ok((map_file(&e)?, e)) });
+        .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(&e)?, e)) });
 
     let cnx = store.get()?;
     for (mmap, entry) in entries {
@@ -301,10 +308,10 @@ pub fn parse_cpumemstats_and_persist(entries: Vec<PathBuf>, store: Store) -> Res
     Ok(())
 }
 
-pub fn parse_stuckthreads_and_persist(entries: Vec<PathBuf>, store: Store) -> Result<()> {
+pub fn parse_stuckthreads_and_persist(entries: &[PathBuf], store: Store) -> Result<()> {
     let entries = entries
         .into_iter()
-        .flat_map(|e| -> Result<(Mmap, PathBuf)> { Ok((map_file(&e)?, e)) });
+        .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(&e)?, e)) });
 
     let cnx = store.get()?;
     for (mmap, entry) in entries {
@@ -338,14 +345,13 @@ pub fn parse_stuckthreads_and_persist(entries: Vec<PathBuf>, store: Store) -> Re
     Ok(())
 }
 
-
 fn parse_connectiondump_and_persist(
-    entries: Vec<PathBuf>,
+    entries: &[PathBuf],
     store: Store,
 ) -> std::result::Result<(), crate::error::Error> {
     let entries = entries
         .into_iter()
-        .flat_map(|e| -> Result<(Mmap, PathBuf)> { Ok((map_file(&e)?, e)) });
+        .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(&e)?, e)) });
     let cnx = store.get()?;
     for (mmap, entry) in entries {
         info!("Parsing and persisting: {:?}", entry.display());
@@ -358,11 +364,15 @@ fn parse_connectiondump_and_persist(
                     if item.is_ok() {
                         item.ok()
                     } else {
-                        warn!(
-                            "Error during parsing {:?} due to {}",
-                            entry.display(),
-                            item.unwrap_err()
-                        );
+                        if let Err(crate::parser::connectiondump::error::Error::UnrecognizedConnectionDumpEntry(_)) = item {
+                            ()
+                        } else {
+                            warn!(
+                                "Error during parsing {:?} due to {}",
+                                entry.display(),
+                                item.unwrap_err()
+                            );
+                        }
                         None
                     }
                 }),
