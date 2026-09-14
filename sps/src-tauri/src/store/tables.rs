@@ -8,7 +8,9 @@ pub enum Tables {
     StuckthreadTraces,
     StuckqueryPGSQL,
     StuckqueryMSSQL,
-    StuckqueryBlockingMSSQL
+    StuckqueryBlockingMSSQL,
+    ConnectionDump,
+    ConnectionDumpTraces,
 }
 
 impl Tables {
@@ -24,6 +26,8 @@ impl Tables {
             Self::StuckqueryPGSQL => "stuckquery_pgsql",
             Self::StuckqueryMSSQL => "stuckquery_mssql",
             Self::StuckqueryBlockingMSSQL => "stuckquery_mssql_blocking",
+            Self::ConnectionDump => "connectiondump",
+            Self::ConnectionDumpTraces => "connectiondump_stacktraces",
         }
     }
 }

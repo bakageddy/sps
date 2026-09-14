@@ -1,8 +1,8 @@
 pub mod cpumemstats;
 pub mod cpumonitoring;
-pub mod stuckthread;
-pub mod stuckquery;
 pub mod error;
+pub mod stuckquery;
+pub mod stuckthread;
 pub mod tables;
 pub mod types;
 
@@ -13,6 +13,7 @@ use r2d2::{Pool, PooledConnection};
 
 use crate::{
     parser::{
+        connectiondump::ConnectionDumpEntry,
         cpumemstats::StatTable,
         cpumonitoring::CPUMonitoring,
         stuckquery::{MSSQLQuery, Stuckquery, StuckqueryTable},
@@ -183,6 +184,8 @@ pub fn append_stuckthread<'a>(
         };
         appender.append_row((timestamp, tid, duration, name, request, active))?;
     }
+    appender.flush()?;
+    traces_appender.flush()?;
     Ok(())
 }
 
@@ -267,5 +270,81 @@ pub fn append_stuckqueries<'a>(
             }
         }
     }
+    block_appender.flush()?;
+    mssql_appender.flush()?;
+    pgsql_appender.flush()?;
+    Ok(())
+}
+
+pub fn append_connectiondump<'a>(
+    cnx: &Connection,
+    iter: impl Iterator<Item = ConnectionDumpEntry<'a>>,
+) -> Result<(), store::error::Error> {
+    let mut appender = cnx.appender_to_db(Tables::ConnectionDump.into_str(), "main")?;
+    let mut traces_appender =
+        cnx.appender_to_db(Tables::ConnectionDumpTraces.into_str(), "main")?;
+
+    for entry in iter {
+        match entry {
+            ConnectionDumpEntry::Signal {
+                cause,
+                timestamp,
+                tid,
+            } => appender.append_row((
+                timestamp,
+                tid,
+                None::<u64>,
+                None::<u64>,
+                None::<u64>,
+                Some(cause.as_str()),
+            ))?,
+            ConnectionDumpEntry::ConnectionPoolStats {
+                tid,
+                timestamp,
+                used,
+                free,
+                total,
+            } => appender.append_row((
+                timestamp,
+                tid,
+                Some(used),
+                Some(free),
+                Some(total),
+                None::<&'static str>,
+            ))?,
+            ConnectionDumpEntry::ConnectionPoolTrace {
+                tid,
+                timestamp,
+                traces,
+            } => {
+                appender.append_row((
+                    timestamp,
+                    tid,
+                    None::<u64>,
+                    None::<u64>,
+                    None::<u64>,
+                    None::<&'static str>,
+                ))?;
+                for trace in traces {
+                    for (idx, frame) in (0..).zip(trace.stack_trace) {
+                        traces_appender.append_row((
+                            timestamp,
+                            tid,
+                            trace.duration,
+                            trace.start_time,
+                            idx,
+                            frame,
+                            trace.id,
+                            &trace.invoked_by,
+                            &trace.thread_name,
+                        ))?;
+                    }
+                }
+            }
+        };
+    }
+
+    appender.flush()?;
+    traces_appender.flush()?;
     Ok(())
 }

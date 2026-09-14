@@ -1,25 +1,32 @@
 use crate::{parser::tokenizer, util};
 use error::Error;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_with::{DisplayFromStr, serde_as};
 use std::{
     borrow::Cow,
     str::{FromStr, Utf8Error},
 };
 
 use crate::parser::tokenizer::Tokenizer;
-use time::{format_description::BorrowedFormatItem, macros::format_description};
+use time::{OffsetDateTime, format_description::BorrowedFormatItem, macros::format_description};
 
 const CONNECTION_DUMP_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
 const CONNECTION_DUMP_DATE_FORMAT: &[BorrowedFormatItem] =
     format_description!("[day]-[month]-[year]");
+const TRACE_DATE_TIME_FORMAT: &[BorrowedFormatItem] = format_description!(
+    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond] [offset_hour sign:mandatory][offset_minute]"
+);
 
+#[derive(Debug)]
 pub struct ConnectionDumpParser<'a>(&'a str, ParserState);
+#[derive(Debug)]
 pub enum ParserState {
     Initial,
     Entry,
 }
 
+#[derive(Debug)]
 pub enum ConnectionDumpEntry<'a> {
     Signal {
         cause: Cause,
@@ -40,18 +47,25 @@ pub enum ConnectionDumpEntry<'a> {
     },
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Trace<'a> {
-    duration: u64,
-    #[serde(with = "")]
-    start_time: u64,
-    stacktrace: Vec<Cow<'a, str>>,
-    id: u64,
-    invoked_by: Cow<'a, str>,
-    thread_name: Cow<'a, str>,
+    #[serde(deserialize_with = "to_millis")]
+    pub duration: u64,
+    #[serde(deserialize_with = "to_epoch_millis")]
+    pub start_time: u64,
+    #[serde(borrow)]
+    pub stack_trace: Vec<Cow<'a, str>>,
+    #[serde_as(as = "DisplayFromStr")]
+    pub id: u64,
+    #[serde(borrow)]
+    pub invoked_by: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    pub thread_name: Cow<'a, str>,
 }
 
+#[derive(Debug)]
 pub enum Cause {
     HighCPU,
     HighMemory,
@@ -116,6 +130,7 @@ impl<'a> ConnectionDumpParser<'a> {
             })
         } else if tok.peek(Self::CNX_STATS_PREAMBLE) {
             tok.expect(Self::CNX_STATS_PREAMBLE)?;
+
             tok.skip_whitespace();
             tok.expect("used_connections:")?;
             let used = tok
@@ -125,6 +140,9 @@ impl<'a> ConnectionDumpParser<'a> {
                 })?
                 .trim()
                 .parse()?;
+
+            tok.skip_whitespace();
+            tok.expect("free_connections:")?;
             let free = tok
                 .take_until(",")
                 .ok_or_else(|| {
@@ -132,6 +150,9 @@ impl<'a> ConnectionDumpParser<'a> {
                 })?
                 .trim()
                 .parse()?;
+
+            tok.skip_whitespace();
+            tok.expect("max_connections:")?;
             let total = tok.remaining().trim().parse()?;
             Ok(ConnectionDumpEntry::ConnectionPoolStats {
                 tid,
@@ -144,8 +165,12 @@ impl<'a> ConnectionDumpParser<'a> {
             tok.expect(Self::TRACE_INFO_PREAMBLE)?;
             tok.skip_whitespace();
             let json = tok.remaining();
-            serde_json::from_str(json);
-            todo!()
+            let traces: Vec<Trace> = serde_json::from_str(json)?;
+            Ok(ConnectionDumpEntry::ConnectionPoolTrace {
+                tid,
+                timestamp,
+                traces,
+            })
         } else {
             Err(Error::UnrecognizedConnectionDumpEntry(
                 tok.remaining().to_owned(),
@@ -186,14 +211,16 @@ impl<'a> Iterator for ConnectionDumpParser<'a> {
         }
 
         let line = tok.get_line()?;
-        let entry = match Self::parse_entry(line) {
-            Ok(e) => e,
+        match Self::parse_entry(line) {
+            Ok(e) => {
+                self.0 = tok.remaining();
+                Some(Ok(e))
+            },
             Err(e) => {
                 self.0 = tok.remaining();
-                return Some(Err(e));
+                Some(Err(e))
             }
-        };
-        Some(Ok(entry))
+        }
     }
 }
 
@@ -209,6 +236,36 @@ impl FromStr for Cause {
             _ => Err(Error::Cause(s.to_string())),
         }
     }
+}
+
+impl Cause {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::HighCPU => "High CPU",
+            Self::NoManagedConnections => "No ManagedConnections",
+            Self::HighMemory => "High Memory",
+            Self::URL => "URL Invocation",
+        }
+    }
+}
+
+pub fn to_epoch_millis<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: &str = Deserialize::deserialize(deserializer)?;
+    let dt = OffsetDateTime::parse(s, TRACE_DATE_TIME_FORMAT)
+        .map_err(|e| serde::de::Error::custom(e))?;
+    Ok((dt.unix_timestamp_nanos() / 1_000_000) as u64)
+}
+
+pub fn to_millis<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: &str = Deserialize::deserialize(deserializer)?;
+    let s = s.split_once(" ").and_then(|(n, _)| n.parse().ok());
+    Ok(s.unwrap_or(0))
 }
 
 pub mod error {
@@ -227,5 +284,183 @@ pub mod error {
         Cause(String),
         #[error("Unrecognized Connection Dump Entry: {0}")]
         UnrecognizedConnectionDumpEntry(String),
+        #[error("Invalid JSON: {0}")]
+        JSON(#[from] serde_json::Error),
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::ConnectionDumpParser;
+    use crate::{
+        parser::connectiondump::{Cause, ConnectionDumpEntry},
+        util,
+    };
+    use std::{assert_matches, ops::Deref};
+
+    #[test]
+    fn cd_cause_entry() {
+        let line = "[14:30:10.237]|[11-02-2026]|[ConnectionDump]|[INFO]|[201]| :: Going to dump performance logs. Cause : High CPU ";
+        let entry = ConnectionDumpParser::parse_entry(line);
+        assert!(
+            entry.is_ok(),
+            "Error during parsing: {}",
+            entry.unwrap_err()
+        );
+        let entry = entry.unwrap();
+        assert_matches!(entry, ConnectionDumpEntry::Signal { .. });
+        if let ConnectionDumpEntry::Signal {
+            cause,
+            timestamp,
+            tid,
+        } = entry
+        {
+            assert_matches!(cause, Cause::HighCPU);
+            assert_ne!(timestamp, 0);
+            assert_eq!(tid, 201);
+        }
+    }
+
+    #[test]
+    fn cd_connection_pool_stats() {
+        let line = "[14:30:11.022]|[11-02-2026]|[ConnectionDump]|[INFO]|[205]| :: Connection Pool Stats :: used_connections:9, free_connections:71, max_connections:80";
+        let entry = ConnectionDumpParser::parse_entry(line);
+        assert!(
+            entry.is_ok(),
+            "Error during parsing: {}",
+            entry.unwrap_err()
+        );
+        let entry = entry.unwrap();
+        assert_matches!(entry, ConnectionDumpEntry::ConnectionPoolStats { .. });
+        if let ConnectionDumpEntry::ConnectionPoolStats {
+            tid,
+            timestamp,
+            used,
+            free,
+            total,
+        } = entry
+        {
+            assert_eq!(tid, 205);
+            assert_ne!(timestamp, 0);
+            assert_eq!(used, 9);
+            assert_eq!(free, 71);
+            assert_eq!(total, 80);
+        }
+
+        let map = util::map_file("test/cd0/cd1_traces.txt").unwrap();
+        let data = std::str::from_utf8(map.deref()).unwrap();
+        let entry = ConnectionDumpParser::parse_entry(data);
+        assert!(
+            entry.is_ok(),
+            "Error during parsing: {}",
+            entry.unwrap_err()
+        );
+        let entry = entry.unwrap();
+        if let ConnectionDumpEntry::ConnectionPoolTrace {
+            tid,
+            timestamp,
+            traces,
+        } = entry
+        {
+            assert_eq!(tid, 22388);
+            assert_ne!(timestamp, 0);
+            assert_eq!(traces.len(), 38);
+        }
+    }
+
+    #[test]
+    fn cd_connection_pool_traces() {
+        let map = util::map_file("test/cd0/cd0_traces.txt").unwrap();
+        let data = std::str::from_utf8(map.deref()).unwrap();
+        let entry = ConnectionDumpParser::parse_entry(data);
+        assert!(
+            entry.is_ok(),
+            "Error during parsing: {}",
+            entry.unwrap_err()
+        );
+        let entry = entry.unwrap();
+        if let ConnectionDumpEntry::ConnectionPoolTrace {
+            tid,
+            timestamp,
+            traces,
+        } = entry
+        {
+            assert_eq!(tid, 205);
+            assert_ne!(timestamp, 0);
+            assert_eq!(traces.len(), 9);
+        }
+    }
+
+    #[test]
+    fn cd_skipping_performance() {
+        let line = "[15:08:03.660]|[11-02-2026]|[ConnectionDump]|[INFO]|[6744]| :: Skipping to dump performance logs for 960 seconds from last dump. Current trigger- Cause : High CPU";
+        let entry = ConnectionDumpParser::parse_entry(line);
+        assert!(
+            entry.is_ok(),
+            "Error during parsing: {}",
+            entry.unwrap_err()
+        );
+        let entry = entry.unwrap();
+        if let ConnectionDumpEntry::Signal {
+            cause,
+            timestamp,
+            tid,
+        } = entry
+        {
+            assert_ne!(timestamp, 0);
+            assert_eq!(tid, 6744);
+            assert_matches!(cause, Cause::HighCPU);
+        }
+    }
+
+    #[test]
+    fn cd_skipping_performance_nmc() {
+        let line = "[02:04:00.888]|[29-07-2026]|[ConnectionDump]|[INFO]|[67]| :: Skipping to dump performance logs for 120 seconds from last dump. Current trigger- Cause : No ManagedConnections";
+        let entry = ConnectionDumpParser::parse_entry(line);
+        assert!(
+            entry.is_ok(),
+            "Error during parsing: {}",
+            entry.unwrap_err()
+        );
+        let entry = entry.unwrap();
+        if let ConnectionDumpEntry::Signal {
+            cause,
+            timestamp,
+            tid,
+        } = entry
+        {
+            assert_ne!(timestamp, 0);
+            assert_eq!(tid, 67);
+            assert_matches!(cause, Cause::NoManagedConnections);
+        }
+    }
+
+    #[test]
+    fn cd_full_file() {
+        let map = util::map_file("test/cd0/cd0.txt").unwrap();
+        let parser = ConnectionDumpParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for entry in parser {
+            // assert!(entry.is_ok(), "Error during parsing: {}", entry.unwrap_err());
+            if entry.is_ok() {
+                count += 1;
+            } else {
+                dbg!(entry.unwrap_err());
+            }
+        }
+        assert_eq!(count, 67);
+
+        let map = util::map_file("test/cd0/cd1.txt").unwrap();
+        let parser = ConnectionDumpParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for entry in parser {
+            // assert!(entry.is_ok(), "Error during parsing: {}", entry.unwrap_err());
+            if entry.is_ok() {
+                count += 1;
+            } else {
+                dbg!(entry.unwrap_err());
+            }
+        }
+        assert_eq!(count, 422);
     }
 }
