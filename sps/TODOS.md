@@ -39,6 +39,27 @@ the spec; reconcile against them, not memory.
       snapshot; identity mssql = session_id+txn_id, pgsql = pid+query),
       `stuckquery_mssql_longtxns` (GROUP BY session_id+txn_id, >1 snapshot,
       queries = DISTINCT statements in first-seen order).
+- [ ] **Connection-dump commands** (five, requirements in
+      `src/lib/api/connectiondump.ts`; page live at /connectiondump;
+      parser DONE: Signal / PoolStats / Trace entries in
+      `parser/connectiondump.rs`): `connectiondump_signals(from?,
+      to?)` (alarm timeline; parser still needs a `suppressed` flag to split
+      real dumps from "Skipping to dump" lines; Cause serialized via
+      as_str, not enum-tagged),
+      `connectiondump_pool_stats(from?, to?)` (used/free/total series),
+      `connectiondump_snapshots()` + `connectiondump_traces(timestamp)`
+      (browser pair, stuckqueries pattern), `connectiondump_holders(from?,
+      to?)` (episodes grouped by **(thread id, startTime)** — id alone is a
+      reused Java thread id, NOT a connection id; same id + same startTime
+      across dumps = one continuing hold. Persist `appFrame` = first
+      non-plumbing stack frame at store time; dedup full stacks by hash).
+- [ ] **NMC correlation — threaddump link (future)**: when the pool is
+      exhausted, a thread dump in the window shows the WAITER side directly
+      (threads parked in `ConnectionPool.getConnection` /
+      `getConnDetailFromPool`); cd0 traces are the HOLDER side. Join by
+      thread name/id (`http-nio-8080-exec-11` style names appear in both) —
+      needs the threaddump parser first. Same window pattern also joins
+      stuckthreads (victims) and stuckqueries (why holders won't release).
 - [ ] **Overview commands**: `cpumem_total_cpu` / `cpumem_total_memory` —
       requirements in `src/lib/api/cpumemstats.ts` (frontend page is live at
       /cpumemstats/overview).
@@ -73,14 +94,6 @@ the spec; reconcile against them, not memory.
       → debug panic).
 - [ ] Parser: comment the atomically-written-record invariant where
       `has_stacktrace` classifies Begin/End (it's load-bearing).
-<<<<<<< HEAD
-- [x] ~~Aggregator bugs (double-emit, dropped orphaned ends, raw timestamp,
-      HashMap flush order, re-report merge policy, start-derivation
-      cross-check)~~ — OBSOLETE: aggregation moved to the frontend
-      (`src/lib/stuckthread.ts`); delete the Rust aggregator instead of
-      fixing it. The start-derivation epsilon check is still a good idea
-      and now lives frontend-side if ever needed.
-=======
 - [x] ~~Old aggregator (`get_stuckthreads_aggregate_minimal`) bugs
       (double-emit, dropped orphaned ends, HashMap flush order)~~ —
       OBSOLETE: replaced by `get_stuckthread_aggregates`.
@@ -103,7 +116,6 @@ the spec; reconcile against them, not memory.
       unkeyed eaches, `<svelte:boundary>`). The guards make it survivable,
       not correct — fix the subtraction at the source (see the ParseTID /
       naked-u64 parser item above).
->>>>>>> main
 
 - [ ] `get_stackframes`: add `ORDER BY idx` (row order is not guaranteed
       without it; preserve_insertion_order is likely, not promised).

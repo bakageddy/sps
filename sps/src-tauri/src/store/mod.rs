@@ -1,3 +1,4 @@
+pub mod connectiondump;
 pub mod cpumemstats;
 pub mod cpumonitoring;
 pub mod error;
@@ -290,6 +291,7 @@ pub fn append_connectiondump<'a>(
                 cause,
                 timestamp,
                 tid,
+                suppressed,
             } => appender.append_row((
                 timestamp,
                 tid,
@@ -297,6 +299,7 @@ pub fn append_connectiondump<'a>(
                 None::<u64>,
                 None::<u64>,
                 Some(cause.as_str()),
+                Some(suppressed),
             ))?,
             ConnectionDumpEntry::ConnectionPoolStats {
                 tid,
@@ -311,6 +314,7 @@ pub fn append_connectiondump<'a>(
                 Some(free),
                 Some(total),
                 None::<&'static str>,
+                None::<bool>
             ))?,
             ConnectionDumpEntry::ConnectionPoolTrace {
                 tid,
@@ -324,6 +328,7 @@ pub fn append_connectiondump<'a>(
                     None::<u64>,
                     None::<u64>,
                     None::<&'static str>,
+                    None::<bool>
                 ))?;
                 for trace in traces {
                     for (idx, frame) in (0..).zip(trace.stack_trace) {

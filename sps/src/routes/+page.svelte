@@ -26,6 +26,12 @@
       description:
         "Database queries running at each stuck-thread moment — blocking chains and long runners.",
     },
+    {
+      href: "/connectiondump",
+      title: "Connection Dumps",
+      description:
+        "Pool occupancy, threshold alarms, and who holds each connection — across dumps.",
+    },
   ];
 </script>
 

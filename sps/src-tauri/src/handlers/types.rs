@@ -152,3 +152,12 @@ pub struct MSSQLLongRunningTxn {
     pub last_seen: u64,
     pub queries: Vec<String>,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionDumpSignal {
+    pub timestamp: u64,
+    pub tid: u64,
+    pub cause: String,
+    pub suppressed: bool,
+}

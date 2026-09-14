@@ -165,7 +165,8 @@ CREATE TABLE IF NOT EXISTS main.connectiondump (
 	used UBIGINT NULL,
 	free UBIGINT NULL,
 	total UBIGINT NULL,
-	cause main.connectiondump_cause NULL
+	cause main.connectiondump_cause NULL,
+	suppressed BOOLEAN NULL,
 );
 
 CREATE TABLE IF NOT EXISTS main.connectiondump_stacktraces (

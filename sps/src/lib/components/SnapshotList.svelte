@@ -7,7 +7,7 @@
 	 */
 	export interface SnapshotRow {
 		timestamp: number;
-		kind: "mssql" | "pgsql" | "blocking";
+		kind: "mssql" | "pgsql" | "blocking" | "dump";
 		/** e.g. "21 queries · 3 blocked" */
 		detail: string;
 		/** true = something is wrong in this snapshot (blocked/idle-in-txn) */

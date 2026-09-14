@@ -32,6 +32,7 @@ pub enum ConnectionDumpEntry<'a> {
         cause: Cause,
         timestamp: u64,
         tid: u64,
+        suppressed: bool,
     },
     ConnectionPoolStats {
         tid: u64,
@@ -112,6 +113,7 @@ impl<'a> ConnectionDumpParser<'a> {
                 cause,
                 timestamp,
                 tid,
+                suppressed: true,
             })
         } else if tok.peek(Self::SKIPPING_CAUSE_PREAMBLE) {
             tok.expect(Self::SKIPPING_CAUSE_PREAMBLE)?;
@@ -127,6 +129,7 @@ impl<'a> ConnectionDumpParser<'a> {
                 cause,
                 timestamp,
                 tid,
+                suppressed: true
             })
         } else if tok.peek(Self::CNX_STATS_PREAMBLE) {
             tok.expect(Self::CNX_STATS_PREAMBLE)?;
@@ -313,11 +316,13 @@ pub mod test {
             cause,
             timestamp,
             tid,
+            suppressed
         } = entry
         {
             assert_matches!(cause, Cause::HighCPU);
             assert_ne!(timestamp, 0);
             assert_eq!(tid, 201);
+            assert_eq!(suppressed, false);
         }
     }
 
@@ -405,11 +410,13 @@ pub mod test {
             cause,
             timestamp,
             tid,
+            suppressed
         } = entry
         {
             assert_ne!(timestamp, 0);
             assert_eq!(tid, 6744);
             assert_matches!(cause, Cause::HighCPU);
+            assert_eq!(suppressed, true);
         }
     }
 
@@ -427,11 +434,13 @@ pub mod test {
             cause,
             timestamp,
             tid,
+            suppressed,
         } = entry
         {
             assert_ne!(timestamp, 0);
             assert_eq!(tid, 67);
             assert_matches!(cause, Cause::NoManagedConnections);
+            assert_eq!(suppressed, true);
         }
     }
 
