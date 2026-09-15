@@ -113,7 +113,7 @@ impl<'a> ConnectionDumpParser<'a> {
                 cause,
                 timestamp,
                 tid,
-                suppressed: true,
+                suppressed: false,
             })
         } else if tok.peek(Self::SKIPPING_CAUSE_PREAMBLE) {
             tok.expect(Self::SKIPPING_CAUSE_PREAMBLE)?;
