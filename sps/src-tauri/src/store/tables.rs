@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 pub enum Tables {
     CPUMonitoring,
     CPUMonitoringStackTraces,
@@ -14,7 +16,7 @@ pub enum Tables {
 }
 
 impl Tables {
-    pub fn into_str(self) -> &'static str {
+    pub fn into_str(&self) -> &'static str {
         match self {
             Self::CPUMonitoringStackTraces => "cpumonitoring_stacktraces",
             Self::CPUMonitoring => "cpumonitoring",
@@ -29,5 +31,11 @@ impl Tables {
             Self::ConnectionDump => "connectiondump",
             Self::ConnectionDumpTraces => "connectiondump_stacktraces",
         }
+    }
+}
+
+impl Display for Tables {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.into_str())
     }
 }
