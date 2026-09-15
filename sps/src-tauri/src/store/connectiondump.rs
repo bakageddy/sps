@@ -59,32 +59,32 @@ pub fn get_connectiondump_stats(
 pub fn get_connectiondump_snapshots(
     cnx: &Connection,
 ) -> Result<Vec<ConnectionDumpSnapshot>, Error> {
-    let query = format!(
-        "SELECT timestamp, tid, COUNT(id), MAX(duration) FROM {0} GROUP BY timestamp, tid ORDER BY timestamp",
-        Tables::ConnectionDumpTraces
-    );
-    let mut stmt = cnx.prepare_cached(&query)?;
-    let mut rows = stmt.query([])?;
-    let mut results = Vec::new();
-    let stats_query = format!(
-        "SELECT timestamp, tid, used, free, total FROM {0} WHERE timestamp = $1 AND tid = $2",
-        Tables::ConnectionDump
-    );
-    let mut stats_stmt = cnx.prepare_cached(&stats_query)?;
-    while let Some(row) = rows.next()? {
-        let timestamp: u64 = row.get(0)?;
-        let tid: u64 = row.get(1)?;
-        let result = stats_stmt
-            .query_one([timestamp, tid], |r| -> Result<(u64, u64), duckdb::Error> {
-                Ok((r.get(3)?, r.get(4)?))
-            });
-        match result {
-            Ok((used, free)) => (used, free),
-            Err(duckdb::Error::QueryReturnedNoRows) => 
-        }
-
-        results.push();
-    }
+    // let query = format!(
+    //     "SELECT timestamp, tid, COUNT(id), MAX(duration) FROM {0} GROUP BY timestamp, tid ORDER BY timestamp",
+    //     Tables::ConnectionDumpTraces
+    // );
+    // let mut stmt = cnx.prepare_cached(&query)?;
+    // let mut rows = stmt.query([])?;
+    // // let mut results = Vec::new();
+    // let stats_query = format!(
+    //     "SELECT timestamp, tid, used, free, total FROM {0} WHERE timestamp = $1 AND tid = $2",
+    //     Tables::ConnectionDump
+    // );
+    // let mut stats_stmt = cnx.prepare_cached(&stats_query)?;
+    // while let Some(row) = rows.next()? {
+    //     let timestamp: u64 = row.get(0)?;
+    //     let tid: u64 = row.get(1)?;
+    //     let result = stats_stmt
+    //         .query_one([timestamp, tid], |r| -> Result<(u64, u64), duckdb::Error> {
+    //             Ok((r.get(3)?, r.get(4)?))
+    //         });
+    //     // match result {
+    //     //     Ok((used, free)) => (used, free),
+    //     //     Err(duckdb::Error::QueryReturnedNoRows) => 
+    //     // }
+    //
+    //     // results.push();
+    // }
 
     todo!()
 }
