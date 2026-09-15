@@ -157,15 +157,27 @@ where
             result
         });
 
-        for chunk in stuckthreads.chunks(stuckthreads.len() / 2) {
+        let len = stuckthreads.len();
+        if len <= 2 {
             s.spawn(|| -> Result<()> {
-                let result = parse_stuckthreads_and_persist(chunk, store.clone());
+                let result = parse_stuckthreads_and_persist(&stuckthreads, store.clone());
                 if let Err(ref e) = result {
                     warn!("Error during parsing/persisting: {e}");
                 }
                 result
             });
+        } else {
+            for chunk in stuckthreads.chunks(stuckthreads.len() / 2) {
+                s.spawn(|| -> Result<()> {
+                    let result = parse_stuckthreads_and_persist(chunk, store.clone());
+                    if let Err(ref e) = result {
+                        warn!("Error during parsing/persisting: {e}");
+                    }
+                    result
+                });
+            }
         }
+
 
         let _ = s.spawn(|| -> Result<()> {
             let result = parse_stuckqueries_and_persist(&stuckqueries, store.clone());
