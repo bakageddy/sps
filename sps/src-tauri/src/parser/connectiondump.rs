@@ -1,4 +1,5 @@
 use crate::{parser::tokenizer, util};
+use duckdb::types::{FromSql, FromSqlError};
 use error::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -26,26 +27,35 @@ pub enum ParserState {
     Entry,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Signal {
+    pub timestamp: u64,
+    pub tid: u64,
+    pub cause: Cause,
+    pub suppressed: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Stats {
+    pub timestamp: u64,
+    pub tid: u64,
+    pub used: u64,
+    pub free: u64,
+    pub total: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TraceDump<'a> {
+    pub tid: u64,
+    pub timestamp: u64,
+    pub traces: Vec<Trace<'a>>,
+}
+
+#[derive(Debug, Serialize)]
 pub enum ConnectionDumpEntry<'a> {
-    Signal {
-        cause: Cause,
-        timestamp: u64,
-        tid: u64,
-        suppressed: bool,
-    },
-    ConnectionPoolStats {
-        tid: u64,
-        timestamp: u64,
-        used: u64,
-        free: u64,
-        total: u64,
-    },
-    ConnectionPoolTrace {
-        tid: u64,
-        timestamp: u64,
-        traces: Vec<Trace<'a>>,
-    },
+    Signal(Signal),
+    Stats(Stats),
+    Trace(TraceDump<'a>),
 }
 
 #[serde_as]
@@ -66,11 +76,15 @@ pub struct Trace<'a> {
     pub thread_name: Cow<'a, str>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Cause {
+    #[serde(rename = "High CPU")]
     HighCPU,
+    #[serde(rename = "High Memory")]
     HighMemory,
+    #[serde(rename = "No ManagedConnections")]
     NoManagedConnections,
+    #[serde(rename = "URL invocation")]
     URL,
 }
 
@@ -109,12 +123,12 @@ impl<'a> ConnectionDumpParser<'a> {
             tok.expect(":")?;
             tok.skip_whitespace();
             let cause = tok.remaining().trim().parse()?;
-            Ok(ConnectionDumpEntry::Signal {
+            Ok(ConnectionDumpEntry::Signal(Signal {
                 cause,
                 timestamp,
                 tid,
                 suppressed: false,
-            })
+            }))
         } else if tok.peek(Self::SKIPPING_CAUSE_PREAMBLE) {
             tok.expect(Self::SKIPPING_CAUSE_PREAMBLE)?;
             tok.take_until(".").ok_or_else(|| {
@@ -125,12 +139,12 @@ impl<'a> ConnectionDumpParser<'a> {
             })?;
             tok.skip_whitespace();
             let cause = tok.remaining().trim().parse()?;
-            Ok(ConnectionDumpEntry::Signal {
+            Ok(ConnectionDumpEntry::Signal(Signal {
                 cause,
                 timestamp,
                 tid,
-                suppressed: true
-            })
+                suppressed: true,
+            }))
         } else if tok.peek(Self::CNX_STATS_PREAMBLE) {
             tok.expect(Self::CNX_STATS_PREAMBLE)?;
 
@@ -157,23 +171,23 @@ impl<'a> ConnectionDumpParser<'a> {
             tok.skip_whitespace();
             tok.expect("max_connections:")?;
             let total = tok.remaining().trim().parse()?;
-            Ok(ConnectionDumpEntry::ConnectionPoolStats {
+            Ok(ConnectionDumpEntry::Stats(Stats {
                 tid,
                 timestamp,
                 used,
                 free,
                 total,
-            })
+            }))
         } else if tok.peek(Self::TRACE_INFO_PREAMBLE) {
             tok.expect(Self::TRACE_INFO_PREAMBLE)?;
             tok.skip_whitespace();
             let json = tok.remaining();
             let traces: Vec<Trace> = serde_json::from_str(json)?;
-            Ok(ConnectionDumpEntry::ConnectionPoolTrace {
+            Ok(ConnectionDumpEntry::Trace(TraceDump {
                 tid,
                 timestamp,
                 traces,
-            })
+            }))
         } else {
             Err(Error::UnrecognizedConnectionDumpEntry(
                 tok.remaining().to_owned(),
@@ -218,7 +232,7 @@ impl<'a> Iterator for ConnectionDumpParser<'a> {
             Ok(e) => {
                 self.0 = tok.remaining();
                 Some(Ok(e))
-            },
+            }
             Err(e) => {
                 self.0 = tok.remaining();
                 Some(Err(e))
@@ -237,6 +251,35 @@ impl FromStr for Cause {
             "High Memory" => Ok(Cause::HighMemory),
             "URL invocation" => Ok(Cause::URL),
             _ => Err(Error::Cause(s.to_string())),
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for Cause {
+    type Error = Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        match value {
+            b"High CPU" => Ok(Cause::HighCPU),
+            b"No ManagedConnections" => Ok(Cause::NoManagedConnections),
+            b"High Memory" => Ok(Cause::HighMemory),
+            b"URL invocation" => Ok(Cause::URL),
+            _ => Err(Error::Cause(
+                std::str::from_utf8(value)
+                    .unwrap_or("Unable to convert bytes to String")
+                    .to_string(),
+            )),
+        }
+    }
+}
+
+impl FromSql for Cause {
+    fn column_result(value: duckdb::types::ValueRef<'_>) -> duckdb::types::FromSqlResult<Self> {
+        match value {
+            duckdb::types::ValueRef::Text(items) => {
+                Cause::try_from(items).map_err(|e| FromSqlError::Other(Box::new(e)))
+            }
+            _ => Err(FromSqlError::InvalidType),
         }
     }
 }
@@ -296,7 +339,7 @@ pub mod error {
 pub mod test {
     use super::ConnectionDumpParser;
     use crate::{
-        parser::connectiondump::{Cause, ConnectionDumpEntry},
+        parser::connectiondump::{Cause, ConnectionDumpEntry, Signal, Stats, TraceDump},
         util,
     };
     use std::{assert_matches, ops::Deref};
@@ -311,13 +354,13 @@ pub mod test {
             entry.unwrap_err()
         );
         let entry = entry.unwrap();
-        assert_matches!(entry, ConnectionDumpEntry::Signal { .. });
-        if let ConnectionDumpEntry::Signal {
+        assert_matches!(entry, ConnectionDumpEntry::Signal(_));
+        if let ConnectionDumpEntry::Signal(Signal {
             cause,
             timestamp,
             tid,
-            suppressed
-        } = entry
+            suppressed,
+        }) = entry
         {
             assert_matches!(cause, Cause::HighCPU);
             assert_ne!(timestamp, 0);
@@ -336,14 +379,14 @@ pub mod test {
             entry.unwrap_err()
         );
         let entry = entry.unwrap();
-        assert_matches!(entry, ConnectionDumpEntry::ConnectionPoolStats { .. });
-        if let ConnectionDumpEntry::ConnectionPoolStats {
+        assert_matches!(entry, ConnectionDumpEntry::Stats(_));
+        if let ConnectionDumpEntry::Stats(Stats {
             tid,
             timestamp,
             used,
             free,
             total,
-        } = entry
+        }) = entry
         {
             assert_eq!(tid, 205);
             assert_ne!(timestamp, 0);
@@ -361,11 +404,11 @@ pub mod test {
             entry.unwrap_err()
         );
         let entry = entry.unwrap();
-        if let ConnectionDumpEntry::ConnectionPoolTrace {
+        if let ConnectionDumpEntry::Trace(TraceDump {
             tid,
             timestamp,
             traces,
-        } = entry
+        }) = entry
         {
             assert_eq!(tid, 22388);
             assert_ne!(timestamp, 0);
@@ -384,11 +427,11 @@ pub mod test {
             entry.unwrap_err()
         );
         let entry = entry.unwrap();
-        if let ConnectionDumpEntry::ConnectionPoolTrace {
+        if let ConnectionDumpEntry::Trace(TraceDump {
             tid,
             timestamp,
             traces,
-        } = entry
+        }) = entry
         {
             assert_eq!(tid, 205);
             assert_ne!(timestamp, 0);
@@ -406,12 +449,12 @@ pub mod test {
             entry.unwrap_err()
         );
         let entry = entry.unwrap();
-        if let ConnectionDumpEntry::Signal {
+        if let ConnectionDumpEntry::Signal(Signal {
             cause,
             timestamp,
             tid,
-            suppressed
-        } = entry
+            suppressed,
+        }) = entry
         {
             assert_ne!(timestamp, 0);
             assert_eq!(tid, 6744);
@@ -430,12 +473,12 @@ pub mod test {
             entry.unwrap_err()
         );
         let entry = entry.unwrap();
-        if let ConnectionDumpEntry::Signal {
+        if let ConnectionDumpEntry::Signal(Signal {
             cause,
             timestamp,
             tid,
             suppressed,
-        } = entry
+        }) = entry
         {
             assert_ne!(timestamp, 0);
             assert_eq!(tid, 67);

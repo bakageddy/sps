@@ -14,7 +14,7 @@ use r2d2::{Pool, PooledConnection};
 
 use crate::{
     parser::{
-        connectiondump::ConnectionDumpEntry,
+        connectiondump::{ConnectionDumpEntry, Signal, Stats, TraceDump},
         cpumemstats::StatTable,
         cpumonitoring::CPUMonitoring,
         stuckquery::{MSSQLQuery, Stuckquery, StuckqueryTable},
@@ -287,12 +287,12 @@ pub fn append_connectiondump<'a>(
 
     for entry in iter {
         match entry {
-            ConnectionDumpEntry::Signal {
+            ConnectionDumpEntry::Signal(Signal {
                 cause,
                 timestamp,
                 tid,
                 suppressed,
-            } => appender.append_row((
+            }) => appender.append_row((
                 timestamp,
                 tid,
                 None::<u64>,
@@ -301,26 +301,26 @@ pub fn append_connectiondump<'a>(
                 Some(cause.as_str()),
                 Some(suppressed),
             ))?,
-            ConnectionDumpEntry::ConnectionPoolStats {
+            ConnectionDumpEntry::Stats(Stats {
                 tid,
                 timestamp,
                 used,
                 free,
                 total,
-            } => appender.append_row((
+            }) => appender.append_row((
                 timestamp,
                 tid,
                 Some(used),
                 Some(free),
                 Some(total),
                 None::<&'static str>,
-                None::<bool>
+                None::<bool>,
             ))?,
-            ConnectionDumpEntry::ConnectionPoolTrace {
+            ConnectionDumpEntry::Trace(TraceDump {
                 tid,
                 timestamp,
                 traces,
-            } => {
+            }) => {
                 appender.append_row((
                     timestamp,
                     tid,
@@ -328,7 +328,7 @@ pub fn append_connectiondump<'a>(
                     None::<u64>,
                     None::<u64>,
                     None::<&'static str>,
-                    None::<bool>
+                    None::<bool>,
                 ))?;
                 for trace in traces {
                     for (idx, frame) in (0..).zip(trace.stack_trace) {

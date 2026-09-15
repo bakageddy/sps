@@ -155,9 +155,10 @@ pub struct MSSQLLongRunningTxn {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConnectionDumpSignal {
+pub struct ConnectionDumpSnapshot {
     pub timestamp: u64,
-    pub tid: u64,
-    pub cause: String,
-    pub suppressed: bool,
+    pub trace_count: u64,
+    pub max_duration: u64,
+    pub used: u64,
+    pub total: u64,
 }
