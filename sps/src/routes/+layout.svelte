@@ -156,6 +156,7 @@
 			],
 		},
 		{ href: "/stuckqueries", label: "Stuck Queries", icon: "database" },
+		{ href: "/connectiondump", label: "Connection Dumps", icon: "link" },
 	];
 </script>
 

@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 pub enum Tables {
     CPUMonitoring,
     CPUMonitoringStackTraces,
@@ -8,11 +10,13 @@ pub enum Tables {
     StuckthreadTraces,
     StuckqueryPGSQL,
     StuckqueryMSSQL,
-    StuckqueryBlockingMSSQL
+    StuckqueryBlockingMSSQL,
+    ConnectionDump,
+    ConnectionDumpTraces,
 }
 
 impl Tables {
-    pub fn into_str(self) -> &'static str {
+    pub fn into_str(&self) -> &'static str {
         match self {
             Self::CPUMonitoringStackTraces => "cpumonitoring_stacktraces",
             Self::CPUMonitoring => "cpumonitoring",
@@ -24,6 +28,14 @@ impl Tables {
             Self::StuckqueryPGSQL => "stuckquery_pgsql",
             Self::StuckqueryMSSQL => "stuckquery_mssql",
             Self::StuckqueryBlockingMSSQL => "stuckquery_mssql_blocking",
+            Self::ConnectionDump => "connectiondump",
+            Self::ConnectionDumpTraces => "connectiondump_stacktraces",
         }
+    }
+}
+
+impl Display for Tables {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.into_str())
     }
 }

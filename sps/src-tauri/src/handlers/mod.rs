@@ -1,3 +1,4 @@
+pub mod connectiondump;
 pub mod cpumonitoring;
 pub mod cpumemstats;
 pub mod stuckthread;

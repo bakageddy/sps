@@ -32,16 +32,16 @@ impl<'a> Iterator for StuckthreadParser<'a> {
         }
 
         self.1 = ParserState::Initial;
-        while let Some(line) = tok.peek_line()
-            && line.trim_start().starts_with("[")
-        {
-            self.1 = ParserState::Header;
-            break;
+        while let Some(line) = tok.peek_line() {
+            if line.trim_start().starts_with("[") {
+                self.1 = ParserState::Header;
+                break;
+            }
+            tok.get_line()?;
         }
 
         if !matches!(self.1, ParserState::Header) {
-            self.0 = tok.remaining();
-            return Some(Err(Error::HeaderNotFound));
+            return None;
         }
 
         let header = tok.get_line()?;
@@ -52,7 +52,10 @@ impl<'a> Iterator for StuckthreadParser<'a> {
             .starts_with(Self::PREAMBLE);
         let mut thread = match Self::parse_header(header, has_stacktrace) {
             Ok(t) => t,
-            Err(e) => return Some(Err(e)),
+            Err(e) => {
+                self.0 = tok.remaining();
+                return Some(Err(e));
+            }
         };
 
         if let Stuckthread::Begin { ref mut trace, .. } = thread

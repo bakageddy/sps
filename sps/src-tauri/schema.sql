@@ -27,6 +27,13 @@ CREATE TYPE main.stuckquery_mssql_status AS ENUM (
 	'suspended'
 );
 
+CREATE TYPE main.connectiondump_cause AS ENUM (
+	'High CPU',
+	'No ManagedConnections',
+	'High Memory',
+	'URL invocation'
+);
+
 CREATE TABLE IF NOT EXISTS main.cpumonitoring (
   tid UBIGINT NOT NULL,
   timestamp UBIGINT NOT NULL,
@@ -150,4 +157,26 @@ CREATE TABLE IF NOT EXISTS main.stuckquery_mssql_blocking (
 	most_recent_sql_handle STRING NOT NULL,
 	level UBIGINT NOT NULL,
 	blocker_query_or_most_recent_query STRING NOT NULL,
+);
+
+CREATE TABLE IF NOT EXISTS main.connectiondump (
+	timestamp UBIGINT NOT NULL,
+	tid UBIGINT NOT NULL,
+	used UBIGINT NULL,
+	free UBIGINT NULL,
+	total UBIGINT NULL,
+	cause main.connectiondump_cause NULL,
+	suppressed BOOLEAN NULL,
+);
+
+CREATE TABLE IF NOT EXISTS main.connectiondump_stacktraces (
+	timestamp UBIGINT NOT NULL,
+	tid UBIGINT NOT NULL,
+	duration UBIGINT NOT NULL,
+	start_time UBIGINT NOT NULL,
+	idx UBIGINT NOT NULL,
+	frame STRING NOT NULL,
+	id UBIGINT NOT NULL,
+	invoked_by STRING NULL,
+	thread_name STRING NOT NULL
 );

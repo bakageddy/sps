@@ -13,7 +13,8 @@ use crate::{arg::Command, store::Store, types::AppState};
 use arg::AppArgs;
 use clap::Parser;
 use handlers::{
-    cpumemstats::*, cpumonitoring::*, database::*, parse::*, stuckquery::*, stuckthread::*,
+    connectiondump::*, cpumemstats::*, cpumonitoring::*, database::*, parse::*, stuckquery::*,
+    stuckthread::*,
 };
 use tauri::Manager;
 use tracing::warn;
@@ -56,6 +57,11 @@ pub fn launch(database: Option<PathBuf>) {
             stuckquery_pgsql_longrunning,
             stuckquery_mssql_longrunning,
             stuckquery_mssql_longtxns,
+            connectiondump_signals,
+            connectiondump_pool_stats,
+            connectiondump_snapshots,
+            connectiondump_traces,
+            connectiondump_holder,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
