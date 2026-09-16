@@ -167,28 +167,21 @@ export function connectiondumpTraces(
  * same acquisition timestamp = the same hold continuing across dumps. A
  * recycled thread id can never collide (it cannot reproduce the same
  * acquisition millisecond).
+ *
+ * The "owner" frame is derived from `stackTrace` via appFrame() in
+ * src/lib/connectiondump.ts — the plumbing heuristic lives ONLY there.
  */
 export interface ConnDumpHolder {
 	/** holder's Java thread id */
 	id: number;
-	threadName: string;
 	/** ms epoch of the acquisition (episode identity with id) */
 	startTime: number;
-	/** ms epoch of the last dump containing this hold */
-	lastSeen: number;
-	/** longest observed held-for, ms */
-	maxDuration: number;
-	/** distinct dumps this hold appears in (>1 = survived a dump interval) */
+	/** longest observed held-for, ms (MAX(duration) across appearances) */
+	duration: number;
+	/** distinct dumps this hold appears in; backend guarantees > 1 */
 	dumpCount: number;
-	/**
-	 * first stack frame that is not connection/persistence plumbing — the
-	 * one-line "who". Heuristic must match appFrame() in
-	 * src/lib/connectiondump.ts (skip java./jdk./com.zoho.cp/mickey,
-	 * adventnet ds/db/persistence/mfw/authorization, mdh.QueryInterceptor,
-	 * DataAccessUtil/ResourcesUtil/DBUtilities wrappers); null when every
-	 * frame is plumbing.
-	 */
-	appFrame: string | null;
+	/** stack frames of the hold, original top-to-bottom (idx) order */
+	stackTrace: string[];
 }
 
 /**
@@ -198,9 +191,12 @@ export interface ConnDumpHolder {
  *     -> Result<Vec<ConnDumpHolder>, String>
  * ```
  * REQUIREMENTS: GROUP BY (id, start_time) over traces whose DUMP timestamp
- * falls in range (same range semantics as signals); ordered by maxDuration
- * descending, then dumpCount descending. Include single-dump holds — the
- * frontend filters/ranks; the threshold is presentation.
+ * falls in range (same range semantics as signals); ONLY episodes observed
+ * in more than one dump (dumpCount > 1 guaranteed — single-dump holds are
+ * excluded backend-side). `stackTrace` = frames of any ONE appearance in
+ * idx order (a hold's stack is identical across its appearances — never the
+ * concatenation of all of them). No ordering requirement — the frontend
+ * sorts by duration.
  */
 export function connectiondumpHolders(
 	from?: number,

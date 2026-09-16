@@ -167,13 +167,6 @@
 		loadTraces(row);
 	}
 
-	/** holder drill-down: open the dump it was last seen in */
-	function onjump(holder: ConnDumpHolder) {
-		const target = rows.find((r) => r.timestamp === holder.lastSeen);
-		if (target === undefined) return;
-		onselect(target);
-	}
-
 	$effect(() => {
 		if (db.state.status === "open") {
 			errorMessage = null;
@@ -299,7 +292,6 @@
 						<HoldersTable
 							rows={holders}
 							slowThresholdMs={slowThreshold.value * 1000}
-							{onjump}
 						/>
 					{:else if selected === null}
 						<p class="empty">Select a dump.</p>

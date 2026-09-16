@@ -1,26 +1,27 @@
 <script lang="ts">
 	/**
 	 * Hold episodes across dumps — the connection-dump equivalent of the
-	 * long-runners table. A hold that survives from one dump to the next
-	 * (dumps > 1) or grows past the threshold IS the incident; single-dump
-	 * short holds are just a busy pool. Fixed ranking comes pre-sorted from
-	 * the backend (maxDuration desc).
+	 * long-runners table. The backend only returns holds seen in more than
+	 * one dump (dumpCount > 1 guaranteed), so every row here already
+	 * survived at least one dump interval. The owner frame is derived here
+	 * (see the ConnDumpHolder contract note); rows are sorted by duration
+	 * descending locally.
 	 */
 	import type { ConnDumpHolder } from "$lib/api/connectiondump";
-	import { threadLabel } from "$lib/connectiondump";
+	import { appFrame } from "$lib/connectiondump";
 	import { formatDuration, formatTimestamp } from "$lib/format";
 
 	interface Props {
 		rows: ConnDumpHolder[];
 		/** held-for (ms) past which a row flags red */
 		slowThresholdMs: number;
-		/** jump to the dump this hold was last seen in */
-		onjump?: (row: ConnDumpHolder) => void;
 	}
 
-	let { rows, slowThresholdMs, onjump }: Props = $props();
+	let { rows, slowThresholdMs }: Props = $props();
 
 	const rowKey = (r: ConnDumpHolder) => `${r.id}:${r.startTime}`;
+
+	const sorted = $derived([...rows].sort((a, b) => b.duration - a.duration));
 
 	let expanded = $state<string | null>(null);
 
@@ -33,59 +34,51 @@
 
 <div class="table">
 	<div class="head">
-		<span>Thread</span>
+		<span>Owner</span>
 		<span class="col-num">Tid</span>
-		<span class="col-num">Held up to</span>
+		<span class="col-num">Held for</span>
 		<span class="col-num">Dumps</span>
 		<span>Acquired</span>
-		<span>Owner</span>
 	</div>
 
 	<div class="rows">
-		{#each rows as row (rowKey(row))}
+		{#each sorted as row (rowKey(row))}
 			<button
 				class="row"
-				class:slow={row.maxDuration > slowThresholdMs}
+				class:slow={row.duration > slowThresholdMs}
 				onclick={() =>
 					(expanded = expanded === rowKey(row) ? null : rowKey(row))}
 			>
-				<span class="mono ellipsis" title={row.threadName}
-					>{threadLabel(row.threadName)}</span
+				<span class="mono ellipsis"
+					>{appFrame(row.stackTrace) ?? "—"}</span
 				>
 				<span class="col-num mono">{row.id}</span>
-				<span class="col-num mono">{formatDuration(row.maxDuration)}</span>
-				<span class="col-num mono" class:multi={row.dumpCount > 1}
-					>{row.dumpCount}</span
-				>
+				<span class="col-num mono">{formatDuration(row.duration)}</span>
+				<span class="col-num mono">{row.dumpCount}</span>
 				<span class="mono">{formatTimestamp(timeFormat, row.startTime)}</span
 				>
-				<span class="mono ellipsis muted">{row.appFrame ?? "—"}</span>
 			</button>
 			{#if expanded === rowKey(row)}
 				<div class="expand">
 					<dl>
-						<dt>Thread</dt>
-						<dd class="mono">{row.threadName}</dd>
 						<dt>Acquired</dt>
 						<dd class="mono">
 							{formatTimestamp(timeFormat, row.startTime)}
 						</dd>
-						<dt>Last seen</dt>
-						<dd class="mono">
-							{formatTimestamp(timeFormat, row.lastSeen)}
-						</dd>
 						<dt>Owner</dt>
-						<dd class="mono">{row.appFrame ?? "—"}</dd>
+						<dd class="mono">{appFrame(row.stackTrace) ?? "—"}</dd>
 					</dl>
-					{#if onjump}
-						<button class="jump" onclick={() => onjump(row)}>
-							view last dump →
-						</button>
-					{/if}
+					<ol class="stack">
+						{#each row.stackTrace as frame}
+							<li class="mono">{frame}</li>
+						{/each}
+					</ol>
 				</div>
 			{/if}
 		{:else}
-			<p class="empty">No holds recorded — no trace dumps in range.</p>
+			<p class="empty">
+				No continuing holds — nothing survived across dumps in range.
+			</p>
 		{/each}
 	</div>
 </div>
@@ -102,7 +95,7 @@
 	.head,
 	.row {
 		display: grid;
-		grid-template-columns: minmax(130px, 1fr) 52px 90px 56px 176px 1.5fr;
+		grid-template-columns: minmax(200px, 1fr) 52px 90px 56px 176px;
 		gap: 10px;
 		align-items: center;
 		padding: 0 10px;
@@ -153,16 +146,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.muted {
-		color: var(--fg-muted);
-	}
-	.row.slow .muted {
-		color: inherit;
-	}
-	.multi {
-		font-weight: 700;
-	}
-
 	.expand {
 		padding: 8px 12px;
 		border-top: 1px solid var(--hairline);
@@ -183,17 +166,17 @@
 		overflow-wrap: anywhere;
 	}
 
-	.jump {
-		margin-top: 8px;
-		padding: 2px 12px;
-		border-radius: 999px;
-		background: var(--bg);
-		color: var(--accent);
+	.stack {
+		margin: 8px 0 0;
+		padding: 6px 0 6px 28px;
+		max-height: 240px;
+		overflow: auto;
+		border-top: 1px solid var(--hairline);
 		font-size: 11.5px;
-		font-weight: 600;
+		color: var(--fg-muted);
 	}
-	.jump:hover {
-		background: var(--bg-hover);
+	.stack li {
+		overflow-wrap: anywhere;
 	}
 
 	.empty {

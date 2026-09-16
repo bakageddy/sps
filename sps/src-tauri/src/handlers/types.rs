@@ -1,17 +1,16 @@
-use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 pub struct DatabaseInfo {
     pub path: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct ParseReport {
     pub kinds: Vec<KindCount>,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct KindCount {
     /// Outlines the path of the file we parsed.
     pub kind: String,
@@ -21,7 +20,7 @@ pub struct KindCount {
     pub errors: u64,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DumpSummary {
     pub timestamp: u64,
@@ -30,13 +29,13 @@ pub struct DumpSummary {
     pub total_cpu: f32,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 pub struct CPUPoint {
     pub cpu: f32,
     pub timestamp: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 pub struct CPUThread {
     pub tid: u64,
     pub name: Option<String>,
@@ -44,7 +43,7 @@ pub struct CPUThread {
     pub cpu: f32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CPUMemoryDumpSummary {
     pub timestamp: u64,
@@ -52,7 +51,7 @@ pub struct CPUMemoryDumpSummary {
     pub total_memory: f32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessUsage {
     pub pid: u64,
@@ -62,25 +61,25 @@ pub struct ProcessUsage {
     pub path: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ProcessSeries {
     pub cpu: Vec<CPUMemoryPoint>,
     pub memory: Vec<CPUMemoryPoint>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct CPUMemoryPoint {
     pub timestamp: u64,
     pub value: f32,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AggregatedStuckthread {
     pub tid: u64,
     // NOTE: an begin: None means that the end stuckthread event only occurred without any begin
     pub begin: Option<u64>,
-    pub end: Option<u64>, 
+    pub end: Option<u64>,
     pub name: String,
     pub duration: u64,
     pub request: Option<String>,
@@ -88,7 +87,7 @@ pub struct AggregatedStuckthread {
     pub active_end: Option<u64>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MSSQLSnapshot {
     pub timestamp: u64,
@@ -96,7 +95,7 @@ pub struct MSSQLSnapshot {
     pub blocked: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockingSnapshot {
     pub timestamp: u64,
@@ -104,7 +103,7 @@ pub struct BlockingSnapshot {
     pub sessions: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PGSQLSnapshot {
     pub timestamp: u64,
@@ -113,7 +112,7 @@ pub struct PGSQLSnapshot {
     pub idle_in_txn: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MSSQLLongRunningQuery {
     pub session_id: u64,
@@ -128,7 +127,7 @@ pub struct MSSQLLongRunningQuery {
     pub blocked_in: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PGSQLLongRunningQuery {
     pub pid: u64,
@@ -141,7 +140,7 @@ pub struct PGSQLLongRunningQuery {
     pub idle_in_txn_in: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MSSQLLongRunningTxn {
     pub session_id: u64,
@@ -153,7 +152,7 @@ pub struct MSSQLLongRunningTxn {
     pub queries: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionDumpSnapshot {
     pub timestamp: u64,
@@ -161,4 +160,14 @@ pub struct ConnectionDumpSnapshot {
     pub max_duration: u64,
     pub used: u64,
     pub total: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionDumpHolder {
+    pub id: u64,
+    pub start_time: u64,
+    pub duration: u64,
+    pub dump_count: u64,
+    pub stack_trace: Vec<String>,
 }

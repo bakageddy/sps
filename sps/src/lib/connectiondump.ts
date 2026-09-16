@@ -6,10 +6,8 @@
  * Stack-frame prefixes that are connection/persistence plumbing — the fixed
  * sandwich every trace shares. The first frame NOT matching any of these is
  * the "owner" frame: the application code that actually wanted the
- * connection.
- *
- * KEEP IN SYNC with the Rust side: connectiondump_holders persists the same
- * heuristic as `appFrame` (contract note in src/lib/api/connectiondump.ts).
+ * connection. Sole home of this heuristic — the backend ships raw stacks
+ * (ConnDumpHolder.stackTrace) and never derives owner frames.
  */
 const PLUMBING = [
 	"java.",
