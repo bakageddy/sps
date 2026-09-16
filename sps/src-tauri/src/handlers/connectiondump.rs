@@ -71,7 +71,7 @@ pub fn connectiondump_traces(
 }
 
 #[tauri::command]
-pub fn connectiondump_holder(
+pub fn connectiondump_holders(
     from: Option<u64>,
     to: Option<u64>,
     state: tauri::State<'_, Mutex<AppState>>,
