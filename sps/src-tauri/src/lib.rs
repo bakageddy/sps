@@ -61,7 +61,7 @@ pub fn launch(database: Option<PathBuf>) {
             connectiondump_pool_stats,
             connectiondump_snapshots,
             connectiondump_traces,
-            connectiondump_holder,
+            connectiondump_holders,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
