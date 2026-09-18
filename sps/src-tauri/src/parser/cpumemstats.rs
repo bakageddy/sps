@@ -112,6 +112,7 @@ impl<'a> Iterator for CPUMemStatsParser<'a> {
         } else if columns.contains("Memory (MB)") && columns.contains("Process ID") {
             self.1 = ParserState::WindowsMemoryHeader;
         } else {
+            self.0 = tok.remaining();
             return Some(Err(Error::UnableToDetectTableType(String::from(line))));
         }
 

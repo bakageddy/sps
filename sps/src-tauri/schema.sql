@@ -30,7 +30,7 @@ CREATE TYPE main.stuckquery_mssql_status AS ENUM (
 CREATE TYPE main.connectiondump_cause AS ENUM (
 	'High CPU',
 	'No ManagedConnections',
-	'High Memory',
+	'High Memory Consumption',
 	'URL invocation'
 );
 
