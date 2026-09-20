@@ -4,7 +4,7 @@ USE main;
 SET
   preserve_insertion_order = false;
 
-CREATE TYPE main.cpumonitoring_thread_state AS ENUM (
+CREATE OR REPLACE TYPE main.cpumonitoring_thread_state AS ENUM (
   'RUNNABLE',
   'NEW',
   'BLOCKED',
@@ -13,12 +13,12 @@ CREATE TYPE main.cpumonitoring_thread_state AS ENUM (
   'TERMINATED'
 );
 
-CREATE TYPE main.stuckquery_pgsql_state AS ENUM (
+CREATE OR REPLACE TYPE main.stuckquery_pgsql_state AS ENUM (
 	'active',
 	'idle in transaction'
 );
 
-CREATE TYPE main.stuckquery_mssql_status AS ENUM (
+CREATE OR REPLACE TYPE main.stuckquery_mssql_status AS ENUM (
 	'runnable',
 	'running',
 	'rollback',
@@ -27,7 +27,7 @@ CREATE TYPE main.stuckquery_mssql_status AS ENUM (
 	'suspended'
 );
 
-CREATE TYPE main.connectiondump_cause AS ENUM (
+CREATE OR REPLACE TYPE main.connectiondump_cause AS ENUM (
 	'High CPU',
 	'No ManagedConnections',
 	'High Memory Consumption',

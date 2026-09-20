@@ -5,6 +5,7 @@ pub mod cpumonitoring;
 pub mod stuckthread;
 pub mod stuckquery;
 pub mod connectiondump;
+pub mod threaddump;
 pub mod error;
 pub mod tokenizer;
 
