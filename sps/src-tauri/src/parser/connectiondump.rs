@@ -290,7 +290,7 @@ impl Cause {
             Self::HighCPU => "High CPU",
             Self::NoManagedConnections => "No ManagedConnections",
             Self::HighMemory => "High Memory Consumption",
-            Self::URL => "URL Invocation",
+            Self::URL => "URL invocation",
         }
     }
 }

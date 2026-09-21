@@ -108,7 +108,7 @@ pub fn get_connectiondump_traces(
             invoked_by,
             thread_name
         FROM {0}
-        WHERE {0}.timestamp = 1770820743309
+        WHERE {0}.timestamp = $1
         GROUP BY timestamp, id, duration, start_time, invoked_by, thread_name",
         Tables::ConnectionDumpTraces
     );
