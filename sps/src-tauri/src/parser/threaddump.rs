@@ -95,38 +95,31 @@ impl<'a> ThreadDumpParser<'a> {
         let state = Self::parse_thread_state(&mut *tok)?;
 
         tok.skip_whitespace();
-        let trace = if tok.peek("\"") {
+        let mut traces = Vec::new();
+        while let Some(line) = tok.peek_line() {
+            let line = line.trim_start();
+            let mut ttok = Tokenizer::new(line);
+            ttok.skip_whitespace();
+            if ttok.peek("- locked") {
+                ttok.expect("- locked")?;
+                let object = ttok.remaining().trim().into();
+                traces.push(Element::Lock(Object(object)));
+            } else if line.contains("(") {
+                let method = ttok.take_until_exclusive("(")?.trim().into();
+                let source = ttok.take_within("(", ")")?.into();
+                let frame = Frame(method, source);
+                traces.push(Element::Frame(frame));
+            } else {
+                let _ = tok.get_line();
+                break;
+            }
+            let _ = tok.get_line();
+        }
+
+        let trace = if traces.is_empty() {
             None
         } else {
-            let mut traces = Vec::new();
-            while let Some(line) = tok.peek_line() {
-                if line.trim_start().starts_with("\"")
-                    || line.trim_start().is_empty()
-                    || line.trim_start().starts_with("TriggeredTime")
-                    || !line.contains("(")
-                {
-                    tok.get_line();
-                    break;
-                }
-                let mut ttok = Tokenizer::new(line);
-                ttok.skip_whitespace();
-                if ttok.peek("- locked") {
-                    ttok.expect("- locked")?;
-                    let object = ttok.take_until_fallible("\n")?.into();
-                    traces.push(Element::Lock(Object(object)));
-                } else {
-                    let method = ttok.take_until_exclusive("(")?.into();
-                    let source = ttok.take_within("(", ")")?.into();
-                    let frame = Frame(method, source);
-                    traces.push(Element::Frame(frame));
-                }
-                let _ = tok.get_line();
-            }
-            if traces.is_empty() {
-                None
-            } else {
-                Some(Trace(traces))
-            }
+            Some(Trace(traces))
         };
 
         Ok(Thread {
@@ -298,8 +291,8 @@ impl<'a> Iterator for ThreadDumpParser<'a> {
                     Ok(thread) => thread,
                     Err(e) => {
                         self.0 = tok.remaining();
-                        return Some(Err(Error::from(e)))
-                    },
+                        return Some(Err(Error::from(e)));
+                    }
                 };
 
                 threads.push(thread);
@@ -307,6 +300,7 @@ impl<'a> Iterator for ThreadDumpParser<'a> {
                 tok.get_line()?;
             }
         }
+        self.0 = tok.remaining();
         Some(Ok(ThreadDump { threads, timestamp }))
     }
 }
@@ -390,6 +384,7 @@ pub mod test {
         );
         let result = result.unwrap();
         assert_eq!(result.threads.len(), 293);
+        dbg!(result);
     }
 
     #[test]
@@ -403,7 +398,7 @@ pub mod test {
                 "Error during parsing dump: {}",
                 dump.unwrap_err()
             );
-            
+
             count += 1;
         }
 
