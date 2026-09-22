@@ -1,4 +1,4 @@
-use std::{borrow::Cow, str::Utf8Error};
+use std::{borrow::Cow, ops::Deref, str::Utf8Error};
 
 use error::Error;
 
@@ -40,11 +40,15 @@ pub struct Thread<'a> {
 pub enum State<'a> {
     New,
     Runnable,
-    TimedWaiting(Option<Object<'a>>),
-    Waiting(Object<'a>, Option<Lock<'a>>, Option<u64>, Option<LockOwner<'a>>),
-    // Object, LockName, Lock Holding Thread ID, Lock Holding Thread Name
-    Blocked(Object<'a>, Lock<'a>, u64, LockOwner<'a>),
     Terminated,
+    TimedWaiting(Option<Object<'a>>),
+    Waiting(
+        Object<'a>,
+        Option<Lock<'a>>,
+        Option<u64>,
+        Option<LockOwner<'a>>,
+    ),
+    Blocked(Object<'a>, Lock<'a>, u64, LockOwner<'a>),
 }
 
 #[derive(Debug)]
@@ -53,6 +57,20 @@ pub struct Trace<'a>(pub Vec<Element<'a>>);
 pub enum Element<'a> {
     Lock(Object<'a>),
     Frame(Frame<'a>),
+}
+
+impl<'a> AsRef<Vec<Element<'a>>> for Trace<'a> {
+    fn as_ref(&self) -> &Vec<Element<'a>> {
+        &self.0
+    }
+}
+
+impl<'a> Deref for Trace<'a> {
+    type Target = Vec<Element<'a>>;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
 }
 
 #[derive(Debug)]
@@ -73,16 +91,21 @@ impl<'a> ThreadDumpParser<'a> {
         let name = tok.take_within("\"", "\"")?.into();
         tok.skip_whitespace();
         tok.expect("Id=")?;
-        let id = tok.take_until_fallible(" ")?;
-        let tid = id.parse()?;
+        let tid = tok.take_until_fallible(" ")?.parse()?;
         let state = Self::parse_thread_state(&mut *tok)?;
+
         tok.skip_whitespace();
         let trace = if tok.peek("\"") {
             None
         } else {
             let mut traces = Vec::new();
             while let Some(line) = tok.peek_line() {
-                if line.trim_start().starts_with("\"") || line.trim_start().is_empty() {
+                if line.trim_start().starts_with("\"")
+                    || line.trim_start().is_empty()
+                    || line.trim_start().starts_with("TriggeredTime")
+                    || !line.contains("(")
+                {
+                    tok.get_line();
                     break;
                 }
                 let mut ttok = Tokenizer::new(line);
@@ -97,9 +120,13 @@ impl<'a> ThreadDumpParser<'a> {
                     let frame = Frame(method, source);
                     traces.push(Element::Frame(frame));
                 }
-                tok.get_line();
+                let _ = tok.get_line();
             }
-            Some(Trace(traces))
+            if traces.is_empty() {
+                None
+            } else {
+                Some(Trace(traces))
+            }
         };
 
         Ok(Thread {
@@ -114,77 +141,85 @@ impl<'a> ThreadDumpParser<'a> {
         tok.skip_whitespace();
         tok.expect("Java.lang.Thread.State:")?;
         tok.skip_whitespace();
-        let state = tok.take_until_fallible(" ")?;
-        let state = match state {
-            "RUNNABLE" => {
-                State::Runnable
-            },
-            "TERMINATED" => {
-                State::Terminated
-            },
-            "NEW" => {
-                State::New
-            },
-            "TIMED_WAITING" => {
-                tok.skip_whitespace();
-                if tok.peek("on") {
-                    tok.expect("on")?;
-                    tok.skip_whitespace();
-                    let object = tok.take_until_fallible("\n")?.into();
-                    State::TimedWaiting(Some(Object(object)))
-                } else {
-                    State::TimedWaiting(None)
-                }
-            },
-            "WAITING" => {
-                tok.skip_whitespace();
+        if tok.peek("RUNNABLE") {
+            tok.expect("RUNNABLE")?;
+            tok.skip_whitespace();
+            Ok(State::Runnable)
+        } else if tok.peek("TERMINATED") {
+            tok.expect("TERMINATED")?;
+            tok.skip_whitespace();
+            Ok(State::Terminated)
+        } else if tok.peek("NEW") {
+            tok.expect("NEW")?;
+            tok.skip_whitespace();
+            Ok(State::New)
+        } else if tok.peek("TIMED_WAITING") {
+            tok.expect("TIMED_WAITING")?;
+            tok.skip_whitespace();
+            if tok.peek("on") {
                 tok.expect("on")?;
                 tok.skip_whitespace();
                 let object = tok.take_until_fallible("\n")?.into();
-                tok.skip_whitespace();
-                if tok.peek("LockName:") {
-                    tok.expect("LockName:")?;
-                    tok.skip_whitespace();
-                    let lockname = tok.take_until_fallible(" ")?.into();
-                    tok.skip_whitespace();
-                    tok.expect("Owner Id:")?;
-                    tok.skip_whitespace();
-                    let owner_id = tok.take_until_fallible(" ")?.parse()?;
-                    tok.skip_whitespace();
-                    tok.expect("Owner Name:")?;
-                    tok.skip_whitespace();
-                    let owner_name = tok.take_until_fallible("\n")?.into();
-                    State::Waiting(Object(object), Some(Lock(lockname)), Some(owner_id), Some(LockOwner(owner_name)))
-                } else {
-                    State::Waiting(Object(object), None, None, None)
-                }
-            },
-            "BLOCKED" => {
-                tok.skip_whitespace();
-                tok.expect("waiting to lock")?;
-                tok.skip_whitespace();
-                let object = tok.take_until_fallible("\n")?.into();
-                tok.skip_whitespace();
+                Ok(State::TimedWaiting(Some(Object(object))))
+            } else {
+                Ok(State::TimedWaiting(None))
+            }
+        } else if tok.peek("WAITING") {
+            tok.expect("WAITING")?;
+            tok.skip_whitespace();
+            tok.expect("on")?;
+            tok.skip_whitespace();
+            let object = tok.take_until_fallible("\n")?.into();
+            tok.skip_whitespace();
+            if tok.peek("LockName:") {
                 tok.expect("LockName:")?;
                 tok.skip_whitespace();
-                let lock = tok.take_until_fallible(" ")?.into();
+                let lockname = tok.take_until_fallible(" ")?.into();
                 tok.skip_whitespace();
                 tok.expect("Owner Id:")?;
                 tok.skip_whitespace();
-                let owner = tok.take_until_fallible(" ")?.parse()?;
+                let owner_id = tok.take_until_fallible(" ")?.parse()?;
                 tok.skip_whitespace();
                 tok.expect("Owner Name:")?;
                 tok.skip_whitespace();
                 let owner_name = tok.take_until_fallible("\n")?.into();
-                tok.skip_whitespace();
-                State::Blocked(Object(object), Lock(lock), owner, LockOwner(owner_name))
-            },
-            _ => {
-                return Err(Error::InvalidState(state.to_owned()));
+                Ok(State::Waiting(
+                    Object(object),
+                    Some(Lock(lockname)),
+                    Some(owner_id),
+                    Some(LockOwner(owner_name)),
+                ))
+            } else {
+                Ok(State::Waiting(Object(object), None, None, None))
             }
-        };
-
-        Ok(state)
+        } else if tok.peek("BLOCKED") {
+            tok.expect("BLOCKED")?;
+            tok.skip_whitespace();
+            tok.expect("waiting to lock")?;
+            tok.skip_whitespace();
+            let object = tok.take_until_fallible("\n")?.into();
+            tok.skip_whitespace();
+            tok.expect("LockName:")?;
+            tok.skip_whitespace();
+            let lock = tok.take_until_fallible(" ")?.into();
+            tok.skip_whitespace();
+            tok.expect("Owner Id:")?;
+            tok.skip_whitespace();
+            let owner = tok.take_until_fallible(" ")?.parse()?;
+            tok.skip_whitespace();
+            tok.expect("Owner Name:")?;
+            tok.skip_whitespace();
+            let owner_name = tok.take_until_fallible("\n")?.into();
+            tok.skip_whitespace();
+            Ok(State::Blocked(
+                Object(object),
+                Lock(lock),
+                owner,
+                LockOwner(owner_name),
+            ))
+        } else {
+            Err(Error::InvalidState)
+        }
     }
 }
 
@@ -241,7 +276,7 @@ impl<'a> Iterator for ThreadDumpParser<'a> {
 
         let timestamp = tok.get_line()?;
         let timestamp =
-            match util::utc_unix_timestamp_millis(timestamp, THREADDUMP_TIMESTAMP_FORMAT) {
+            match util::utc_unix_timestamp_millis(timestamp.trim(), THREADDUMP_TIMESTAMP_FORMAT) {
                 Ok(timestamp) => timestamp,
                 Err(e) => {
                     self.0 = tok.remaining();
@@ -261,35 +296,118 @@ impl<'a> Iterator for ThreadDumpParser<'a> {
                 self.1 = ParserState::Thread;
                 let thread = match Self::parse_thread(&mut tok) {
                     Ok(thread) => thread,
-                    Err(e) => return Some(Err(Error::from(e))),
+                    Err(e) => {
+                        self.0 = tok.remaining();
+                        return Some(Err(Error::from(e)))
+                    },
                 };
 
                 threads.push(thread);
+            } else {
+                tok.get_line()?;
             }
         }
-        Some(Ok(ThreadDump {
-            threads,
-            timestamp
-        }))
+        Some(Ok(ThreadDump { threads, timestamp }))
     }
 }
 
 #[cfg(test)]
 pub mod test {
-    use std::assert_matches;
+    use std::{assert_matches, ops::Deref};
 
-use crate::parser::{threaddump::{State, ThreadDumpParser}, tokenizer::Tokenizer};
+    use crate::{
+        parser::{
+            threaddump::{Object, State, ThreadDumpParser},
+            tokenizer::Tokenizer,
+        },
+        util,
+    };
 
     #[test]
     fn threaddump_thread_header_only() {
-        let line = r#""Reference Handler"  Id=2  Java.lang.Thread.State: RUNNABLE\n"#;
+        let line = r#""Reference Handler"  Id=2  Java.lang.Thread.State: RUNNABLE"#;
         let mut tok = Tokenizer::new(line);
         let result = ThreadDumpParser::parse_thread(&mut tok);
-        assert!(result.is_ok(), "Error during parsing: {}", result.unwrap_err());
-        let thread = result.unwrap(); 
+        assert!(
+            result.is_ok(),
+            "Error during parsing: {}",
+            result.unwrap_err()
+        );
+        let thread = result.unwrap();
         assert_matches!(thread.state, State::Runnable);
         assert_eq!(thread.tid, 2);
         assert_eq!(thread.name, "Reference Handler");
+        assert_matches!(thread.trace, None);
+
+        let line = r#""Signal Dispatcher"  Id=4  Java.lang.Thread.State: RUNNABLE"#;
+        let mut tok = Tokenizer::new(line);
+
+        let result = ThreadDumpParser::parse_thread(&mut tok);
+        assert!(
+            result.is_ok(),
+            "Error during parsing: {}",
+            result.unwrap_err()
+        );
+        let thread = result.unwrap();
+        assert_matches!(thread.state, State::Runnable);
+        assert_eq!(thread.tid, 4);
+        assert_eq!(thread.name, "Signal Dispatcher");
+        assert_matches!(thread.trace, None);
+    }
+
+    #[test]
+    fn threaddump_with_traces() {
+        let map = util::map_file("test/threaddump/threaddump_with_traces.txt").unwrap();
+        let data = std::str::from_utf8(map.deref()).unwrap();
+        let mut tok = Tokenizer::new(data);
+        let result = ThreadDumpParser::parse_thread(&mut tok);
+        assert!(
+            result.is_ok(),
+            "Error during parsing: {}",
+            result.unwrap_err()
+        );
+        let thread = result.unwrap();
+        assert_matches!(thread.state, State::Waiting(Object(_), None, None, None));
+        assert_eq!(thread.tid, 3);
+        assert_eq!(thread.name, "Finalizer");
+        assert_matches!(thread.trace, Some(_));
+        if let Some(trace) = thread.trace {
+            assert_eq!(trace.len(), 4);
+        }
+    }
+
+    #[test]
+    fn threaddump_full_dump() {
+        let map = util::map_file("test/threaddump/threaddump_full.txt").unwrap();
+        let mut parser = ThreadDumpParser::try_from(map.deref()).unwrap();
+        let result = parser.next();
+        assert!(result.is_some(), "No results from parser");
+        let result = result.unwrap();
+        assert!(
+            result.is_ok(),
+            "Error during parsing: {}",
+            result.unwrap_err()
+        );
+        let result = result.unwrap();
+        assert_eq!(result.threads.len(), 293);
+    }
+
+    #[test]
+    fn threaddump_full() {
+        let map = util::map_file("test/threaddump/threaddump0.txt").unwrap();
+        let parser = ThreadDumpParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for dump in parser {
+            assert!(
+                dump.is_ok(),
+                "Error during parsing dump: {}",
+                dump.unwrap_err()
+            );
+            
+            count += 1;
+        }
+
+        assert_eq!(count, 6);
     }
 }
 
@@ -310,7 +428,7 @@ pub mod error {
         #[error("Parsing Integer: {0}")]
         IntegerParse(#[from] ParseIntError),
 
-        #[error("Invalid Thread State: {0}")]
-        InvalidState(String),
+        #[error("Invalid Thread State found")]
+        InvalidState,
     }
 }
