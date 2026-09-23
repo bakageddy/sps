@@ -57,9 +57,9 @@ export function causeColor(cause: string): string {
 			return "var(--red)";
 		case "High CPU":
 			return "var(--yellow)";
-		case "High Memory":
+		case "High Memory Consumption":
 			return "var(--chart-4)";
-		default: // URL Invocation and anything new
+		default: // URL invocation and anything new
 			return "var(--chart-6)";
 	}
 }
