@@ -51,6 +51,19 @@ pub enum State<'a> {
     Blocked(Object<'a>, Lock<'a>, u64, LockOwner<'a>),
 }
 
+impl<'a> State<'a> {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            State::New => "NEW",
+            State::Runnable => "RUNNABLE",
+            State::Terminated => "TERMINATED",
+            State::TimedWaiting(_) => "TIMED_WAITING",
+            State::Waiting(_, _, _, _) => "WAITING",
+            State::Blocked(_, _, _, _) => "BLOCKED",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Trace<'a>(pub Vec<Element<'a>>);
 #[derive(Debug)]
@@ -405,6 +418,7 @@ pub mod test {
 
     #[test]
     fn threaddump_full() {
+        let mut thread_count = 0;
         let map = util::map_file("test/threaddump/threaddump0.txt").unwrap();
         let parser = ThreadDumpParser::try_from(map.deref()).unwrap();
         let mut count = 0;
@@ -415,6 +429,7 @@ pub mod test {
                 dump.unwrap_err()
             );
 
+            thread_count += dump.unwrap().threads.len();
             count += 1;
         }
 
@@ -430,6 +445,7 @@ pub mod test {
                 dump.unwrap_err()
             );
 
+            thread_count += dump.unwrap().threads.len();
             count += 1;
         }
 
@@ -445,6 +461,7 @@ pub mod test {
                 dump.unwrap_err()
             );
 
+            thread_count += dump.unwrap().threads.len();
             count += 1;
         }
 
@@ -460,6 +477,7 @@ pub mod test {
                 dump.unwrap_err()
             );
 
+            thread_count += dump.unwrap().threads.len();
             count += 1;
         }
 
@@ -475,10 +493,12 @@ pub mod test {
                 dump.unwrap_err()
             );
 
+            thread_count += dump.unwrap().threads.len();
             count += 1;
         }
 
         assert_eq!(count, 6);
+        assert_eq!(thread_count, 12065);
     }
 }
 

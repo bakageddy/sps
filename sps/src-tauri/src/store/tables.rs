@@ -13,6 +13,9 @@ pub enum Tables {
     StuckqueryBlockingMSSQL,
     ConnectionDump,
     ConnectionDumpTraces,
+    Threaddump,
+    ThreaddumpThreads,
+    ThreaddumpTraces,
 }
 
 impl Tables {
@@ -30,6 +33,9 @@ impl Tables {
             Self::StuckqueryBlockingMSSQL => "stuckquery_mssql_blocking",
             Self::ConnectionDump => "connectiondump",
             Self::ConnectionDumpTraces => "connectiondump_stacktraces",
+            Self::Threaddump => "threaddump",
+            Self::ThreaddumpTraces => "threaddump_traces",
+            Self::ThreaddumpThreads => "threaddump_threads",
         }
     }
 }

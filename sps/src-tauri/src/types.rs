@@ -11,6 +11,7 @@ pub struct LogFiles {
     pub stuckthreads: Vec<PathBuf>,
     pub stuckqueries: Vec<PathBuf>,
     pub connectiondump: Vec<PathBuf>,
+    pub threaddump: Vec<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]
