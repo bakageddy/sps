@@ -7,7 +7,7 @@ pub mod stuckthread;
 pub mod tables;
 pub mod types;
 
-use std::{borrow::Cow, iter, path::Path};
+use std::{iter, path::Path};
 
 use duckdb::{Connection, DuckdbConnectionManager, params};
 use r2d2::{Pool, PooledConnection};
