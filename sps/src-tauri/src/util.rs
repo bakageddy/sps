@@ -14,7 +14,7 @@ use crate::{
     parser::{
         connectiondump::ConnectionDumpParser, cpumemstats::CPUMemStatsParser,
         cpumonitoring::CPUMonitoringParser, stuckquery::StuckqueryParser,
-        stuckthread::StuckthreadParser,
+        stuckthread::StuckthreadParser, threaddump::ThreadDumpParser,
     },
     store::{self, Store},
     types::{LogFiles, ParseInt, TimestampError},
@@ -120,12 +120,14 @@ where
     let stuckthreads = get_files_reverse_sort(&root, "stuckthreads", ".txt")?;
     let stuckqueries = get_files_reverse_sort(&root, "stuckqueries", ".txt")?;
     let connectiondump = get_files_reverse_sort(&root, "cd", ".txt")?;
+    let threaddump = get_files_reverse_sort(&root, "threaddump", ".txt")?;
     return Ok(LogFiles {
         cpumonitoring,
         cpumemstats,
         stuckthreads,
         stuckqueries,
         connectiondump,
+        threaddump,
     });
 }
 
@@ -134,6 +136,7 @@ where
     P: AsRef<Path>,
 {
     let LogFiles {
+        threaddump,
         cpumonitoring,
         cpumemstats,
         stuckthreads,
@@ -178,6 +181,26 @@ where
             }
         }
 
+        let len = threaddump.len();
+        if len <= 2 {
+            s.spawn(|| -> Result<()> {
+                let result = parse_threaddump_and_persist(&threaddump, store.clone());
+                if let Err(ref e) = result {
+                    warn!("Error during parsing/persisting: {e}");
+                }
+                result
+            });
+        } else {
+            for chunk in threaddump.chunks(threaddump.len() / 2) {
+                s.spawn(|| -> Result<()> {
+                    let result = parse_threaddump_and_persist(chunk, store.clone());
+                    if let Err(ref e) = result {
+                        warn!("Error during parsing/persisting: {e}");
+                    }
+                    result
+                });
+            }
+        }
 
         let _ = s.spawn(|| -> Result<()> {
             let result = parse_stuckqueries_and_persist(&stuckqueries, store.clone());
@@ -195,7 +218,6 @@ where
             result
         });
         // TODO:
-        // let _threaddump
         // let _running_queries
         // let _query_monitoring
         // let _pgsql_log
@@ -385,6 +407,46 @@ fn parse_connectiondump_and_persist(
                                 item.unwrap_err()
                             );
                         }
+                        None
+                    }
+                }),
+            )?;
+        } else {
+            warn!(
+                "Cannot convert bytes of {:?} to UTF8 due to {:?}",
+                entry.display(),
+                parser.unwrap_err()
+            );
+            continue;
+        }
+    }
+    Ok(())
+}
+
+pub fn parse_threaddump_and_persist(
+    entries: &[PathBuf],
+    store: Store,
+) -> std::result::Result<(), crate::error::Error> {
+    let entries = entries
+        .into_iter()
+        .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(&e)?, e)) });
+    let cnx = store.get()?;
+
+    for (mmap, entry) in entries {
+        info!("Parsing and persisting: {:?}", entry.display());
+        let parser = ThreadDumpParser::try_from(mmap.deref());
+        if let Ok(parser) = parser {
+            let _ = store::append_threaddump(
+                &cnx,
+                parser.into_iter().flat_map(|item| {
+                    if item.is_ok() {
+                        item.ok()
+                    } else {
+                        warn!(
+                            "Error during parsing {:?} due to {}",
+                            entry.display(),
+                            item.unwrap_err()
+                        );
                         None
                     }
                 }),

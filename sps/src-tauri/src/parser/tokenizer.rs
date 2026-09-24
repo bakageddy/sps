@@ -51,9 +51,16 @@ impl<'a> Tokenizer<'a> {
     }
 
     pub fn take_until(&mut self, needle: &str) -> Option<&'a str> {
-        let (data, rest) = self.0.split_once(needle)?;
+        self.take_until_fallible(needle).ok()
+    }
+
+    pub fn take_until_fallible(&mut self, needle: &str) -> Result<&'a str, Error> {
+        let Some((data, rest)) = self.0.split_once(needle) else {
+            return Err(Error::DelimiterNotFound(needle.to_owned()))
+        };
+
         self.0 = rest;
-        Some(data)
+        Ok(data)
     }
 
     pub fn get_line(&mut self) -> Option<&'a str> {

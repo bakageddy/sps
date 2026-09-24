@@ -19,6 +19,10 @@ use crate::{
         cpumonitoring::CPUMonitoring,
         stuckquery::{MSSQLQuery, Stuckquery, StuckqueryTable},
         stuckthread::Stuckthread,
+        threaddump::{
+            Element::{self},
+            ThreadDump,
+        },
     },
     store::{self, tables::Tables},
 };
@@ -351,5 +355,63 @@ pub fn append_connectiondump<'a>(
 
     appender.flush()?;
     traces_appender.flush()?;
+    Ok(())
+}
+
+pub fn append_threaddump<'a>(
+    cnx: &Connection,
+    iter: impl Iterator<Item = ThreadDump<'a>>,
+) -> Result<(), store::error::Error> {
+    let mut threaddump = cnx.appender_to_db(Tables::Threaddump.into_str(), "main")?;
+    let mut threads = cnx.appender_to_db(Tables::ThreaddumpThreads.into_str(), "main")?;
+    let mut traces = cnx.appender_to_db(Tables::ThreaddumpTraces.into_str(), "main")?;
+
+    for dump in iter {
+        threaddump.append_row([dump.timestamp])?;
+        for thread in dump.threads {
+            let state = thread.state.as_str();
+            let (object, lock, owner_id, owner_name) = match thread.state {
+                crate::parser::threaddump::State::New
+                | crate::parser::threaddump::State::Runnable
+                | crate::parser::threaddump::State::Terminated => (None, None, None, None),
+                crate::parser::threaddump::State::TimedWaiting(object) => {
+                    (object.map(|s| s.0), None, None, None)
+                }
+                crate::parser::threaddump::State::Waiting(object, lock, owner_id, lock_owner) => (
+                    Some(object.0),
+                    lock.map(|l| l.0),
+                    owner_id,
+                    lock_owner.map(|l| l.0),
+                ),
+                crate::parser::threaddump::State::Blocked(object, lock, owner_id, lock_owner) => (
+                    Some(object.0),
+                    Some(lock.0),
+                    Some(owner_id),
+                    Some(lock_owner.0),
+                ),
+            };
+            threads.append_row((
+                dump.timestamp,
+                thread.tid,
+                thread.name,
+                state,
+                object,
+                lock,
+                owner_id,
+                owner_name,
+            ))?;
+
+            if let Some(trace) = thread.trace {
+                for (idx, frame) in (0..).zip(trace.0) {
+                    let (method, source, object) = match frame {
+                        Element::Lock(object) => (None, None, Some(object.0)),
+                        Element::Frame(frame) => (Some(frame.0), Some(frame.1), None),
+                    };
+                    traces.append_row((dump.timestamp, thread.tid, idx, method, source, object))?;
+                }
+            }
+        }
+    }
+
     Ok(())
 }

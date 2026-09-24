@@ -1,9 +1,11 @@
 use std::sync::Mutex;
 
+use tracing::instrument;
 use crate::handlers::types::*;
 use crate::store::Store;
 use crate::types::AppState;
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn open_database(
     path: Option<String>,
@@ -21,6 +23,7 @@ pub fn open_database(
     Ok(DatabaseInfo { path })
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn database_info(state: tauri::State<'_, Mutex<AppState>>) -> Result<Option<String>, String> {
     state

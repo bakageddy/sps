@@ -433,6 +433,7 @@ pub enum MSSQLQuery<'a> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RunningQuery<'a> {
     pub session_id: u64,
     pub status: MSSQLStatus,
@@ -632,6 +633,7 @@ impl<'a> Parser<'a> for RunningQuery<'a> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BlockingQuery<'a> {
     pub head_blocker: u64,
     pub session_id: u64,

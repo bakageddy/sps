@@ -1,6 +1,7 @@
 use std::{ops::Deref, sync::Mutex};
 
 use tauri::State;
+use tracing::instrument;
 
 use crate::handlers::types::{
     BlockingSnapshot, MSSQLLongRunningQuery, MSSQLLongRunningTxn, MSSQLSnapshot,
@@ -10,6 +11,7 @@ use crate::parser::stuckquery::{BlockingQuery, PGSQLQuery, RunningQuery};
 use crate::store;
 use crate::types::AppState;
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckquery_mssql_snapshots(
     state: State<'_, Mutex<AppState>>,
@@ -26,6 +28,7 @@ pub fn stuckquery_mssql_snapshots(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckquery_mssql_blocking_snapshots(
     state: State<'_, Mutex<AppState>>,
@@ -42,6 +45,7 @@ pub fn stuckquery_mssql_blocking_snapshots(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckquery_pgsql_snapshots(
     state: State<'_, Mutex<AppState>>,
@@ -58,6 +62,7 @@ pub fn stuckquery_pgsql_snapshots(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckquery_pgsql_queries<'a>(
     timestamp: u64,
@@ -74,6 +79,7 @@ pub fn stuckquery_pgsql_queries<'a>(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckquery_mssql_queries<'a>(
     timestamp: u64,
@@ -92,6 +98,7 @@ pub fn stuckquery_mssql_queries<'a>(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckquery_mssql_blocking<'a>(
     timestamp: u64,
@@ -108,6 +115,7 @@ pub fn stuckquery_mssql_blocking<'a>(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckquery_mssql_longrunning(
     state: State<'_, Mutex<AppState>>,
@@ -124,6 +132,7 @@ pub fn stuckquery_mssql_longrunning(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckquery_pgsql_longrunning(
     state: State<'_, Mutex<AppState>>,
@@ -141,6 +150,7 @@ pub fn stuckquery_pgsql_longrunning(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckquery_mssql_longtxns(
     state: State<'_, Mutex<AppState>>,

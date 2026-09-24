@@ -3,8 +3,10 @@ use crate::{
     store,
     types::AppState,
 };
+use tracing::instrument;
 use std::{ops::Deref, sync::Mutex};
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpumem_dumps(
     state: tauri::State<'_, Mutex<AppState>>,
@@ -22,6 +24,7 @@ pub fn cpumem_dumps(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpumem_cpu_processes(
     timestamp: u64,
@@ -40,6 +43,7 @@ pub fn cpumem_cpu_processes(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpumem_mem_processes(
     timestamp: u64,
@@ -58,6 +62,7 @@ pub fn cpumem_mem_processes(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpumem_series(
     pid: u64,
@@ -76,6 +81,7 @@ pub fn cpumem_series(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpumem_path_series(
     path: Option<String>,
@@ -95,6 +101,7 @@ pub fn cpumem_path_series(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpumem_total_cpu(
     state: tauri::State<'_, Mutex<AppState>>,
@@ -111,6 +118,7 @@ pub fn cpumem_total_cpu(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpumem_total_memory(
     state: tauri::State<'_, Mutex<AppState>>,

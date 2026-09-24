@@ -248,7 +248,7 @@ impl FromStr for Cause {
         match s {
             "High CPU" => Ok(Cause::HighCPU),
             "No ManagedConnections" => Ok(Cause::NoManagedConnections),
-            "High Memory" => Ok(Cause::HighMemory),
+            "High Memory Consumption" => Ok(Cause::HighMemory),
             "URL invocation" => Ok(Cause::URL),
             _ => Err(Error::Cause(s.to_string())),
         }
@@ -262,7 +262,7 @@ impl TryFrom<&[u8]> for Cause {
         match value {
             b"High CPU" => Ok(Cause::HighCPU),
             b"No ManagedConnections" => Ok(Cause::NoManagedConnections),
-            b"High Memory" => Ok(Cause::HighMemory),
+            b"High Memory Consumption" => Ok(Cause::HighMemory),
             b"URL invocation" => Ok(Cause::URL),
             _ => Err(Error::Cause(
                 std::str::from_utf8(value)
@@ -289,8 +289,8 @@ impl Cause {
         match self {
             Self::HighCPU => "High CPU",
             Self::NoManagedConnections => "No ManagedConnections",
-            Self::HighMemory => "High Memory",
-            Self::URL => "URL Invocation",
+            Self::HighMemory => "High Memory Consumption",
+            Self::URL => "URL invocation",
         }
     }
 }

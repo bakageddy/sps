@@ -25,13 +25,15 @@ import { invoke } from "@tauri-apps/api/core";
  * ones ("Skipping to dump..."). Field names mirror
  * parser::connectiondump::ConnectionDumpEntry::Signal (camelCased).
  *
- * SERIALIZATION REQUIREMENTS on the Rust side:
- *  - cause must reach the wire as a PLAIN STRING via Cause::as_str
- *    ("High CPU" | "High Memory" | "No ManagedConnections" |
- *    "URL Invocation") — not serde's default enum encoding;
- *  - suppressed does not exist in the parser yet: Signal needs a flag
- *    distinguishing the "Skipping to dump" preamble (suppressed = true,
- *    threshold exceeded but no body captured) from a real dump.
+ * cause is the connectiondump_cause ENUM label, read straight from the
+ * column (see src-tauri/schema.sql) — exactly one of:
+ *   "High CPU" | "No ManagedConnections" | "High Memory Consumption" |
+ *   "URL invocation"
+ * These strings ARE the wire contract; causeColor() in
+ * src/lib/connectiondump.ts must match them verbatim.
+ *
+ * suppressed = true is the "Skipping to dump" preamble (threshold exceeded
+ * but no body captured); false is a real dump.
  */
 export interface ConnDumpSignal {
 	/** ms epoch of the log line */
