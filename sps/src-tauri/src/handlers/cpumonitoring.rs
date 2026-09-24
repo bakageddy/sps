@@ -4,7 +4,9 @@ use crate::{
     store::{self, types::Frame},
 };
 use std::{ops::Deref, sync::Mutex};
+use tracing::instrument;
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpu_stacktrace(
     tid: u64,
@@ -24,6 +26,7 @@ pub fn cpu_stacktrace(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpu_dumps(state: tauri::State<'_, Mutex<AppState>>) -> Result<Vec<DumpSummary>, String> {
     let guard = state.lock().unwrap();
@@ -38,6 +41,7 @@ pub fn cpu_dumps(state: tauri::State<'_, Mutex<AppState>>) -> Result<Vec<DumpSum
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpu_dump_threads(
     timestamp: u64,
@@ -55,6 +59,7 @@ pub fn cpu_dump_threads(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn cpu_series(
     tid: u64,

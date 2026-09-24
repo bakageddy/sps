@@ -1,8 +1,11 @@
+use tracing::instrument;
+
 use crate::{
     AppState, handlers::types::{ConnectionDumpHolder, ConnectionDumpSnapshot}, parser::connectiondump::{Signal, Stats, Trace}, store,
 };
 use std::sync::Mutex;
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn connectiondump_signals(
     from: Option<u64>,
@@ -20,6 +23,7 @@ pub fn connectiondump_signals(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn connectiondump_pool_stats(
     from: Option<u64>,
@@ -38,6 +42,7 @@ pub fn connectiondump_pool_stats(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn connectiondump_snapshots(
     state: tauri::State<'_, Mutex<AppState>>,
@@ -54,6 +59,7 @@ pub fn connectiondump_snapshots(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn connectiondump_traces(
     timestamp: u64,
@@ -70,6 +76,7 @@ pub fn connectiondump_traces(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn connectiondump_holders(
     from: Option<u64>,

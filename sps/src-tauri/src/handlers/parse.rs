@@ -1,8 +1,10 @@
 use crate::util;
 use crate::{handlers::types::ParseReport, types::AppState};
 use std::sync::Mutex;
+use tracing::instrument;
 
 // TODO: implement parse status
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn parse_logs(
     path: String,

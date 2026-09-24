@@ -1,9 +1,12 @@
 use std::{ops::Deref, sync::Mutex};
 
+use tracing::instrument;
+
 use crate::{
     handlers::types::AggregatedStuckthread, parser::stuckthread::Frame, store, types::AppState,
 };
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckthread_listview(
     from: Option<u64>,
@@ -23,6 +26,7 @@ pub fn stuckthread_listview(
     result
 }
 
+#[instrument(skip(state))]
 #[tauri::command]
 pub fn stuckthread_trace<'a>(
     tid: u64,
