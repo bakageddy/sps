@@ -95,6 +95,15 @@ impl<'a> ThreadDumpParser<'a> {
         let state = Self::parse_thread_state(&mut *tok)?;
 
         tok.skip_whitespace();
+        if tok.peek("\"") {
+            return Ok(Thread {
+                tid,
+                name,
+                state,
+                trace: None,
+            });
+        }
+
         let mut traces = Vec::new();
         while let Some(line) = tok.peek_line() {
             let line = line.trim_start();
@@ -235,12 +244,17 @@ impl<'a> Iterator for ThreadDumpParser<'a> {
             return None;
         }
 
+        self.1 = ParserState::Initial;
         while let Some(line) = tok.peek_line() {
             if line.trim_start().starts_with("Thread dump") {
                 self.1 = ParserState::Timestamp;
                 break;
             }
             tok.get_line()?;
+        }
+
+        if let ParserState::Initial = self.1 {
+            return None;
         }
 
         match tok.expect("Thread dump") {
@@ -280,7 +294,9 @@ impl<'a> Iterator for ThreadDumpParser<'a> {
         self.1 = ParserState::Thread;
         let mut threads = Vec::new();
         while let Some(line) = tok.peek_line() {
-            if line.trim_start().starts_with("TriggeredTime") {
+            if line.trim_start().starts_with("TriggeredTime")
+                || line.trim_start().starts_with("Thread dump")
+            {
                 self.1 = ParserState::FinishDump;
                 break;
             }
@@ -390,6 +406,66 @@ pub mod test {
     #[test]
     fn threaddump_full() {
         let map = util::map_file("test/threaddump/threaddump0.txt").unwrap();
+        let parser = ThreadDumpParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for dump in parser {
+            assert!(
+                dump.is_ok(),
+                "Error during parsing dump: {}",
+                dump.unwrap_err()
+            );
+
+            count += 1;
+        }
+
+        assert_eq!(count, 6);
+
+        let map = util::map_file("test/threaddump/threaddump1.txt").unwrap();
+        let parser = ThreadDumpParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for dump in parser {
+            assert!(
+                dump.is_ok(),
+                "Error during parsing dump: {}",
+                dump.unwrap_err()
+            );
+
+            count += 1;
+        }
+
+        assert_eq!(count, 9);
+
+        let map = util::map_file("test/threaddump/threaddump2.txt").unwrap();
+        let parser = ThreadDumpParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for dump in parser {
+            assert!(
+                dump.is_ok(),
+                "Error during parsing dump: {}",
+                dump.unwrap_err()
+            );
+
+            count += 1;
+        }
+
+        assert_eq!(count, 9);
+
+        let map = util::map_file("test/threaddump/threaddump3.txt").unwrap();
+        let parser = ThreadDumpParser::try_from(map.deref()).unwrap();
+        let mut count = 0;
+        for dump in parser {
+            assert!(
+                dump.is_ok(),
+                "Error during parsing dump: {}",
+                dump.unwrap_err()
+            );
+
+            count += 1;
+        }
+
+        assert_eq!(count, 9);
+
+        let map = util::map_file("test/threaddump/threaddump4.txt").unwrap();
         let parser = ThreadDumpParser::try_from(map.deref()).unwrap();
         let mut count = 0;
         for dump in parser {
