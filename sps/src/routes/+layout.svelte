@@ -156,7 +156,19 @@
 			],
 		},
 		{ href: "/stuckqueries", label: "Stuck Queries", icon: "database" },
-		{ href: "/connectiondump", label: "Connection Dumps", icon: "link" },
+		{
+			href: "/connectiondump",
+			label: "Connection Dumps",
+			icon: "link",
+			children: [
+				{
+					href: "/connectiondump/incident",
+					label: "Incident",
+					icon: "graph",
+				},
+			],
+		},
+		{ href: "/threaddump", label: "Thread Dumps", icon: "stuck" },
 	];
 </script>
 

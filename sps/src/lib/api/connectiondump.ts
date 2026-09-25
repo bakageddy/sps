@@ -206,3 +206,93 @@ export function connectiondumpHolders(
 ): Promise<ConnDumpHolder[]> {
 	return invoke("connectiondump_holders", { from, to });
 }
+
+// ---------------------------------------------------------------------------
+// Incidents: connectiondump as the correlation hub
+// ---------------------------------------------------------------------------
+//
+// Every performance dump fires on a trigger (High CPU / NMC / High Memory /
+// manual URL invocation) and connectiondump RECORDS that trigger as a
+// signal — so the signals timeline is the incident index, and every other
+// log's dump taken within the tolerance of a signal belongs to that
+// incident. Stuck threads are deliberately NOT part of this hub (they keep
+// their own matcher at /stuckthreads/queries).
+//
+// Correlation is done backend-side (Dinesh): the frontend hands over a
+// signal timestamp and gets back already-matched data. Two commands:
+//  - connectiondump_incident: resolves the anchor — which dump of each
+//    subsystem is "this incident" — so the frontend can reuse the existing
+//    per-timestamp commands (cpumem_cpu_processes, stuckquery_*_queries…)
+//    for the panels that need no tid join, and deep-link into those pages.
+//  - connectiondump_incident_threads: the one panel that DOES need a tid
+//    join — the threaddump census decorated with cpumonitoring / hold data.
+
+/** ms: dumps of one trigger land within this of the signal (measured 2–4s). */
+export const INCIDENT_TOLERANCE_MS = 4000;
+
+/** The nearest dump of each subsystem within INCIDENT_TOLERANCE_MS of the
+ *  signal; null = that log has no dump in the window (or isn't in the bundle). */
+export interface IncidentAnchors {
+	threaddump: number | null;
+	cpumonitoring: number | null;
+	cpumemstats: number | null;
+	stuckqueryMssql: number | null;
+	stuckqueryPgsql: number | null;
+}
+
+/**
+ * ```rust
+ * #[tauri::command]
+ * fn connectiondump_incident(timestamp: u64, state: ...)
+ *     -> Result<IncidentAnchors, String>
+ * ```
+ * REQUIREMENTS: $1 is a signal timestamp from connectiondump_signals. For
+ * each subsystem, the dump timestamp minimizing |dump_ts - $1| subject to
+ * |dump_ts - $1| <= INCIDENT_TOLERANCE_MS, else null. cpumonitoring dumps =
+ * distinct cpumonitoring.timestamp; cpumemstats = distinct dump timestamps
+ * across its platform tables; stuckquery = distinct snapshot timestamps per
+ * flavor. Never errors on a missing log — that's a null, not an Err.
+ */
+export function connectiondumpIncident(
+	timestamp: number,
+): Promise<IncidentAnchors> {
+	return invoke("connectiondump_incident", { timestamp });
+}
+
+import type { ThreadDumpThread } from "./threaddump";
+
+/**
+ * One row of the incident census: the threaddump thread (all of
+ * ThreadDumpThread — the spine) decorated by tid with what the other logs
+ * knew about it at this incident. null = that log has no row for this tid
+ * at its matched dump (cpumonitoring only logs hot threads; connectiondump
+ * only connection holders) — null is normal, not an error.
+ */
+export interface IncidentThread extends ThreadDumpThread {
+	/** cpumonitoring cpu % at the incident's cpumonitoring dump */
+	cpu: number | null;
+	/** ms the thread had held a pooled connection at the incident's trace dump */
+	heldFor: number | null;
+}
+
+/**
+ * ```rust
+ * #[tauri::command]
+ * fn connectiondump_incident_threads(timestamp: u64, state: ...)
+ *     -> Result<Vec<IncidentThread>, String>
+ * ```
+ * REQUIREMENTS: $1 is a signal timestamp. Resolve the threaddump anchor as
+ * in connectiondump_incident; empty Vec if there is none. Rows = every
+ * thread of that threaddump (LEFT side), LEFT JOINed by EXACT tid with:
+ *   - cpumonitoring rows at the incident's cpumonitoring anchor → cpu;
+ *   - connectiondump_stacktraces rows (id = tid) at the nearest trace dump
+ *     within tolerance → heldFor = that row's duration.
+ * A thread absent from a side gets null there. Same ordering as
+ * threaddump_threads (BLOCKED first…), with cpu descending as the tiebreak
+ * within a state so the hot ones lead.
+ */
+export function connectiondumpIncidentThreads(
+	timestamp: number,
+): Promise<IncidentThread[]> {
+	return invoke("connectiondump_incident_threads", { timestamp });
+}

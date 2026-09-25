@@ -60,6 +60,26 @@ the spec; reconcile against them, not memory.
       thread name/id (`http-nio-8080-exec-11` style names appear in both) —
       needs the threaddump parser first. Same window pattern also joins
       stuckthreads (victims) and stuckqueries (why holders won't release).
+- [ ] **Thread-dump commands** (three, requirements in
+      `src/lib/api/threaddump.ts`; page live at /threaddump; parser DONE):
+      `threaddump_dumps()` (GROUP BY timestamp + per-state conditional
+      counts), `threaddump_threads(timestamp)` (census; State payload
+      FLATTENED onto the row — struct variants + `#[serde(tag="state")]` +
+      `#[serde(flatten)]` on Thread.state, or a DTO; wire names
+      waitingOn/lock/lockOwnerTid/lockOwnerName, BLOCKED-first ordering),
+      `threaddump_trace(tid, timestamp)` (Option<Vec<Element>>, frames and
+      lock lines in ORIGINAL interleaving, `#[serde(tag="kind")]`, Frame
+      tuple → {method, source}). Deadlock detection is FRONTEND
+      (`src/lib/threaddump.ts`) — no command.
+- [ ] **Connection-dump incident commands** (two, requirements in
+      `src/lib/api/connectiondump.ts`; page live at /connectiondump/incident):
+      `connectiondump_incident(signalTs)` → nearest dump timestamp per
+      subsystem within INCIDENT_TOLERANCE_MS = 4000 (threaddump,
+      cpumonitoring, cpumemstats, stuckquery mssql/pgsql; null = none —
+      never an Err), `connectiondump_incident_threads(signalTs)` → the
+      threaddump census LEFT JOINed by EXACT tid with cpumonitoring cpu and
+      connectiondump_stacktraces duration (heldFor) at their anchors.
+      Stuck threads deliberately excluded from the hub.
 - [ ] **Overview commands**: `cpumem_total_cpu` / `cpumem_total_memory` —
       requirements in `src/lib/api/cpumemstats.ts` (frontend page is live at
       /cpumemstats/overview).

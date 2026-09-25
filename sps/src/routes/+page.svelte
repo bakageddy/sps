@@ -32,6 +32,12 @@
       description:
         "Pool occupancy, threshold alarms, and who holds each connection — across dumps.",
     },
+    {
+      href: "/threaddump",
+      title: "Thread Dumps",
+      description:
+        "Every thread's state and stack at each dump, with lock ownership, deadlocks and hot locks.",
+    },
   ];
 </script>
 
