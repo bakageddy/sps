@@ -67,6 +67,46 @@ impl Clone for Store {
     }
 }
 
+pub fn flush_results(store: Store) -> Result<(), store::error::Error> {
+    let cnx = store.get()?;
+    let mut cpumonitoring = cnx.appender_to_db(Tables::CPUMonitoring.into_str(), "main")?;
+    let mut cpumonitoring_traces =
+        cnx.appender_to_db(Tables::CPUMonitoringStackTraces.into_str(), "main")?;
+    let mut linux_stat = cnx.appender_to_db(Tables::LinuxStats.into_str(), "main")?;
+    let mut windows_cpu = cnx.appender_to_db(Tables::WindowsCPUStats.into_str(), "main")?;
+    let mut windows_mem = cnx.appender_to_db(Tables::WindowsMemoryStats.into_str(), "main")?;
+    let mut stuckthread = cnx.appender_to_db(Tables::Stuckthread.into_str(), "main")?;
+    let mut stuckthread_traces =
+        cnx.appender_to_db(Tables::StuckthreadTraces.into_str(), "main")?;
+
+    let mut pgsql_appender = cnx.appender_to_db(Tables::StuckqueryPGSQL.into_str(), "main")?;
+    let mut mssql_appender = cnx.appender_to_db(Tables::StuckqueryMSSQL.into_str(), "main")?;
+    let mut block_appender =
+        cnx.appender_to_db(Tables::StuckqueryBlockingMSSQL.into_str(), "main")?;
+    let mut cd = cnx.appender_to_db(Tables::ConnectionDump.into_str(), "main")?;
+    let mut cd_traces = cnx.appender_to_db(Tables::ConnectionDumpTraces.into_str(), "main")?;
+    let mut threaddump = cnx.appender_to_db(Tables::Threaddump.into_str(), "main")?;
+    let mut threads = cnx.appender_to_db(Tables::ThreaddumpThreads.into_str(), "main")?;
+    let mut thread_traces = cnx.appender_to_db(Tables::ThreaddumpTraces.into_str(), "main")?;
+
+    cpumonitoring.flush()?;
+    cpumonitoring_traces.flush()?;
+    linux_stat.flush()?;
+    windows_cpu.flush()?;
+    windows_mem.flush()?;
+    stuckthread.flush()?;
+    stuckthread_traces.flush()?;
+    pgsql_appender.flush()?;
+    mssql_appender.flush()?;
+    block_appender.flush()?;
+    cd.flush()?;
+    cd_traces.flush()?;
+    threaddump.flush()?;
+    threads.flush()?;
+    thread_traces.flush()?;
+    Ok(())
+}
+
 pub fn append_cpumonitoring<'a>(
     cnx: &Connection,
     iter: impl Iterator<Item = CPUMonitoring<'a>>,
@@ -96,8 +136,6 @@ pub fn append_cpumonitoring<'a>(
         }
     }
 
-    cpu_appender.flush()?;
-    trace_appender.flush()?;
     Ok(())
 }
 
@@ -151,9 +189,6 @@ pub fn append_cpumemstats<'a>(
         }
     }
 
-    linux_stat.flush()?;
-    windows_cpu.flush()?;
-    windows_mem.flush()?;
     Ok(())
 }
 
@@ -189,8 +224,6 @@ pub fn append_stuckthread<'a>(
         };
         appender.append_row((timestamp, tid, duration, name, request, active))?;
     }
-    appender.flush()?;
-    traces_appender.flush()?;
     Ok(())
 }
 
@@ -202,7 +235,6 @@ pub fn append_stuckqueries<'a>(
     let mut mssql_appender = cnx.appender_to_db(Tables::StuckqueryMSSQL.into_str(), "main")?;
     let mut block_appender =
         cnx.appender_to_db(Tables::StuckqueryBlockingMSSQL.into_str(), "main")?;
-    cnx.appender_to_db(Tables::StuckqueryBlockingMSSQL.into_str(), "main")?;
     for result in iter {
         for query in result.queries {
             match query {
@@ -275,9 +307,6 @@ pub fn append_stuckqueries<'a>(
             }
         }
     }
-    block_appender.flush()?;
-    mssql_appender.flush()?;
-    pgsql_appender.flush()?;
     Ok(())
 }
 
@@ -353,8 +382,6 @@ pub fn append_connectiondump<'a>(
         };
     }
 
-    appender.flush()?;
-    traces_appender.flush()?;
     Ok(())
 }
 
@@ -374,20 +401,30 @@ pub fn append_threaddump<'a>(
                 crate::parser::threaddump::State::New
                 | crate::parser::threaddump::State::Runnable
                 | crate::parser::threaddump::State::Terminated => (None, None, None, None),
-                crate::parser::threaddump::State::TimedWaiting(object) => {
-                    (object.map(|s| s.0), None, None, None)
+                crate::parser::threaddump::State::TimedWaiting { waiting_on } => {
+                    (waiting_on.map(|s| s.0), None, None, None)
                 }
-                crate::parser::threaddump::State::Waiting(object, lock, owner_id, lock_owner) => (
-                    Some(object.0),
+                crate::parser::threaddump::State::Waiting {
+                    waiting_on,
+                    lock,
+                    lock_owner_tid,
+                    lock_owner_name,
+                } => (
+                    Some(waiting_on.0),
                     lock.map(|l| l.0),
-                    owner_id,
-                    lock_owner.map(|l| l.0),
+                    lock_owner_tid,
+                    lock_owner_name.map(|l| l.0),
                 ),
-                crate::parser::threaddump::State::Blocked(object, lock, owner_id, lock_owner) => (
-                    Some(object.0),
+                crate::parser::threaddump::State::Blocked {
+                    blocked_on,
+                    lock,
+                    lock_owner_tid,
+                    lock_owner_name,
+                } => (
+                    Some(blocked_on.0),
                     Some(lock.0),
-                    Some(owner_id),
-                    Some(lock_owner.0),
+                    Some(lock_owner_tid),
+                    Some(lock_owner_name.0),
                 ),
             };
             threads.append_row((

@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use time::{Date, PlainDateTime, Time, UtcDateTime, format_description::BorrowedFormatItem};
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 
 use crate::{
     parser::{
@@ -170,7 +170,7 @@ where
                 result
             });
         } else {
-            for chunk in stuckthreads.chunks(stuckthreads.len() / 2) {
+            for chunk in stuckthreads.chunks(len) {
                 s.spawn(|| -> Result<()> {
                     let result = parse_stuckthreads_and_persist(chunk, store.clone());
                     if let Err(ref e) = result {
@@ -191,7 +191,7 @@ where
                 result
             });
         } else {
-            for chunk in threaddump.chunks(threaddump.len() / 2) {
+            for chunk in threaddump.chunks(len / 2) {
                 s.spawn(|| -> Result<()> {
                     let result = parse_threaddump_and_persist(chunk, store.clone());
                     if let Err(ref e) = result {
@@ -223,6 +223,11 @@ where
         // let _pgsql_log
         // let _access_log
     });
+
+    // NOTE: Every appender has an internal flush whenever its' internal buffers are full
+    if let Err(e) = store::flush_results(store.clone()) {
+        error!("Error during flushing database results: {}", e);
+    }
     Ok(())
 }
 

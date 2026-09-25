@@ -3,7 +3,7 @@ use crate::{
     store,
     types::AppState,
 };
-use tracing::instrument;
+use tracing::{instrument, warn};
 use std::{ops::Deref, sync::Mutex};
 
 #[instrument(skip(state))]

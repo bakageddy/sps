@@ -1,6 +1,7 @@
 use std::{borrow::Cow, ops::Deref, str::Utf8Error};
 
 use error::Error;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     parser::tokenizer::{self, Tokenizer},
@@ -36,19 +37,27 @@ pub struct Thread<'a> {
     pub trace: Option<Trace<'a>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum State<'a> {
     New,
     Runnable,
     Terminated,
-    TimedWaiting(Option<Object<'a>>),
-    Waiting(
-        Object<'a>,
-        Option<Lock<'a>>,
-        Option<u64>,
-        Option<LockOwner<'a>>,
-    ),
-    Blocked(Object<'a>, Lock<'a>, u64, LockOwner<'a>),
+    TimedWaiting {
+        waiting_on: Option<Object<'a>>,
+    },
+    Waiting {
+        waiting_on: Object<'a>,
+        lock: Option<Lock<'a>>,
+        lock_owner_tid: Option<u64>,
+        lock_owner_name: Option<LockOwner<'a>>,
+    },
+    Blocked {
+        blocked_on: Object<'a>,
+        lock: Lock<'a>,
+        lock_owner_tid: u64,
+        lock_owner_name: LockOwner<'a>,
+    },
 }
 
 impl<'a> State<'a> {
@@ -57,9 +66,9 @@ impl<'a> State<'a> {
             State::New => "NEW",
             State::Runnable => "RUNNABLE",
             State::Terminated => "TERMINATED",
-            State::TimedWaiting(_) => "TIMED_WAITING",
-            State::Waiting(_, _, _, _) => "WAITING",
-            State::Blocked(_, _, _, _) => "BLOCKED",
+            State::TimedWaiting { .. } => "TIMED_WAITING",
+            State::Waiting { .. } => "WAITING",
+            State::Blocked { .. } => "BLOCKED",
         }
     }
 }
@@ -86,13 +95,13 @@ impl<'a> Deref for Trace<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Object<'a>(pub Cow<'a, str>);
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Lock<'a>(pub Cow<'a, str>);
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LockOwner<'a>(pub Cow<'a, str>);
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Frame<'a>(pub Cow<'a, str>, pub Cow<'a, str>);
 
 impl<'a> ThreadDumpParser<'a> {
@@ -175,9 +184,11 @@ impl<'a> ThreadDumpParser<'a> {
                 tok.expect("on")?;
                 tok.skip_whitespace();
                 let object = tok.take_until_fallible("\n")?.into();
-                Ok(State::TimedWaiting(Some(Object(object))))
+                Ok(State::TimedWaiting {
+                    waiting_on: Some(Object(object)),
+                })
             } else {
-                Ok(State::TimedWaiting(None))
+                Ok(State::TimedWaiting { waiting_on: None })
             }
         } else if tok.peek("WAITING") {
             tok.expect("WAITING")?;
@@ -198,14 +209,19 @@ impl<'a> ThreadDumpParser<'a> {
                 tok.expect("Owner Name:")?;
                 tok.skip_whitespace();
                 let owner_name = tok.take_until_fallible("\n")?.into();
-                Ok(State::Waiting(
-                    Object(object),
-                    Some(Lock(lockname)),
-                    Some(owner_id),
-                    Some(LockOwner(owner_name)),
-                ))
+                Ok(State::Waiting {
+                    waiting_on: Object(object),
+                    lock: Some(Lock(lockname)),
+                    lock_owner_tid: Some(owner_id),
+                    lock_owner_name: Some(LockOwner(owner_name)),
+                })
             } else {
-                Ok(State::Waiting(Object(object), None, None, None))
+                Ok(State::Waiting {
+                    waiting_on: Object(object),
+                    lock: None,
+                    lock_owner_tid: None,
+                    lock_owner_name: None,
+                })
             }
         } else if tok.peek("BLOCKED") {
             tok.expect("BLOCKED")?;
@@ -226,12 +242,12 @@ impl<'a> ThreadDumpParser<'a> {
             tok.skip_whitespace();
             let owner_name = tok.take_until_fallible("\n")?.into();
             tok.skip_whitespace();
-            Ok(State::Blocked(
-                Object(object),
-                Lock(lock),
-                owner,
-                LockOwner(owner_name),
-            ))
+            Ok(State::Blocked {
+                blocked_on: Object(object),
+                lock: Lock(lock),
+                lock_owner_tid: owner,
+                lock_owner_name: LockOwner(owner_name),
+            })
         } else {
             Err(Error::InvalidState)
         }
@@ -390,7 +406,15 @@ pub mod test {
             result.unwrap_err()
         );
         let thread = result.unwrap();
-        assert_matches!(thread.state, State::Waiting(Object(_), None, None, None));
+        assert_matches!(
+            thread.state,
+            State::Waiting {
+                waiting_on: Object(_),
+                lock: None,
+                lock_owner_tid: None,
+                lock_owner_name: None
+            }
+        );
         assert_eq!(thread.tid, 3);
         assert_eq!(thread.name, "Finalizer");
         assert_matches!(thread.trace, Some(_));

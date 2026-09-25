@@ -17,7 +17,7 @@ use handlers::{
     stuckthread::*,
 };
 use tauri::Manager;
-use tracing::warn;
+use tracing::{level_filters::LevelFilter, warn};
 use tracing_subscriber;
 
 // #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -70,7 +70,13 @@ pub fn launch(database: Option<PathBuf>) {
 }
 
 pub fn run() {
-    tracing_subscriber::fmt().init();
+    let subscriber = tracing_subscriber::fmt()
+        .with_file(true)
+        .with_thread_ids(false)
+        .with_max_level(LevelFilter::DEBUG)
+        .log_internal_errors(true)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("Unable to init logging system");
     let args = AppArgs::parse();
     if args.command.is_none() {
         launch(None);
