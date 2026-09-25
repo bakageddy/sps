@@ -20,10 +20,10 @@ pub fn stuckthread_listview(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::stuckthread::get_stuckthread_aggregates(cnx.deref(), from, to)
-        .map_err(|e| format!("Error during fetching stuckthread aggregates: {e}"));
+    
 
-    result
+    store::stuckthread::get_stuckthread_aggregates(cnx.deref(), from, to)
+        .map_err(|e| format!("Error during fetching stuckthread aggregates: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -40,7 +40,7 @@ pub fn stuckthread_trace<'a>(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::stuckthread::get_stuckthread_trace(cnx.deref(), tid, timestamp)
-        .map_err(|e| format!("Error during fetching stuckthread stacktrace: {e}"));
-    result
+    
+    store::stuckthread::get_stuckthread_trace(cnx.deref(), tid, timestamp)
+        .map_err(|e| format!("Error during fetching stuckthread stacktrace: {e}"))
 }

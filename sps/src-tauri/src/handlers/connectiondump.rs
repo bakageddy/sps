@@ -1,7 +1,10 @@
 use tracing::instrument;
 
 use crate::{
-    AppState, handlers::types::{ConnectionDumpHolder, ConnectionDumpSnapshot}, parser::connectiondump::{Signal, Stats, Trace}, store,
+    AppState,
+    handlers::types::{ConnectionDumpHolder, ConnectionDumpSnapshot},
+    parser::connectiondump::{Signal, Stats, Trace},
+    store,
 };
 use std::sync::Mutex;
 
@@ -18,9 +21,9 @@ pub fn connectiondump_signals(
         .get()
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
-    let result = store::connectiondump::get_connectiondump_signals(&cnx, from, to)
-        .map_err(|e| format!("Error during fetching ConnectionDump signals: {e}"));
-    result
+    
+    store::connectiondump::get_connectiondump_signals(&cnx, from, to)
+        .map_err(|e| format!("Error during fetching ConnectionDump signals: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -37,9 +40,9 @@ pub fn connectiondump_pool_stats(
         .map_err(|e| format!("Error during obtain database connection: {e}"))?;
     drop(guard);
 
-    let result = store::connectiondump::get_connectiondump_stats(&cnx, from, to)
-        .map_err(|e| format!("Error during fetching ConnectionDump stats: {e}"));
-    result
+    
+    store::connectiondump::get_connectiondump_stats(&cnx, from, to)
+        .map_err(|e| format!("Error during fetching ConnectionDump stats: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -54,9 +57,9 @@ pub fn connectiondump_snapshots(
         .map_err(|e| format!("Error during obtaining database conneciton: {e}"))?;
     drop(guard);
 
-    let result = store::connectiondump::get_connectiondump_snapshots(&cnx)
-        .map_err(|e| format!("Error during fetching connection dump snapshots {e}"));
-    result
+    
+    store::connectiondump::get_connectiondump_snapshots(&cnx)
+        .map_err(|e| format!("Error during fetching connection dump snapshots {e}"))
 }
 
 #[instrument(skip(state))]
@@ -71,9 +74,9 @@ pub fn connectiondump_traces(
         .get()
         .map_err(|e| format!("Error during obtaining database conneciton: {e}"))?;
     drop(guard);
-    let result = store::connectiondump::get_connectiondump_traces(&cnx, timestamp)
-        .map_err(|e| format!("Error during fetching connection dump traces: {e}"));
-    result
+    
+    store::connectiondump::get_connectiondump_traces(&cnx, timestamp)
+        .map_err(|e| format!("Error during fetching connection dump traces: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -89,7 +92,7 @@ pub fn connectiondump_holders(
         .get()
         .map_err(|e| format!("Error during obtaining database conneciton: {e}"))?;
     drop(guard);
-    let result = store::connectiondump::get_connectiondump_holders(&cnx, from, to)
-        .map_err(|e| format!("Error during fetching connection dump traces: {e}"));
-    result
+    
+    store::connectiondump::get_connectiondump_holders(&cnx, from, to)
+        .map_err(|e| format!("Error during fetching connection dump traces: {e}"))
 }

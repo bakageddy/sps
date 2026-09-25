@@ -56,7 +56,7 @@ impl<'a> Tokenizer<'a> {
 
     pub fn take_until_fallible(&mut self, needle: &str) -> Result<&'a str, Error> {
         let Some((data, rest)) = self.0.split_once(needle) else {
-            return Err(Error::DelimiterNotFound(needle.to_owned()))
+            return Err(Error::DelimiterNotFound(needle.to_owned()));
         };
 
         self.0 = rest;
@@ -109,7 +109,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     pub fn remaining(self) -> &'a str {
-        return self.0;
+        self.0
     }
 }
 

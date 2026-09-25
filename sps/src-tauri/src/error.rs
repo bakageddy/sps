@@ -1,5 +1,5 @@
-use crate::store;
 use crate::parser;
+use crate::store;
 
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]

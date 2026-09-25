@@ -3,8 +3,8 @@ use crate::{
     store,
     types::AppState,
 };
-use tracing::{instrument, warn};
 use std::{ops::Deref, sync::Mutex};
+use tracing::{instrument, warn};
 
 #[instrument(skip(state))]
 #[tauri::command]
@@ -18,10 +18,10 @@ pub fn cpumem_dumps(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::cpumemstats::get_cpu_memory_summary(cnx.deref())
-        .map_err(|e| format!("Error during fetching cpumemstats dump summary: {e}"));
+    
 
-    result
+    store::cpumemstats::get_cpu_memory_summary(cnx.deref())
+        .map_err(|e| format!("Error during fetching cpumemstats dump summary: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -37,10 +37,10 @@ pub fn cpumem_cpu_processes(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::cpumemstats::get_cpu_processes(cnx.deref(), timestamp)
-        .map_err(|e| format!("Error during fetching cpumemstats dump summary: {e}"));
+    
 
-    result
+    store::cpumemstats::get_cpu_processes(cnx.deref(), timestamp)
+        .map_err(|e| format!("Error during fetching cpumemstats dump summary: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -56,10 +56,10 @@ pub fn cpumem_mem_processes(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::cpumemstats::get_mem_processes(cnx.deref(), timestamp)
-        .map_err(|e| format!("Error during fetching cpumemstats dump summary: {e}"));
+    
 
-    result
+    store::cpumemstats::get_mem_processes(cnx.deref(), timestamp)
+        .map_err(|e| format!("Error during fetching cpumemstats dump summary: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -75,10 +75,10 @@ pub fn cpumem_series(
         .map_err(|e| format!("Error during obtaining connection: {e}"))?;
     drop(guard);
 
-    let result = store::cpumemstats::get_cpumem_series(cnx.deref(), pid)
-        .map_err(|e| format!("Error during fetching cpumemstats series: {e}"));
+    
 
-    result
+    store::cpumemstats::get_cpumem_series(cnx.deref(), pid)
+        .map_err(|e| format!("Error during fetching cpumemstats series: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -95,10 +95,10 @@ pub fn cpumem_path_series(
         .map_err(|e| format!("Error during obtaining connection: {e}"))?;
     drop(guard);
 
-    let result = store::cpumemstats::get_cpumem_path_series(cnx.deref(), path, name)
-        .map_err(|e| format!("Error during fetching cpumemstats series: {e}"));
+    
 
-    result
+    store::cpumemstats::get_cpumem_path_series(cnx.deref(), path, name)
+        .map_err(|e| format!("Error during fetching cpumemstats series: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -112,10 +112,10 @@ pub fn cpumem_total_cpu(
         .get()
         .map_err(|e| format!("Error during obtaining connection: {e}"))?;
     drop(guard);
-    let result = store::cpumemstats::get_cpumem_cpu_total_series(cnx.deref())
-        .map_err(|e| format!("Error during fetching cpumemstats series: {e}"));
+    
 
-    result
+    store::cpumemstats::get_cpumem_cpu_total_series(cnx.deref())
+        .map_err(|e| format!("Error during fetching cpumemstats series: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -129,8 +129,8 @@ pub fn cpumem_total_memory(
         .get()
         .map_err(|e| format!("Error during obtaining connection: {e}"))?;
     drop(guard);
-    let result = store::cpumemstats::get_cpumem_mem_total_series(cnx.deref())
-        .map_err(|e| format!("Error during fetching cpumemstats series: {e}"));
+    
 
-    result
+    store::cpumemstats::get_cpumem_mem_total_series(cnx.deref())
+        .map_err(|e| format!("Error during fetching cpumemstats series: {e}"))
 }

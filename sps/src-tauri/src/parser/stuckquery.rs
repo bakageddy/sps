@@ -53,7 +53,7 @@ impl<'a> StuckqueryParser<'a> {
 
     pub fn detect_kind(table_header_lines: &[&str]) -> Option<DBKind> {
         let table_column_names = table_header_lines.get(table_header_lines.len() - 2)?;
-        let mut tok = Tokenizer::new(*table_column_names);
+        let mut tok = Tokenizer::new(table_column_names);
         let mut columns = HashSet::new();
         while let Ok(column_name) = tok.take_within_exclusive("|", "|") {
             columns.insert(column_name.trim());
@@ -68,9 +68,9 @@ impl<'a> StuckqueryParser<'a> {
         }
     }
 
-    pub fn extract_table_name<'s, 'b>(table_header_lines: &'b [&'s str]) -> Option<&'s str> {
+    pub fn extract_table_name<'s>(table_header_lines: &[&'s str]) -> Option<&'s str> {
         let table_name = table_header_lines.get(1)?;
-        let mut tok = Tokenizer::new(*table_name);
+        let mut tok = Tokenizer::new(table_name);
         tok.skip_whitespace();
         tok.take_within("|", "|").ok().map(|s| s.trim())
     }
@@ -117,9 +117,9 @@ impl<'a> StuckqueryParser<'a> {
             }
             Ok(queries)
         } else {
-            return Err(Error::InvalidFormat(
+            Err(Error::InvalidFormat(
                 tokenizer::error::Error::DelimiterNotFound("|".to_owned()),
-            ));
+            ))
         }
     }
 }
@@ -217,8 +217,8 @@ impl<'a> Iterator for StuckqueryParser<'a> {
             let query = match table_kind {
                 DBKind::PGSQL => {
                     let query = PGSQLQuery::parse(line);
-                    if query.is_err() {
-                        return Some(Err(query.unwrap_err()));
+                    if let Err(e) = query {
+                        return Some(Err(e));
                     }
                     Stuckquery::PGSQL(query.unwrap())
                 }
@@ -227,16 +227,16 @@ impl<'a> Iterator for StuckqueryParser<'a> {
                     // Maybe I should
                     if table_name.eq(Self::STUCKQUERY_MSSQL_RUNNING_QUERY_HEADER) {
                         let query = RunningQuery::parse(line);
-                        if query.is_err() {
+                        if let Err(e) = query {
                             self.0 = tok.remaining();
-                            return Some(Err(query.unwrap_err()));
+                            return Some(Err(e));
                         }
                         Stuckquery::MSSQL(MSSQLQuery::Running(query.unwrap()))
                     } else if table_name.eq(Self::STUCKQUERY_MSSQL_BLOCKING_QUERY_HEADER) {
                         let query = BlockingQuery::parse(line);
-                        if query.is_err() {
+                        if let Err(e) = query {
                             self.0 = tok.remaining();
-                            return Some(Err(query.unwrap_err()));
+                            return Some(Err(e));
                         }
                         Stuckquery::MSSQL(MSSQLQuery::Blocking(query.unwrap()))
                     } else {

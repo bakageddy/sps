@@ -23,9 +23,9 @@ pub fn stuckquery_mssql_snapshots(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::stuckquery::get_stuckquery_mssql_snapshots(cnx.deref())
-        .map_err(|e| format!("Error during fetching MSSQL snapshots from database: {e}"));
-    result
+    
+    store::stuckquery::get_stuckquery_mssql_snapshots(cnx.deref())
+        .map_err(|e| format!("Error during fetching MSSQL snapshots from database: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -40,9 +40,9 @@ pub fn stuckquery_mssql_blocking_snapshots(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::stuckquery::get_stuckquery_mssql_blocking_snapshots(cnx.deref())
-        .map_err(|e| format!("Error during fetching MSSQL Blocking snapshots from database: {e}"));
-    result
+    
+    store::stuckquery::get_stuckquery_mssql_blocking_snapshots(cnx.deref())
+        .map_err(|e| format!("Error during fetching MSSQL Blocking snapshots from database: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -57,9 +57,9 @@ pub fn stuckquery_pgsql_snapshots(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::stuckquery::get_stuckquery_pgsql_snapshots(cnx.deref())
-        .map_err(|e| format!("Error during fetching PGSQL snapshots from database: {e}"));
-    result
+    
+    store::stuckquery::get_stuckquery_pgsql_snapshots(cnx.deref())
+        .map_err(|e| format!("Error during fetching PGSQL snapshots from database: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -74,9 +74,9 @@ pub fn stuckquery_pgsql_queries<'a>(
         .get()
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
-    let result = store::stuckquery::get_stuckquery_pgsql_queries(cnx.deref(), timestamp)
-        .map_err(|e| format!("Error during fetching PGSQL queries from database: {e}"));
-    result
+    
+    store::stuckquery::get_stuckquery_pgsql_queries(cnx.deref(), timestamp)
+        .map_err(|e| format!("Error during fetching PGSQL queries from database: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -92,10 +92,10 @@ pub fn stuckquery_mssql_queries<'a>(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::stuckquery::get_stuckquery_mssql_queries(cnx.deref(), timestamp)
-        .map_err(|e| format!("Error during fetching MSSQL queries from database: {e}"));
+    
 
-    result
+    store::stuckquery::get_stuckquery_mssql_queries(cnx.deref(), timestamp)
+        .map_err(|e| format!("Error during fetching MSSQL queries from database: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -110,9 +110,9 @@ pub fn stuckquery_mssql_blocking<'a>(
         .get()
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
-    let result = store::stuckquery::get_stuckquery_mssql_blocking(cnx.deref(), timestamp)
-        .map_err(|e| format!("Error during fetching MSSQL queries from database: {e}"));
-    result
+    
+    store::stuckquery::get_stuckquery_mssql_blocking(cnx.deref(), timestamp)
+        .map_err(|e| format!("Error during fetching MSSQL queries from database: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -126,10 +126,10 @@ pub fn stuckquery_mssql_longrunning(
         .get()
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
-    let result = store::stuckquery::get_stuckquery_mssql_long_running(cnx.deref()).map_err(|e| {
+    
+    store::stuckquery::get_stuckquery_mssql_long_running(cnx.deref()).map_err(|e| {
         format!("Error during fetching MSSQL Long running queries from database: {e}")
-    });
-    result
+    })
 }
 
 #[instrument(skip(state))]
@@ -144,10 +144,10 @@ pub fn stuckquery_pgsql_longrunning(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::stuckquery::get_stuckquery_pgsql_long_running(cnx.deref()).map_err(|e| {
+    
+    store::stuckquery::get_stuckquery_pgsql_long_running(cnx.deref()).map_err(|e| {
         format!("Error during fetching PGSQL long running queries from database: {e}")
-    });
-    result
+    })
 }
 
 #[instrument(skip(state))]
@@ -162,7 +162,7 @@ pub fn stuckquery_mssql_longtxns(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::stuckquery::get_stuckquery_mssql_long_running_txn(cnx.deref())
-        .map_err(|e| format!("Error during fetching MSSQL long running txn from database: {e}"));
-    result
+    
+    store::stuckquery::get_stuckquery_mssql_long_running_txn(cnx.deref())
+        .map_err(|e| format!("Error during fetching MSSQL long running txn from database: {e}"))
 }

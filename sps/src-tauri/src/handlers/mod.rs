@@ -1,8 +1,8 @@
 pub mod connectiondump;
-pub mod cpumonitoring;
 pub mod cpumemstats;
-pub mod stuckthread;
-pub mod stuckquery;
+pub mod cpumonitoring;
 pub mod database;
 pub mod parse;
+pub mod stuckquery;
+pub mod stuckthread;
 pub mod types;

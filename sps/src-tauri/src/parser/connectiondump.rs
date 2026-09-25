@@ -300,8 +300,7 @@ where
     D: Deserializer<'de>,
 {
     let s: &str = Deserialize::deserialize(deserializer)?;
-    let dt = OffsetDateTime::parse(s, TRACE_DATE_TIME_FORMAT)
-        .map_err(|e| serde::de::Error::custom(e))?;
+    let dt = OffsetDateTime::parse(s, TRACE_DATE_TIME_FORMAT).map_err(serde::de::Error::custom)?;
     Ok((dt.unix_timestamp_nanos() / 1_000_000) as u64)
 }
 

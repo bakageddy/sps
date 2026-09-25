@@ -20,10 +20,10 @@ pub fn cpu_stacktrace(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::cpumonitoring::get_stackframes(cnx.deref(), tid, timestamp)
-        .map_err(|e| format!("Error during fetching stack frames from database due to: {e}"));
+    
 
-    result
+    store::cpumonitoring::get_stackframes(cnx.deref(), tid, timestamp)
+        .map_err(|e| format!("Error during fetching stack frames from database due to: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -36,9 +36,9 @@ pub fn cpu_dumps(state: tauri::State<'_, Mutex<AppState>>) -> Result<Vec<DumpSum
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::cpumonitoring::get_cpu_dumps(cnx.deref())
-        .map_err(|e| format!("Error during fetching CPUMonitoring dump summary: {e}"));
-    result
+    
+    store::cpumonitoring::get_cpu_dumps(cnx.deref())
+        .map_err(|e| format!("Error during fetching CPUMonitoring dump summary: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -54,9 +54,9 @@ pub fn cpu_dump_threads(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::cpumonitoring::get_cpu_dump_threads(cnx.deref(), timestamp)
-        .map_err(|e| format!("Error during fetching CPUMonitoring dump summary: {e}"));
-    result
+    
+    store::cpumonitoring::get_cpu_dump_threads(cnx.deref(), timestamp)
+        .map_err(|e| format!("Error during fetching CPUMonitoring dump summary: {e}"))
 }
 
 #[instrument(skip(state))]
@@ -72,7 +72,7 @@ pub fn cpu_series(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
     drop(guard);
 
-    let result = store::cpumonitoring::get_cpu_series(cnx.deref(), tid)
-        .map_err(|e| format!("Error during fetching CPUMonitoring Series: {e}"));
-    result
+    
+    store::cpumonitoring::get_cpu_series(cnx.deref(), tid)
+        .map_err(|e| format!("Error during fetching CPUMonitoring Series: {e}"))
 }

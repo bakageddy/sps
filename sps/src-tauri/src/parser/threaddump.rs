@@ -3,10 +3,7 @@ use std::{borrow::Cow, ops::Deref, str::Utf8Error};
 use error::Error;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    parser::tokenizer::{self, Tokenizer},
-    util,
-};
+use crate::{parser::tokenizer::Tokenizer, util};
 
 use time::{format_description::BorrowedFormatItem, macros::format_description};
 
@@ -292,27 +289,21 @@ impl<'a> Iterator for ThreadDumpParser<'a> {
         };
 
         tok.skip_whitespace();
-        match tok.expect(":") {
-            Err(e) => {
-                self.0 = tok.remaining();
-                return Some(Err(Error::from(e)));
-            }
-            _ => (),
-        };
 
-        match tok.take_until(":") {
-            Some(_) => (),
-            None => {
-                self.0 = tok.remaining();
-                return Some(Err(Error::from(
-                    tokenizer::error::Error::DelimiterNotFound(":".to_owned()),
-                )));
-            }
-        };
+        if let Err(e) = tok.expect(":") {
+            self.0 = tok.remaining();
+            return Some(Err(Error::from(e)));
+        }
 
+        if let Err(e) = tok.take_until_fallible(":") {
+            self.0 = tok.remaining();
+            return Some(Err(Error::from(e)));
+        }
+
+        tok.skip_whitespace();
         let timestamp = tok.get_line()?;
         let timestamp =
-            match util::utc_unix_timestamp_millis(timestamp.trim(), THREADDUMP_TIMESTAMP_FORMAT) {
+            match util::utc_unix_timestamp_millis(timestamp, THREADDUMP_TIMESTAMP_FORMAT) {
                 Ok(timestamp) => timestamp,
                 Err(e) => {
                     self.0 = tok.remaining();
@@ -336,7 +327,7 @@ impl<'a> Iterator for ThreadDumpParser<'a> {
                     Ok(thread) => thread,
                     Err(e) => {
                         self.0 = tok.remaining();
-                        return Some(Err(Error::from(e)));
+                        return Some(Err(e));
                     }
                 };
 

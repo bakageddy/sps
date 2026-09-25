@@ -179,7 +179,7 @@ impl<'a> TryFrom<&'a [u8]> for CPUMonitoringParser<'a> {
 
     fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
         let value = std::str::from_utf8(value)?;
-        return Ok(Self::new(value));
+        Ok(Self::new(value))
     }
 }
 

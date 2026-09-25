@@ -1,4 +1,4 @@
-use crate::parser::{cpumemstats, cpumonitoring, stuckthread, stuckquery, connectiondump};
+use crate::parser::{connectiondump, cpumemstats, cpumonitoring, stuckquery, stuckthread};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

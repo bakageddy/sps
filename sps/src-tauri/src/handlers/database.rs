@@ -1,9 +1,9 @@
 use std::sync::Mutex;
 
-use tracing::instrument;
 use crate::handlers::types::*;
 use crate::store::Store;
 use crate::types::AppState;
+use tracing::instrument;
 
 #[instrument(skip(state))]
 #[tauri::command]

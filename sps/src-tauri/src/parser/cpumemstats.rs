@@ -65,31 +65,36 @@ impl<'a> Iterator for CPUMemStatsParser<'a> {
         self.1 = ParserState::Initial;
 
         while let Some(line) = tok.get_line() {
-            if line.starts_with("[") {
-                if let Some(next) = tok.peek_line()
-                    && next.trim_start().starts_with("|")
-                {
-                    let mut htok = Tokenizer::new(line);
-                    let time = match htok.take_within("[", "]").map_err(Error::InvalidFormat) {
-                        Ok(time) => time,
-                        Err(e) => return Some(Err(e)),
-                    };
+            if line.starts_with("[")
+                && let Some(next) = tok.peek_line()
+                && next.trim_start().starts_with("|")
+            {
+                let mut htok = Tokenizer::new(line);
+                let time = match htok.take_within("[", "]").map_err(Error::InvalidFormat) {
+                    Ok(time) => time,
+                    Err(e) => {
+                        self.0 = tok.remaining();
+                        return Some(Err(e));
+                    }
+                };
 
-                    let date = match htok.take_within("[", "]").map_err(Error::InvalidFormat) {
-                        Ok(date) => date,
-                        Err(e) => return Some(Err(e)),
-                    };
+                let date = match htok.take_within("[", "]").map_err(Error::InvalidFormat) {
+                    Ok(date) => date,
+                    Err(e) => {
+                        self.0 = tok.remaining();
+                        return Some(Err(e));
+                    }
+                };
 
-                    timestamp = util::unix_timestamp_millis(
-                        time,
-                        date,
-                        CPUMEMSTATS_TIME_FORMAT,
-                        CPUMEMSTATS_DATE_FORMAT,
-                    )
-                    .ok();
-                    self.1 = ParserState::Timestamp;
-                    break;
-                }
+                timestamp = util::unix_timestamp_millis(
+                    time,
+                    date,
+                    CPUMEMSTATS_TIME_FORMAT,
+                    CPUMEMSTATS_DATE_FORMAT,
+                )
+                .ok();
+                self.1 = ParserState::Timestamp;
+                break;
             }
         }
 
@@ -162,7 +167,7 @@ impl<'a> Iterator for CPUMemStatsParser<'a> {
 
                 self.0 = tok.remaining();
 
-                return Some(Ok(StatTable::UNIX(unix)));
+                Some(Ok(StatTable::UNIX(unix)))
             }
             ParserState::WindowsCPUHeader => {
                 self.1 = ParserState::WindowsCPUStat;
@@ -197,11 +202,11 @@ impl<'a> Iterator for CPUMemStatsParser<'a> {
 
                 self.0 = tok.remaining();
 
-                return Some(Ok(StatTable::WCPU(WindowsCPUTable {
+                Some(Ok(StatTable::WCPU(WindowsCPUTable {
                     stats,
                     total,
                     timestamp,
-                })));
+                })))
             }
             ParserState::WindowsMemoryHeader => {
                 self.1 = ParserState::WindowsMemoryStat;
@@ -236,11 +241,11 @@ impl<'a> Iterator for CPUMemStatsParser<'a> {
 
                 self.0 = tok.remaining();
 
-                return Some(Ok(StatTable::WMEM(WindowsMemoryTable {
+                Some(Ok(StatTable::WMEM(WindowsMemoryTable {
                     stats,
                     total,
                     timestamp,
-                })));
+                })))
             }
             _ => unreachable!(),
         }

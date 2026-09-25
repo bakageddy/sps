@@ -8,6 +8,8 @@ use crate::{
     store::{error::Error, tables::Tables},
 };
 
+type Begin = (u64, u64, String, Option<String>, Option<u64>);
+
 pub fn get_stuckthread_aggregates(
     cnx: &Connection,
     from: Option<u64>,
@@ -23,8 +25,7 @@ pub fn get_stuckthread_aggregates(
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut rows = stmt.query([from, to])?;
     let mut stuckthreads = Vec::new();
-    let mut aggregate_buffer: HashMap<u64, (u64, u64, String, Option<String>, Option<u64>)> =
-        HashMap::new();
+    let mut aggregate_buffer: HashMap<u64, Begin> = HashMap::new();
 
     while let Some(row) = rows.next()? {
         let timestamp: u64 = row.get(0)?;

@@ -18,9 +18,6 @@ use handlers::{
 };
 use tauri::Manager;
 use tracing::{level_filters::LevelFilter, warn};
-use tracing_subscriber;
-
-// #[cfg_attr(mobile, tauri::mobile_entry_point)]
 
 pub fn launch(database: Option<PathBuf>) {
     let database = database.clone();
@@ -78,10 +75,7 @@ pub fn run() {
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("Unable to init logging system");
     let args = AppArgs::parse();
-    if args.command.is_none() {
-        launch(None);
-    } else {
-        let command = args.command.unwrap();
+    if let Some(command) = args.command {
         match command {
             Command::Launch { database } => {
                 launch(database);
@@ -103,5 +97,7 @@ pub fn run() {
                 };
             }
         }
-    };
+    } else {
+        launch(None);
+    }
 }

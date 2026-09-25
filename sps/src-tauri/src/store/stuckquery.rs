@@ -72,10 +72,10 @@ pub fn get_stuckquery_pgsql_snapshots(cnx: &Connection) -> Result<Vec<PGSQLSnaps
     Ok(snapshots)
 }
 
-pub fn get_stuckquery_pgsql_queries<'a, 'b>(
-    cnx: &'a Connection,
+pub fn get_stuckquery_pgsql_queries<'a>(
+    cnx: &Connection,
     timestamp: u64,
-) -> Result<Vec<PGSQLQuery<'b>>, Error> {
+) -> Result<Vec<PGSQLQuery<'a>>, Error> {
     let query = format!(
         "SELECT pid, query_time, txn_time, db_name, state, waiting, query, state_change, application_name, client_host, client_port FROM {} WHERE timestamp = $1",
         Tables::StuckqueryPGSQL.into_str()

@@ -14,4 +14,3 @@ pub struct CPUMonitoring {
     pub name: Option<String>,
     pub trace: Option<Vec<Frame>>,
 }
-
