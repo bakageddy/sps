@@ -1,4 +1,4 @@
-use crate::handlers::types::{ThreadDumpSummary, ThreadDumpThread};
+use crate::handlers::types::{ThreadDumpPoint, ThreadDumpSummary, ThreadDumpThread};
 use crate::parser::threaddump::{Element, Object};
 use crate::store::{error::Error, tables::Tables};
 use duckdb::Connection;
@@ -91,4 +91,24 @@ pub fn get_thread_trace(
         }
     }
     Ok(frames)
+}
+
+pub fn get_thread_points(cnx: &Connection, tid: u64) -> Result<Vec<ThreadDumpPoint>, Error> {
+    let query = format!(
+        "SELECT timestamp, state, lock, owner_tid, owner_name FROM {0} WHERE tid = $1",
+        Tables::ThreaddumpThreads
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    let mut rows = stmt.query([tid])?;
+    let mut points = Vec::new();
+    while let Some(row) = rows.next()? {
+        points.push(ThreadDumpPoint {
+            timestamp: row.get(0)?,
+            state: row.get(1)?,
+            waiting_on: row.get(2)?,
+            lock_owner_tid: row.get(3)?,
+            lock_owner_name: row.get(4)?,
+        });
+    }
+    Ok(points)
 }

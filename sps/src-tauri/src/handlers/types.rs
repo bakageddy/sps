@@ -195,3 +195,13 @@ pub struct ThreadDumpThread {
     pub lock_owner_name: Option<String>,
     pub has_trace: bool,
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadDumpPoint {
+    pub timestamp: u64,
+    pub state: String,
+    pub waiting_on: Option<String>,
+    pub lock_owner_tid: Option<u64>,
+    pub lock_owner_name: Option<String>,
+}

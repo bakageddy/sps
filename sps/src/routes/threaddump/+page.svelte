@@ -20,8 +20,10 @@
 		threaddumpDumps,
 		threaddumpThreads,
 		threaddumpTrace,
+		threaddumpThreadSeries,
 		type ThreadDumpSummary,
 		type ThreadDumpThread,
+		type ThreadDumpPoint,
 	} from "$lib/api/threaddump";
 	import { cached } from "$lib/query-cache";
 	import { db } from "$lib/database.svelte";
@@ -33,6 +35,7 @@
 		type ThreadTraceState,
 	} from "$lib/components/ThreadDumpTrace.svelte";
 	import DeadlockPanel from "$lib/components/DeadlockPanel.svelte";
+	import ThreadTimeline from "$lib/components/ThreadTimeline.svelte";
 
 	let errorMessage = $state<string | null>(null);
 	let dumps = $state<ThreadDumpSummary[]>([]);
@@ -40,6 +43,11 @@
 	let threads = $state<ThreadDumpThread[]>([]);
 	let selectedTid = $state<number | null>(null);
 	let trace = $state<ThreadTraceState>({ status: "idle" });
+	/** the selected thread across ALL dumps (cpumonitoring's series role) */
+	let series = $state<ThreadDumpPoint[]>([]);
+	/** which dump's stack the trace panel shows — a timeline click moves it
+	 *  without changing the selected dump, exactly like a chart point click */
+	let traceAt = $state<number | null>(null);
 
 	const Mode = { Threads: "threads", Locks: "locks" } as const;
 	type Mode = (typeof Mode)[keyof typeof Mode];
@@ -52,6 +60,8 @@
 		}
 		selectedTid = null;
 		trace = { status: "idle" };
+		series = [];
+		traceAt = null;
 	}
 
 	async function refreshDumps() {
@@ -105,21 +115,45 @@
 		}
 	}
 
-	async function onselectthread(tid: number) {
-		if (selectedDump === null) return;
-		mode = Mode.Threads; // a Locks-panel click lands here
-		selectedTid = tid;
-		const dump = selectedDump;
+	/** load one (tid, dump) stack into the trace panel, stale-guarded on tid */
+	async function loadTrace(tid: number, dump: number) {
+		traceAt = dump;
 		trace = { status: "loading", tid, timestamp: dump };
 		try {
 			const elements = await cached(`threaddump_trace:${tid}:${dump}`, () =>
 				threaddumpTrace(tid, dump),
 			);
-			if (selectedTid !== tid || selectedDump !== dump) return;
+			if (selectedTid !== tid || traceAt !== dump) return;
 			trace = { status: "ready", tid, timestamp: dump, elements };
 		} catch (e) {
 			trace = { status: "error", message: String(e) };
 		}
+	}
+
+	// Clicking a thread answers two questions at once (cpumonitoring's
+	// pattern): "what was it doing in THIS dump?" (trace) and "what did it
+	// do across ALL dumps?" (series → timeline). allSettled: the series is
+	// enrichment; its failure degrades to an empty strip, logged not shown.
+	async function onselectthread(tid: number) {
+		if (selectedDump === null) return;
+		mode = Mode.Threads; // a Locks-panel click lands here
+		selectedTid = tid;
+		series = [];
+		const [, seriesResult] = await Promise.allSettled([
+			loadTrace(tid, selectedDump),
+			cached(`threaddump_thread_series:${tid}`, () =>
+				threaddumpThreadSeries(tid),
+			),
+		]);
+		if (selectedTid !== tid) return;
+		if (seriesResult.status === "fulfilled") series = seriesResult.value;
+		else console.warn("threaddump_thread_series failed:", seriesResult.reason);
+	}
+
+	/** timeline click = "show me this thread's stack at THAT dump" */
+	function onselectpoint(timestamp: number) {
+		if (selectedTid === null) return;
+		loadTrace(selectedTid, timestamp);
 	}
 </script>
 
@@ -187,7 +221,19 @@
 							/>
 						{/snippet}
 						{#snippet b()}
-							<ThreadDumpTrace {trace} />
+							<SplitPane direction="column" initial={0.3}>
+								{#snippet a()}
+									<ThreadTimeline
+										{dumps}
+										points={series}
+										selected={traceAt}
+										onselect={onselectpoint}
+									/>
+								{/snippet}
+								{#snippet b()}
+									<ThreadDumpTrace {trace} />
+								{/snippet}
+							</SplitPane>
 						{/snippet}
 					</SplitPane>
 				{/if}

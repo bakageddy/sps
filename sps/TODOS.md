@@ -71,6 +71,12 @@ the spec; reconcile against them, not memory.
       lock lines in ORIGINAL interleaving, `#[serde(tag="kind")]`, Frame
       tuple → {method, source}). Deadlock detection is FRONTEND
       (`src/lib/threaddump.ts`) — no command.
+      PLUS `threaddump_thread_series(tid)` → the thread's row per dump it
+      appears in (same flattened State payload; plain SELECT WHERE tid =
+      $1, no join to traces). Powers the per-thread timeline on /threaddump
+      (cpumonitoring model: strip over trace; consecutive rows with the
+      same state/waitingOn/lockOwnerTid = unchanged = stuck). NO STACK
+      FINGERPRINTING anywhere — Dinesh's call; stacks are never hashed.
 - [ ] **Connection-dump incident resolvers** (three now, one later;
       requirements in `src/lib/api/connectiondump.ts`; page live at
       /connectiondump/incident): each `connectiondump_<subsystem>(signalTs,

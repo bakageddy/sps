@@ -200,111 +200,125 @@
 		</div>
 	{/if}
 
-	<SplitPane direction="row" initial={0.24}>
-		{#snippet a()}
-			<SnapshotList
-				{rows}
-				selected={selected === null ? null : snapshotKey(selected)}
-				{onselect}
-			/>
-		{/snippet}
-		{#snippet b()}
-			<div class="content">
-				<div class="toolbar">
-					<span class="chips" role="group" aria-label="View">
-						<button
-							class:active={mode === Mode.Pool}
-							onclick={() => (mode = Mode.Pool)}>Pool</button
-						>
-						<button
-							class:active={mode === Mode.Dump}
-							onclick={() => (mode = Mode.Dump)}>Dump</button
-						>
-						<button
-							class:active={mode === Mode.Holders}
-							onclick={() => (mode = Mode.Holders)}>Holders</button
-						>
-					</span>
+	<!-- The toolbar is shared by both layouts below, so it's a snippet. -->
+	{#snippet toolbar()}
+		<div class="toolbar">
+			<span class="chips" role="group" aria-label="View">
+				<button
+					class:active={mode === Mode.Pool}
+					onclick={() => (mode = Mode.Pool)}>Pool</button
+				>
+				<button
+					class:active={mode === Mode.Dump}
+					onclick={() => (mode = Mode.Dump)}>Dump</button
+				>
+				<button
+					class:active={mode === Mode.Holders}
+					onclick={() => (mode = Mode.Holders)}>Holders</button
+				>
+			</span>
 
-					<span class="right">
-						{#if mode === Mode.Pool}
-							<span class="legend">
-								{#each causes as cause (cause)}
-									<span class="key">
-										<span
-											class="swatch"
-											style:background={causeColor(cause)}
-										></span>{cause}
-									</span>
-								{/each}
+			<span class="right">
+				{#if mode === Mode.Pool}
+					<span class="legend">
+						{#each causes as cause (cause)}
+							<span class="key">
+								<span
+									class="swatch"
+									style:background={causeColor(cause)}
+								></span>{cause}
 							</span>
-							<button
-								class="reset"
-								onclick={() => (view = null)}
-								disabled={view === null}>reset</button
-							>
-						{:else}
-							<label class="threshold">
-								slow hold threshold
-								<input
-									type="number"
-									min="1"
-									max="86400"
-									bind:value={slowThreshold.value}
-								/>
-								s
-							</label>
-						{/if}
+						{/each}
 					</span>
-				</div>
+					<button
+						class="reset"
+						onclick={() => (view = null)}
+						disabled={view === null}>reset</button
+					>
+				{:else}
+					<label class="threshold">
+						slow hold threshold
+						<input
+							type="number"
+							min="1"
+							max="86400"
+							bind:value={slowThreshold.value}
+						/>
+						s
+					</label>
+				{/if}
+			</span>
+		</div>
+	{/snippet}
 
-				<div class="body">
-					{#if mode === Mode.Pool}
-						{#if poolStats.length === 0 && signals.length === 0}
-							<p class="empty">
-								No connection dumps — parse a bundle with
-								performance logs from the Ingest page.
-							</p>
-						{:else}
-							<div class="pool">
-								<div class="chart">
-									<PoolChart
-										stats={poolStats}
-										{signals}
-										{domain}
-										{view}
-										onviewchange={(v) => (view = v)}
-									/>
-								</div>
-								<div class="axis">
-									{#each ticks as tick, i (i)}
-										<span class="tick" style:left="{tick.pct}%"
-											>{formatTimestamp(
-												tickFormat,
-												tick.t,
-											)}</span
-										>
-									{/each}
-								</div>
-							</div>
-						{/if}
-					{:else if mode === Mode.Holders}
-						<HoldersTable
-							rows={holders}
-							slowThresholdMs={slowThreshold.value * 1000}
-						/>
-					{:else if selected === null}
-						<p class="empty">Select a dump.</p>
-					{:else}
-						<ConnDumpTraceTable
-							{traces}
-							slowThresholdMs={slowThreshold.value * 1000}
-						/>
-					{/if}
-				</div>
+	{#if mode === Mode.Holders}
+		<!-- Holders is a cross-dump ranking, not a per-snapshot view: the
+		     dump list adds nothing to it, so it takes the whole width. -->
+		<div class="content">
+			{@render toolbar()}
+			<div class="body">
+				<HoldersTable
+					rows={holders}
+					slowThresholdMs={slowThreshold.value * 1000}
+				/>
 			</div>
-		{/snippet}
-	</SplitPane>
+		</div>
+	{:else}
+		<SplitPane direction="row" initial={0.24}>
+			{#snippet a()}
+				<SnapshotList
+					{rows}
+					selected={selected === null ? null : snapshotKey(selected)}
+					{onselect}
+				/>
+			{/snippet}
+			{#snippet b()}
+				<div class="content">
+					{@render toolbar()}
+
+					<div class="body">
+						{#if mode === Mode.Pool}
+							{#if poolStats.length === 0 && signals.length === 0}
+								<p class="empty">
+									No connection dumps — parse a bundle with
+									performance logs from the Ingest page.
+								</p>
+							{:else}
+								<div class="pool">
+									<div class="chart">
+										<PoolChart
+											stats={poolStats}
+											{signals}
+											{domain}
+											{view}
+											onviewchange={(v) => (view = v)}
+										/>
+									</div>
+									<div class="axis">
+										{#each ticks as tick, i (i)}
+											<span class="tick" style:left="{tick.pct}%"
+												>{formatTimestamp(
+													tickFormat,
+													tick.t,
+												)}</span
+											>
+										{/each}
+									</div>
+								</div>
+							{/if}
+						{:else if selected === null}
+							<p class="empty">Select a dump.</p>
+						{:else}
+							<ConnDumpTraceTable
+								{traces}
+								slowThresholdMs={slowThreshold.value * 1000}
+							/>
+						{/if}
+					</div>
+				</div>
+			{/snippet}
+		</SplitPane>
+	{/if}
 </div>
 
 <style>

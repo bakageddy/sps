@@ -135,3 +135,40 @@ export function threaddumpTrace(
 ): Promise<ThreadDumpElement[] | null> {
 	return invoke("threaddump_trace", { tid, timestamp });
 }
+
+// ---------------------------------------------------------------------------
+// Thread series: ONE thread across ALL dumps (the cpumonitoring model)
+// ---------------------------------------------------------------------------
+
+/**
+ * One thread's row at one dump — the same flattened State payload as
+ * ThreadDumpThread, without the per-dump census fields. The timeline
+ * compares CONSECUTIVE rows on (state, waitingOn, lockOwnerTid): unchanged
+ * across dumps = the thread is stuck on the same thing, changed = it moved
+ * on. No stack fingerprinting — stacks are never hashed or compared; the
+ * real stack loads lazily per click via threaddump_trace.
+ */
+export interface ThreadDumpPoint {
+	/** ms epoch of the dump */
+	timestamp: number;
+	state: ThreadState;
+	waitingOn: string | null;
+	lockOwnerTid: number | null;
+	lockOwnerName: string | null;
+}
+
+/**
+ * ```rust
+ * #[tauri::command]
+ * fn threaddump_thread_series(tid: u64, state: ...)
+ *     -> Result<Vec<ThreadDumpPoint>, String>
+ * ```
+ * REQUIREMENTS: one row per dump in which `tid` appears (a dump where the
+ * thread did not exist is simply absent — the frontend fills the slot from
+ * threaddump_dumps), ordered by timestamp ascending. Plain SELECT over the
+ * threads table WHERE tid = $1 — no join to the traces table, nothing
+ * derived from stacks.
+ */
+export function threaddumpThreadSeries(tid: number): Promise<ThreadDumpPoint[]> {
+	return invoke("threaddump_thread_series", { tid });
+}
