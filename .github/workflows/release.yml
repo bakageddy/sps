@@ -1,8 +1,8 @@
-# Tagged releases: pushing a tag like v2026.09.26 builds every bundle and
-# publishes them as the GitHub release for that tag — dmg (macOS), msi
-# (Windows), deb + AppImage PER Ubuntu baseline (suffixed _ubuntu-22.04 /
-# _ubuntu-24.04 — pick the one matching your host), and an rpm built in a
-# real Fedora container (suffixed _fedora-42).
+# Tagged releases: pushing a tag like v2026.9.26 builds every bundle and
+# publishes them as the GitHub release for that tag — dmg (macOS), NSIS
+# installer (Windows), deb + AppImage PER Ubuntu baseline (suffixed
+# _ubuntu-22.04 / _ubuntu-24.04 — pick the one matching your host), and an
+# rpm built in a real Fedora container (suffixed _fedora-42).
 #
 # Design notes:
 #  - Releases are cut by TAG, not by pushes to main: main can move freely;
@@ -55,7 +55,7 @@ jobs:
           - platform: ubuntu-24.04
             bundles: deb,appimage
           - platform: windows-latest
-            bundles: msi
+            bundles: nsis
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -106,7 +106,7 @@ jobs:
           args: --bundles ${{ matrix.bundles }}
 
       # Linux: build ONLY — both distro jobs produce identically named
-      # files (sps_0.1.0_amd64.deb), so we rename with the builder suffix
+      # files (sps_2026.9.26_amd64.deb), so we rename with the builder suffix
       # and upload ourselves.
       - uses: tauri-apps/tauri-action@v0
         if: startsWith(matrix.platform, 'ubuntu')
