@@ -168,7 +168,7 @@
 		font-size: 12px;
 	}
 	.bad {
-		color: var(--red);
+		color: var(--alert);
 		font-weight: 600;
 	}
 
@@ -191,6 +191,8 @@
 		margin: 0;
 	}
 	.expand pre {
+		/* explicit: <pre> otherwise falls back to the UA monospace */
+		font-family: var(--font-mono);
 		margin: 0;
 		padding: 8px;
 		background: var(--bg);

@@ -112,10 +112,10 @@
 		font-size: 12px;
 	}
 	.total {
-		color: var(--yellow);
+		color: var(--aqua); /* totals read aqua, as in DumpList */
 	}
 	.bad {
-		color: var(--red);
+		color: var(--alert);
 		font-weight: 600;
 	}
 

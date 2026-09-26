@@ -14,7 +14,7 @@ use arg::AppArgs;
 use clap::Parser;
 use handlers::{
     connectiondump::*, cpumemstats::*, cpumonitoring::*, database::*, parse::*, stuckquery::*,
-    stuckthread::*,
+    stuckthread::*, threaddump::*
 };
 use tauri::Manager;
 use tracing::{level_filters::LevelFilter, warn};
@@ -59,6 +59,12 @@ pub fn launch(database: Option<PathBuf>) {
             connectiondump_snapshots,
             connectiondump_traces,
             connectiondump_holders,
+            connectiondump_threaddump,
+            connectiondump_cpumonitoring,
+            connectiondump_cpumemstats,
+            threaddump_dumps,
+            threaddump_threads,
+            threaddump_trace
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

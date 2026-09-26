@@ -5,6 +5,7 @@ pub mod error;
 pub mod stuckquery;
 pub mod stuckthread;
 pub mod tables;
+pub mod threaddump;
 pub mod types;
 
 use std::{iter, path::Path};
@@ -441,8 +442,8 @@ pub fn append_threaddump<'a>(
             if let Some(trace) = thread.trace {
                 for (idx, frame) in (0..).zip(trace.0) {
                     let (method, source, object) = match frame {
-                        Element::Lock(object) => (None, None, Some(object.0)),
-                        Element::Frame(frame) => (Some(frame.0), Some(frame.1), None),
+                        Element::Lock { object } => (None, None, Some(object.0)),
+                        Element::Frame { method, source } => (Some(method), Some(source), None),
                     };
                     traces.append_row((dump.timestamp, thread.tid, idx, method, source, object))?;
                 }

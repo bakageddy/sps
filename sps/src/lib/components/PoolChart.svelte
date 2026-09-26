@@ -240,7 +240,7 @@
 	}
 	.capacity {
 		fill: none;
-		stroke: var(--red);
+		stroke: var(--alert);
 		stroke-width: 1;
 		stroke-dasharray: 4 3;
 		vector-effect: non-scaling-stroke;

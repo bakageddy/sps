@@ -221,7 +221,7 @@
 	}
 	/* red is reserved for what matters: queries over the slow threshold */
 	.row.slow {
-		background: color-mix(in srgb, var(--red) 8%, transparent);
+		background: color-mix(in srgb, var(--alert) 8%, transparent);
 	}
 
 	.col-num {
@@ -288,6 +288,8 @@
 		margin: 0;
 	}
 	.expand pre {
+		/* explicit: <pre> otherwise falls back to the UA monospace */
+		font-family: var(--font-mono);
 		margin: 0;
 		padding: 8px;
 		background: var(--bg);

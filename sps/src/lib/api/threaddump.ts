@@ -89,11 +89,6 @@ export interface ThreadDumpThread {
 }
 
 /**
- * ```rust
- * #[tauri::command]
- * fn threaddump_threads(timestamp: u64, state: ...)
- *     -> Result<Vec<ThreadDumpThread>, String>
- * ```
  * REQUIREMENTS: rows WHERE timestamp = $1 exactly (the frontend only asks
  * for timestamps from threaddump_dumps); ordered with BLOCKED first, then
  * WAITING, TIMED_WAITING, RUNNABLE, then the rest — and by tid within a

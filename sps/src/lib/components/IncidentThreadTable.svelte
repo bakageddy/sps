@@ -6,7 +6,7 @@
 	 * had no row for the thread (it only samples hot threads / holders),
 	 * which is normal. Owner is a link, as in the plain census.
 	 */
-	import type { IncidentThread } from "$lib/api/connectiondump";
+	import type { IncidentThread } from "$lib/connectiondump";
 	import { stateColor } from "$lib/threaddump";
 	import { formatDuration } from "$lib/format";
 
@@ -172,7 +172,7 @@
 		background: color-mix(in srgb, var(--accent) 12%, transparent);
 	}
 	tr.blocked .name {
-		color: var(--red);
+		color: var(--alert);
 	}
 	.mono {
 		font-family: var(--font-mono);

@@ -239,10 +239,10 @@
 	}
 	/* red is reserved for what matters: queries over the slow threshold */
 	.row.slow {
-		background: color-mix(in srgb, var(--red) 8%, transparent);
+		background: color-mix(in srgb, var(--alert) 8%, transparent);
 	}
 	.bad {
-		color: var(--red);
+		color: var(--alert);
 		font-weight: 600;
 	}
 
@@ -278,8 +278,8 @@
 		color: var(--green);
 	}
 	.badge.rollback {
-		background: color-mix(in srgb, var(--red) 18%, transparent);
-		color: var(--red);
+		background: color-mix(in srgb, var(--alert) 18%, transparent);
+		color: var(--alert);
 	}
 
 	.expand {
@@ -317,6 +317,8 @@
 		margin: 0;
 	}
 	.expand pre {
+		/* explicit: <pre> otherwise falls back to the UA monospace */
+		font-family: var(--font-mono);
 		margin: 0;
 		padding: 8px;
 		background: var(--bg);

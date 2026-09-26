@@ -156,15 +156,15 @@
 		background: var(--bg-hard);
 	}
 	.kind.blocking {
-		background: color-mix(in srgb, var(--red) 18%, transparent);
-		color: var(--red);
+		background: color-mix(in srgb, var(--alert) 18%, transparent);
+		color: var(--alert);
 	}
 	.detail {
 		font-size: 11.5px;
 		color: var(--fg-muted);
 	}
 	.detail.alert {
-		color: var(--red);
+		color: var(--alert);
 	}
 
 	.empty {

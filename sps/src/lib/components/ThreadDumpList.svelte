@@ -176,11 +176,11 @@
 		text-align: right;
 	}
 	.bad {
-		color: var(--red);
+		color: var(--alert);
 		font-weight: 600;
 	}
 	.warn {
-		color: var(--yellow);
+		color: var(--fg-muted);
 	}
 	.empty {
 		text-align: center;

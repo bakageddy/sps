@@ -4,7 +4,15 @@
   // stuckquery, ...) gets a card here and a route of its own.
   import DropZone from "$lib/components/DropZone.svelte";
 
+  // Connection Dumps leads: it is the incident hub every other analyzer
+  // hangs off (signals = triggers; the rest are resolved around them).
   const analyzers = [
+    {
+      href: "/connectiondump",
+      title: "Connection Dumps",
+      description:
+        "Pool occupancy, threshold alarms, and who holds each connection — across dumps.",
+    },
     {
       href: "/cpumonitoring",
       title: "CPU Monitoring",
@@ -25,12 +33,6 @@
       title: "Stuck Queries",
       description:
         "Database queries running at each stuck-thread moment — blocking chains and long runners.",
-    },
-    {
-      href: "/connectiondump",
-      title: "Connection Dumps",
-      description:
-        "Pool occupancy, threshold alarms, and who holds each connection — across dumps.",
     },
     {
       href: "/threaddump",
@@ -91,12 +93,12 @@
     background: var(--bg-hover);
   }
 
-  /* Caps Grotesk, matching the sidebar nav treatment (smaller size +
+  /* Caps Geist Mono, matching the sidebar nav treatment (smaller size +
      tracking, since uppercase reads larger than lowercase at equal px). */
   .card h3 {
     margin: 0 0 6px;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--accent);

@@ -206,6 +206,8 @@
 		gap: 6px;
 	}
 	.expand pre {
+		/* explicit: <pre> otherwise falls back to the UA monospace */
+		font-family: var(--font-mono);
 		margin: 0;
 		padding: 8px;
 		background: var(--bg);

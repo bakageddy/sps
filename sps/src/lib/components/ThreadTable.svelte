@@ -60,9 +60,9 @@
 
 	const stateColor: Record<string, string> = {
 		RUNNABLE: "var(--green)",
-		BLOCKED: "var(--red)",
+		BLOCKED: "var(--alert)",
 		WAITING: "var(--blue)",
-		TIMED_WAITING: "var(--yellow)",
+		TIMED_WAITING: "var(--chart-4)", /* not yellow: BLOCKED owns --alert */
 		NEW: "var(--aqua)",
 		TERMINATED: "var(--fg-muted)",
 	};

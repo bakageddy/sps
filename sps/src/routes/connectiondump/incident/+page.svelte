@@ -3,40 +3,45 @@
 	 * Incident view — connectiondump as the correlation hub.
 	 *
 	 * Left: the signals timeline (every trigger — cause + time). Selecting
-	 * one asks the backend to resolve the incident: which dump of each
-	 * subsystem was taken within the tolerance of that signal
-	 * (connectiondump_incident), and the threaddump census decorated by tid
-	 * with cpumonitoring / connection-hold data (connectiondump_incident_
-	 * threads). The process and query panels reuse the existing
-	 * per-timestamp commands against the resolved anchors — no new shapes.
+	 * one resolves the incident in two waves:
+	 *   1. the backend answers, per subsystem, WHICH dump was taken within
+	 *      the tolerance of the signal (connectiondump_<subsystem>, each an
+	 *      Option<u64> anchor); connectiondump's own trace anchor comes
+	 *      from the snapshots already loaded;
+	 *   2. the existing per-timestamp commands fetch each anchor's rows,
+	 *      and lib/connectiondump.buildCensus joins threaddump ⋈ cpu ⋈
+	 *      holds by exact tid.
 	 *
-	 * Stuck threads are deliberately absent (own matcher at
-	 * /stuckthreads/queries).
+	 * Stuck threads and stuck queries are deliberately absent: both ride
+	 * the VALVE trigger, not the performance-dump trigger, so they never
+	 * co-occur with a signal (/stuckthreads/queries is their matcher).
+	 * Running queries will join the hub once that parser exists.
 	 */
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import {
 		connectiondumpSignals,
-		connectiondumpIncident,
-		connectiondumpIncidentThreads,
+		connectiondumpSnapshots,
+		connectiondumpTraces,
+		connectiondumpThreaddump,
+		connectiondumpCpumonitoring,
+		connectiondumpCpumemstats,
+		INCIDENT_TOLERANCE_MS,
 		type ConnDumpSignal,
-		type IncidentAnchors,
-		type IncidentThread,
 	} from "$lib/api/connectiondump";
-	import { threaddumpTrace } from "$lib/api/threaddump";
+	import { threaddumpThreads, threaddumpTrace } from "$lib/api/threaddump";
+	import { cpuDumpThreads } from "$lib/api/cpumonitoring";
 	import { cpuMemCpuProcesses } from "$lib/api/cpumemstats";
 	import {
-		stuckqueryMssqlQueries,
-		stuckqueryPgsqlQueries,
-		stuckqueryMssqlBlocking,
-		type MssqlQuery,
-		type PgsqlQuery,
-		type MssqlBlockingRow,
-	} from "$lib/api/stuckquery";
-	import { causeColor } from "$lib/connectiondump";
+		buildCensus,
+		causeColor,
+		latestWithin,
+		type IncidentThread,
+	} from "$lib/connectiondump";
 	import { nearestByTimestamp } from "$lib/nearest";
 	import { formatTimestamp } from "$lib/format";
 	import { cached } from "$lib/query-cache";
+	import { persisted } from "$lib/persisted.svelte";
 	import { db } from "$lib/database.svelte";
 	import { ingest } from "$lib/ingest.svelte";
 	import SplitPane from "$lib/components/SplitPane.svelte";
@@ -51,21 +56,22 @@
 	import ProcessTable, {
 		type UsageRow,
 	} from "$lib/components/ProcessTable.svelte";
-	import MssqlQueryTable from "$lib/components/MssqlQueryTable.svelte";
-	import PgsqlQueryTable from "$lib/components/PgsqlQueryTable.svelte";
-	import BlockingTree from "$lib/components/BlockingTree.svelte";
 
 	let errorMessage = $state<string | null>(null);
 	let signals = $state<ConnDumpSignal[]>([]);
 	let selected = $state<ConnDumpSignal | null>(null);
 
-	// resolved incident
-	let anchors = $state<IncidentAnchors | null>(null);
+	/** which dump of each subsystem is "this incident"; null = none in window */
+	interface Anchors {
+		threaddump: number | null;
+		cpumonitoring: number | null;
+		cpumemstats: number | null;
+		/** connectiondump's own trace dump (holders) */
+		traces: number | null;
+	}
+	let anchors = $state<Anchors | null>(null);
 	let census = $state<IncidentThread[]>([]);
 	let processes = $state<UsageRow[]>([]);
-	let mssqlQueries = $state<MssqlQuery[]>([]);
-	let pgsqlQueries = $state<PgsqlQuery[]>([]);
-	let blocking = $state<MssqlBlockingRow[]>([]);
 
 	let selectedTid = $state<number | null>(null);
 	let trace = $state<ThreadTraceState>({ status: "idle" });
@@ -77,6 +83,15 @@
 	} as const;
 	type Mode = (typeof Mode)[keyof typeof Mode];
 	let mode = $state<Mode>(Mode.Threads);
+
+	// The incident window, in SECONDS for the input; sent to the backend in
+	// ms on every resolve. Persisted: it's a property of the bundle's clock
+	// drift, and you tune it once per investigation.
+	const tolerance = persisted(
+		"incident-tolerance-s",
+		INCIDENT_TOLERANCE_MS / 1000,
+	);
+	const toleranceMs = $derived(Math.round(tolerance.value * 1000));
 
 	const timeFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: "medium",
@@ -108,75 +123,98 @@
 		anchors = null;
 		census = [];
 		processes = [];
-		mssqlQueries = [];
-		pgsqlQueries = [];
-		blocking = [];
 		selectedTid = null;
 		trace = { status: "idle" };
 	}
 
-	async function onselect(row: SnapshotRow) {
+	function onselect(row: SnapshotRow) {
 		const sig = signals.find((s) => s.timestamp === row.timestamp);
-		if (!sig) return;
-		selected = sig;
-		resetIncident();
-		const ts = sig.timestamp;
-		const stale = () => selected === null || selected.timestamp !== ts;
+		if (sig) selected = sig;
+	}
 
-		const [anchorsResult, censusResult] = await Promise.allSettled([
-			cached(`connectiondump_incident:${ts}`, () =>
-				connectiondumpIncident(ts),
+	// Resolution is DERIVED from (selected signal, tolerance): changing
+	// either re-resolves, so widening the window re-anchors the incident
+	// live. The effect only reads those two; everything it writes is
+	// downstream state, so it can't loop.
+	$effect(() => {
+		const sig = selected;
+		const tol = toleranceMs;
+		if (sig === null) return;
+		resolve(sig.timestamp, tol);
+	});
+
+	/** unwrap an allSettled slot; a rejection surfaces once and yields the fallback */
+	function settled<T>(r: PromiseSettledResult<T>, fallback: T): T {
+		if (r.status === "fulfilled") return r.value;
+		errorMessage = String(r.reason);
+		return fallback;
+	}
+
+	async function resolve(ts: number, tol: number) {
+		resetIncident();
+		// stale = the user moved on (other signal OR other window) while we
+		// were in flight; either invalidates this resolution
+		const stale = () =>
+			selected === null || selected.timestamp !== ts || toleranceMs !== tol;
+
+		// wave 1: anchors
+		const [tdR, cpuR, memR, snapsR] = await Promise.allSettled([
+			cached(`connectiondump_threaddump:${ts}:${tol}`, () =>
+				connectiondumpThreaddump(ts, tol),
 			),
-			cached(`connectiondump_incident_threads:${ts}`, () =>
-				connectiondumpIncidentThreads(ts),
+			cached(`connectiondump_cpumonitoring:${ts}:${tol}`, () =>
+				connectiondumpCpumonitoring(ts, tol),
 			),
+			cached(`connectiondump_cpumemstats:${ts}:${tol}`, () =>
+				connectiondumpCpumemstats(ts, tol),
+			),
+			cached("connectiondump_snapshots", connectiondumpSnapshots),
 		]);
 		if (stale()) return;
-		if (censusResult.status === "fulfilled") census = censusResult.value;
-		else errorMessage = String(censusResult.reason);
-		if (anchorsResult.status !== "fulfilled") {
-			errorMessage = String(anchorsResult.reason);
-			return;
-		}
-		anchors = anchorsResult.value;
+		const a: Anchors = {
+			threaddump: settled(tdR, null),
+			cpumonitoring: settled(cpuR, null),
+			cpumemstats: settled(memR, null),
+			traces: latestWithin(settled(snapsR, []), ts, tol)?.timestamp ?? null,
+		};
+		anchors = a;
 
-		// second wave: the panels that ride on existing per-timestamp commands
-		const a = anchors;
-		const [procResult, mssqlResult, blockingResult, pgsqlResult] =
-			await Promise.allSettled([
-				a.cpumemstats === null
-					? Promise.resolve([])
-					: cached(`cpumem_cpu_processes:${a.cpumemstats}`, () =>
-							cpuMemCpuProcesses(a.cpumemstats!),
-						),
-				a.stuckqueryMssql === null
-					? Promise.resolve([])
-					: cached(`stuckquery_mssql_queries:${a.stuckqueryMssql}`, () =>
-							stuckqueryMssqlQueries(a.stuckqueryMssql!),
-						),
-				a.stuckqueryMssql === null
-					? Promise.resolve([])
-					: cached(`stuckquery_mssql_blocking:${a.stuckqueryMssql}`, () =>
-							stuckqueryMssqlBlocking(a.stuckqueryMssql!),
-						),
-				a.stuckqueryPgsql === null
-					? Promise.resolve([])
-					: cached(`stuckquery_pgsql_queries:${a.stuckqueryPgsql}`, () =>
-							stuckqueryPgsqlQueries(a.stuckqueryPgsql!),
-						),
-			]);
+		// wave 2: each anchor's rows through the existing commands
+		const [threadsR, cpuThreadsR, tracesR, procR] = await Promise.allSettled([
+			a.threaddump === null
+				? Promise.resolve([])
+				: cached(`threaddump_threads:${a.threaddump}`, () =>
+						threaddumpThreads(a.threaddump!),
+					),
+			a.cpumonitoring === null
+				? Promise.resolve([])
+				: cached(`cpu_dump_threads:${a.cpumonitoring}`, () =>
+						cpuDumpThreads(a.cpumonitoring!),
+					),
+			a.traces === null
+				? Promise.resolve([])
+				: cached(`connectiondump_traces:${a.traces}`, () =>
+						connectiondumpTraces(a.traces!),
+					),
+			a.cpumemstats === null
+				? Promise.resolve([])
+				: cached(`cpumem_cpu_processes:${a.cpumemstats}`, () =>
+						cpuMemCpuProcesses(a.cpumemstats!),
+					),
+		]);
 		if (stale()) return;
-		if (procResult.status === "fulfilled")
-			// ProcessUsage -> the table's view row (drop `user`)
-			processes = procResult.value.map((p) => ({
-				pid: p.pid,
-				name: p.name,
-				value: p.value,
-				path: p.path,
-			}));
-		if (mssqlResult.status === "fulfilled") mssqlQueries = mssqlResult.value;
-		if (blockingResult.status === "fulfilled") blocking = blockingResult.value;
-		if (pgsqlResult.status === "fulfilled") pgsqlQueries = pgsqlResult.value;
+		census = buildCensus(
+			settled(threadsR, []),
+			settled(cpuThreadsR, []),
+			settled(tracesR, []),
+		);
+		// ProcessUsage -> the table's view row (drop `user`)
+		processes = settled(procR, []).map((p) => ({
+			pid: p.pid,
+			name: p.name,
+			value: p.value,
+			path: p.path,
+		}));
 	}
 
 	async function onselectthread(tid: number) {
@@ -227,11 +265,18 @@
 		const nearest = nearestByTimestamp(signals, target);
 		if (nearest === null) return;
 		linkConsumed = true;
-		onselect({ timestamp: nearest.timestamp, kind: "signal", detail: "", alert: false });
+		selected = nearest;
 	});
 
-	const hasQueries = $derived(
-		mssqlQueries.length > 0 || pgsqlQueries.length > 0 || blocking.length > 0,
+	const selectedKey = $derived(
+		selected === null
+			? null
+			: snapshotKey({
+					timestamp: selected.timestamp,
+					kind: "signal",
+					detail: "",
+					alert: false,
+				}),
 	);
 </script>
 
@@ -247,18 +292,7 @@
 
 	<SplitPane direction="row" initial={0.24}>
 		{#snippet a()}
-			<SnapshotList
-				{rows}
-				selected={selected === null
-					? null
-					: snapshotKey({
-							timestamp: selected.timestamp,
-							kind: "signal",
-							detail: "",
-							alert: false,
-						})}
-				{onselect}
-			/>
+			<SnapshotList {rows} selected={selectedKey} {onselect} />
 		{/snippet}
 		{#snippet b()}
 			<div class="content">
@@ -283,19 +317,24 @@
 									{ label: "threaddump", ts: anchors.threaddump, href: "/threaddump" },
 									{ label: "cpu", ts: anchors.cpumonitoring, href: "/cpumonitoring" },
 									{ label: "processes", ts: anchors.cpumemstats, href: "/cpumemstats" },
-									{ label: "mssql", ts: anchors.stuckqueryMssql, href: "/stuckqueries" },
-									{ label: "pgsql", ts: anchors.stuckqueryPgsql, href: "/stuckqueries" },
+									{ label: "holders", ts: anchors.traces, href: null },
 								]}
 								{#each links as l (l.label)}
-									{#if l.ts !== null}
-										<button
+									{#if l.ts === null}
+										<span class="anchor miss">{l.label} —</span>
+									{:else if l.href === null}
+										<span
 											class="anchor hit"
-											onclick={() => goto(`${l.href}?t=${l.ts}`)}
-											title="Open {l.label} at {formatTimestamp(timeFormat, l.ts)}"
-											>{l.label} ✓</button
+											title="Trace dump at {formatTimestamp(timeFormat, l.ts)}"
+											>{l.label} ✓</span
 										>
 									{:else}
-										<span class="anchor miss">{l.label} —</span>
+										<button
+											class="anchor hit link"
+											onclick={() => goto(`${l.href}?t=${l.ts}`)}
+											title="Open {l.label} at {formatTimestamp(timeFormat, l.ts)}"
+											>{l.label} ✓ →</button
+										>
 									{/if}
 								{/each}
 							{:else}
@@ -319,12 +358,23 @@
 							>
 							<button
 								class:active={mode === Mode.Queries}
-								onclick={() => (mode = Mode.Queries)}
-								>Queries <span class="n mono"
-									>{mssqlQueries.length + pgsqlQueries.length}</span
-								></button
+								onclick={() => (mode = Mode.Queries)}>Queries</button
 							>
 						</span>
+						<label
+							class="tolerance"
+							title="How far from the signal a subsystem's dump may be to count as this incident"
+						>
+							window ±
+							<input
+								type="number"
+								min="0.5"
+								max="120"
+								step="0.5"
+								bind:value={tolerance.value}
+							/>
+							s
+						</label>
 					</div>
 
 					<div class="body">
@@ -343,7 +393,9 @@
 							</SplitPane>
 						{:else if mode === Mode.Processes}
 							{#if anchors?.cpumemstats == null}
-								<p class="empty">No CPU/Mem statistics dump within the incident window.</p>
+								<p class="empty">
+									No CPU/Mem statistics dump within the incident window.
+								</p>
 							{:else}
 								<ProcessTable
 									{processes}
@@ -353,20 +405,12 @@
 										goto(`/cpumemstats?t=${anchors!.cpumemstats}`)}
 								/>
 							{/if}
-						{:else if !hasQueries}
-							<p class="empty">No stuck-query snapshot within the incident window.</p>
 						{:else}
-							<div class="queries">
-								{#if blocking.length > 0}
-									<BlockingTree rows={blocking} />
-								{/if}
-								{#if mssqlQueries.length > 0}
-									<MssqlQueryTable queries={mssqlQueries} />
-								{/if}
-								{#if pgsqlQueries.length > 0}
-									<PgsqlQueryTable queries={pgsqlQueries} />
-								{/if}
-							</div>
+							<p class="empty">
+								Running queries at the incident — arrives with the
+								running-queries parser. (Stuck queries ride the valve
+								trigger, not this one; see Stuck Threads → Queries.)
+							</p>
 						{/if}
 					</div>
 				{/if}
@@ -448,7 +492,7 @@
 		background: var(--bg-hard);
 		color: var(--accent);
 	}
-	.anchor.hit:hover {
+	.anchor.link:hover {
 		background: var(--bg-hover);
 	}
 	.anchor.miss {
@@ -458,9 +502,29 @@
 	.toolbar {
 		display: flex;
 		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
 		padding: 6px 10px;
 		border-bottom: 1px solid var(--hairline);
 		flex-shrink: 0;
+	}
+	.tolerance {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11.5px;
+		color: var(--fg-muted);
+	}
+	.tolerance input {
+		width: 56px;
+		padding: 2px 6px;
+		background: var(--bg-hard);
+		border: none;
+		border-radius: var(--radius);
+		color: var(--fg);
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+		text-align: right;
 	}
 	.chips {
 		display: flex;
@@ -490,10 +554,6 @@
 	.body {
 		flex: 1;
 		min-height: 0;
-	}
-	.queries {
-		height: 100%;
-		overflow: auto;
 	}
 	.empty {
 		padding: 24px;

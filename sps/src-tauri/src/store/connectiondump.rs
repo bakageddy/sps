@@ -1,4 +1,4 @@
-use duckdb::{Connection, types::Value};
+use duckdb::{Connection, OptionalExt, types::Value};
 
 use crate::{
     handlers::types::{ConnectionDumpHolder, ConnectionDumpSnapshot},
@@ -60,19 +60,17 @@ pub fn get_connectiondump_snapshots(
     let query = format!(
         r"
 SELECT
-  stats.timestamp,
-  stats.tid,
+  cnx_traces.timestamp,
   stats.used,
-  stats.free,
   stats.total,
   cnx_traces.trace_count,
   cnx_traces.max_duration
 FROM
-  (SELECT timestamp, tid, COUNT(DISTINCT id) as trace_count, MAX(duration) as max_duration FROM {0} GROUP BY timestamp, tid ORDER BY timestamp) cnx_traces 
+  (SELECT timestamp, tid, COUNT(DISTINCT (id, start_time)) as trace_count, MAX(duration) as max_duration FROM {0} GROUP BY timestamp, tid ORDER BY timestamp) cnx_traces 
   ASOF INNER JOIN (SELECT timestamp, tid, used, free, total FROM {1} WHERE used IS NOT NULL AND cause IS NULL ORDER BY timestamp) stats ON stats.tid = cnx_traces.tid
   AND stats.timestamp <= cnx_traces.timestamp
 ORDER BY
-  stats.timestamp
+  cnx_traces.timestamp
 ",
         Tables::ConnectionDumpTraces,
         Tables::ConnectionDump
@@ -83,10 +81,10 @@ ORDER BY
     while let Some(row) = rows.next()? {
         results.push(ConnectionDumpSnapshot {
             timestamp: row.get(0)?,
-            used: row.get(2)?,
-            total: row.get(4)?,
-            trace_count: row.get(5)?,
-            max_duration: row.get(6)?,
+            used: row.get(1)?,
+            total: row.get(2)?,
+            trace_count: row.get(3)?,
+            max_duration: row.get(4)?,
         });
     }
     Ok(results)
@@ -114,7 +112,7 @@ pub fn get_connectiondump_traces(
     let mut rows = stmt.query([timestamp])?;
     let mut traces = Vec::new();
     while let Some(row) = rows.next()? {
-        let value: Value = row.get(2)?;
+        let value: Value = row.get(3)?;
         let stack_trace = match value {
             Value::List(items) => items
                 .into_iter()
@@ -135,7 +133,7 @@ pub fn get_connectiondump_traces(
             duration: row.get(0)?,
             start_time: row.get(1)?,
             stack_trace,
-            id: row.get(3)?,
+            id: row.get(2)?,
             invoked_by: row.get::<usize, Option<String>>(4)?.map(|s| s.into()),
             thread_name: row.get::<usize, String>(5)?.into(),
         });
@@ -204,4 +202,58 @@ pub fn get_connectiondump_holders(
         });
     }
     Ok(holders)
+}
+
+pub fn get_connectiondump_threaddump(
+    cnx: &Connection,
+    timestamp: u64,
+    tolerance: u64,
+) -> Result<Option<u64>, Error> {
+    let query = format!(
+        "SELECT {0}.timestamp FROM {0} WHERE {0}.timestamp BETWEEN $1 - $2 AND $1 + $2 ORDER BY 1 LIMIT 1",
+        Tables::Threaddump,
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    stmt.query_one([timestamp, tolerance], |r| r.get::<_, u64>(0))
+        .optional()
+        .map_err(Error::from)
+}
+
+pub fn get_connectiondump_cpumonitoring(
+    cnx: &Connection,
+    timestamp: u64,
+    tolerance: u64,
+) -> Result<Option<u64>, Error> {
+    let query = format!(
+        "SELECT timestamp FROM {0} WHERE {0}.timestamp BETWEEN $1 - $2 AND $1 + $2 ORDER BY 1 LIMIT 1",
+        Tables::CPUMonitoring
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    stmt.query_one([timestamp, tolerance], |r| r.get::<_, u64>(0))
+        .optional()
+        .map_err(Error::from)
+}
+
+pub fn get_connectiondump_cpumemstats(
+    cnx: &Connection,
+    timestamp: u64,
+    tolerance: u64,
+) -> Result<Option<u64>, Error> {
+    let query = format!(
+        r"SELECT (timestamp) FROM 
+        (
+            SELECT timestamp FROM {0} WHERE {0}.timestamp BETWEEN $1 - $2 AND $1 + $2
+                UNION ALL
+            SELECT timestamp FROM {1} WHERE {1}.timestamp BETWEEN $1 - $2 AND $1 + $2
+                UNION ALL
+            SELECT timestamp FROM {2} WHERE {2}.timestamp BETWEEN $1 - $2 AND $1 + $2
+        ) ORDER BY timestamp LIMIT 1",
+        Tables::WindowsCPUStats,
+        Tables::WindowsMemoryStats,
+        Tables::LinuxStats,
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    stmt.query_one([timestamp, tolerance], |r| r.get::<_, u64>(0))
+        .optional()
+        .map_err(Error::from)
 }

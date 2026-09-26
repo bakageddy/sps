@@ -168,7 +168,7 @@
 		background: color-mix(in srgb, var(--accent) 12%, transparent);
 	}
 	tr.blocked .name {
-		color: var(--red);
+		color: var(--alert);
 	}
 	.mono {
 		font-family: var(--font-mono);

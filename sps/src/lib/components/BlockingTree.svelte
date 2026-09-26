@@ -149,8 +149,8 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		background: color-mix(in srgb, var(--red) 20%, transparent);
-		color: var(--red);
+		background: color-mix(in srgb, var(--alert) 20%, transparent);
+		color: var(--alert);
 	}
 	.session {
 		font-weight: 600;
@@ -232,6 +232,8 @@
 		margin: 0;
 	}
 	.expand pre {
+		/* explicit: <pre> otherwise falls back to the UA monospace */
+		font-family: var(--font-mono);
 		margin: 0;
 		padding: 8px;
 		background: var(--bg);

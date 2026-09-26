@@ -71,15 +71,25 @@ the spec; reconcile against them, not memory.
       lock lines in ORIGINAL interleaving, `#[serde(tag="kind")]`, Frame
       tuple → {method, source}). Deadlock detection is FRONTEND
       (`src/lib/threaddump.ts`) — no command.
-- [ ] **Connection-dump incident commands** (two, requirements in
-      `src/lib/api/connectiondump.ts`; page live at /connectiondump/incident):
-      `connectiondump_incident(signalTs)` → nearest dump timestamp per
-      subsystem within INCIDENT_TOLERANCE_MS = 4000 (threaddump,
-      cpumonitoring, cpumemstats, stuckquery mssql/pgsql; null = none —
-      never an Err), `connectiondump_incident_threads(signalTs)` → the
-      threaddump census LEFT JOINed by EXACT tid with cpumonitoring cpu and
-      connectiondump_stacktraces duration (heldFor) at their anchors.
-      Stuck threads deliberately excluded from the hub.
+- [ ] **Connection-dump incident resolvers** (three now, one later;
+      requirements in `src/lib/api/connectiondump.ts`; page live at
+      /connectiondump/incident): each `connectiondump_<subsystem>(signalTs,
+      tolerance) -> Option<u64>` = the LATEST dump of that log within
+      `tolerance` ms of signalTs (MAX over BETWEEN — not nearest: each
+      trigger dumps cpumonitoring ×2 / cpumemstats ×3 / threaddump ×3, and
+      the last sample is the settled one). `Result<Option<u64>, String>`:
+      no dump in window → Ok(None) (empty table included); DB/query
+      failure → Err like every other command.
+      `tolerance` is a PARAMETER (live knob); frontend default is still
+      4000 = first-dump alignment only — RAISE to the burst span once the
+      repeat interval is known (needed anyway to confirm the cpumonitoring
+      2s fragment-merge can't swallow a repeat). Subsystems:
+      `threaddump`, `cpumonitoring`, `cpumemstats`; `runningqueries` once
+      that parser exists. NO joined census command — the frontend joins
+      threaddump ⋈ cpu ⋈ holds by exact tid (`lib/connectiondump.ts
+      buildCensus`) from the existing per-timestamp commands.
+      EXCLUDED from the hub on purpose: stuck threads AND stuck queries —
+      both ride the valve trigger, never a performance-dump signal.
 - [ ] **Overview commands**: `cpumem_total_cpu` / `cpumem_total_memory` —
       requirements in `src/lib/api/cpumemstats.ts` (frontend page is live at
       /cpumemstats/overview).

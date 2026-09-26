@@ -115,6 +115,21 @@
 
 	const nav: NavItem[] = [
 		{ href: "/", label: "Ingest", icon: "ingest" },
+		// Connection Dumps leads the analyzers: it is the incident hub the
+		// others are resolved around (same order as the landing page).
+		{
+			href: "/connectiondump",
+			label: "Connection Dumps",
+			icon: "link",
+			children: [
+				{
+					href: "/connectiondump/incident",
+					label: "Incident",
+					icon: "graph",
+				},
+			],
+		},
+		{ href: "/threaddump", label: "Thread Dumps", icon: "stuck" },
 		{ href: "/cpumonitoring", label: "CPU Monitoring", icon: "cpu" },
 		{
 			href: "/cpumemstats",
@@ -156,19 +171,6 @@
 			],
 		},
 		{ href: "/stuckqueries", label: "Stuck Queries", icon: "database" },
-		{
-			href: "/connectiondump",
-			label: "Connection Dumps",
-			icon: "link",
-			children: [
-				{
-					href: "/connectiondump/incident",
-					label: "Incident",
-					icon: "graph",
-				},
-			],
-		},
-		{ href: "/threaddump", label: "Thread Dumps", icon: "stuck" },
 	];
 </script>
 
@@ -277,7 +279,7 @@
 		justify-content: space-between;
 	}
 
-	/* Wordmark: caps, Space Grotesk at its heaviest, wide tracking — small
+	/* Wordmark: caps, Geist Mono at its heaviest, wide tracking — small
      text needs letter-spacing to read as a mark rather than a typo. */
 	.brand {
 		font-weight: 700;
@@ -340,7 +342,7 @@
 		flex: 1; /* pushes .footer to the bottom */
 	}
 
-	/* Nav in caps Grotesk to match the wordmark; smaller size + tracking
+	/* Nav in caps Geist Mono to match the wordmark; smaller size + tracking
      because uppercase reads visually larger than lowercase at equal px. */
 	nav a {
 		display: flex;
@@ -350,8 +352,10 @@
 		border-radius: var(--radius);
 		color: var(--fg-muted);
 		text-decoration: none;
-		font-size: 11.5px;
-		font-weight: 500;
+		/* Mono face: hierarchy comes from WEIGHT, not size — parents bold,
+		   children regular, both 12px (a size gap reads as a bug in mono). */
+		font-size: 12px;
+		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.07em;
 	}
@@ -367,6 +371,7 @@
 	nav a.child {
 		margin-left: 18px;
 		font-size: 12px;
+		font-weight: 300; /* light: the variable file covers 100–900 */
 		padding: 5px 10px;
 	}
 

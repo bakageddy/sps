@@ -147,7 +147,11 @@
 		justify-content: center;
 		gap: 6px;
 		padding: 48px 24px;
-		border: 2px dashed var(--border);
+		/* Its own surface, deliberately NOT the analyzer cards' --bg-soft:
+		   a faint accent wash plus an accent-tinted dashed border reads as
+		   "drop target", where a plain card would read as "another link". */
+		background: color-mix(in srgb, var(--accent) 5%, var(--bg-soft));
+		border: 2px dashed color-mix(in srgb, var(--accent) 40%, transparent);
 		border-radius: calc(var(--radius) * 2);
 		text-align: center;
 		transition:
@@ -155,8 +159,8 @@
 			background-color 0.15s;
 	}
 	.zone.hovering {
-		background: var(--bg-hover);
-		background: color-mix(in srgb, var(--accent) 8%, transparent);
+		background: color-mix(in srgb, var(--accent) 14%, var(--bg-soft));
+		border-color: var(--accent);
 	}
 	.zone.parsing {
 		border-style: solid;
@@ -181,7 +185,8 @@
 	.pickers button {
 		padding: 5px 14px;
 		font-size: 12px;
-		background: var(--bg-soft);
+		/* darker than the zone's wash so the button still lifts off it */
+		background: var(--bg-hard);
 		border: none;
 		border-radius: var(--radius);
 		cursor: pointer;

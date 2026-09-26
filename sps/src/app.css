@@ -10,15 +10,16 @@
 
 /* Space Mono (OFL) — bundled in static/fonts so the app never fetches
    fonts from the network. font-display: swap = render with the fallback
-   immediately, swap in Space Mono when loaded (a local file, so instantly). */
-/* Space Grotesk — the UI face AND the wordmark (variable, 300–700).
-   Won the brand-font experiment 2026-08-30; Inter/Geist/Jost removed. */
+   immediately, swap in the bundled face when loaded (a local file, so instantly). */
+/* Geist Mono — the UI face AND the wordmark (variable, 100–900; official
+   Vercel build, OFL). Replaced Space Grotesk 2026-09-26: a mono UI face,
+   so labels, numbers and stacks all share one rhythm. */
 @font-face {
-  font-family: "Space Grotesk";
+  font-family: "Geist Mono";
   font-style: normal;
-  font-weight: 300 700;
+  font-weight: 100 900;
   font-display: swap;
-  src: url("/fonts/space-grotesk-var.woff2") format("woff2");
+  src: url("/fonts/geist-mono-var.woff2") format("woff2");
 }
 
 /* Icon glyphs (Private Use Area) for Icon.svelte */
@@ -51,11 +52,17 @@
      its editor-tuned border color — softer, and consistent across themes */
   --hairline: color-mix(in srgb, var(--fg) 14%, transparent);
   --shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+  /* Semantic split: --alert is "look here" (over-threshold rows, BLOCKED,
+     head blockers, pool exhaustion) and stays warm, not red — a whole row
+     in red reads as broken. --red is reserved for actual errors (error
+     bars, failed fetches). One token to retune the whole app's alert tone. */
+  --alert: var(--yellow);
   /* ui-monospace = the OS's own mono font (SF Mono on macOS, etc.);
      generic `monospace` is the last-resort fallback */
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-  /* system-ui = the OS's native UI font, the right first fallback */
-  --font-ui: "Space Grotesk", system-ui, sans-serif;
+  /* the UI face is a mono, so fall back within the monospace class —
+     system-ui is proportional and would reflow everything mid-swap */
+  --font-ui: "Geist Mono", ui-monospace, monospace;
 }
 
 /* Minimal reset — border-box everywhere is the one non-negotiable */

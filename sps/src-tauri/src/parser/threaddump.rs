@@ -72,10 +72,16 @@ impl<'a> State<'a> {
 
 #[derive(Debug)]
 pub struct Trace<'a>(pub Vec<Element<'a>>);
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Element<'a> {
-    Lock(Object<'a>),
-    Frame(Frame<'a>),
+    Lock {
+        object: Object<'a>,
+    },
+    Frame {
+        method: Cow<'a, str>,
+        source: Cow<'a, str>,
+    },
 }
 
 impl<'a> AsRef<Vec<Element<'a>>> for Trace<'a> {
@@ -98,8 +104,6 @@ pub struct Object<'a>(pub Cow<'a, str>);
 pub struct Lock<'a>(pub Cow<'a, str>);
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LockOwner<'a>(pub Cow<'a, str>);
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Frame<'a>(pub Cow<'a, str>, pub Cow<'a, str>);
 
 impl<'a> ThreadDumpParser<'a> {
     pub fn new(data: &'a str) -> Self {
@@ -131,12 +135,13 @@ impl<'a> ThreadDumpParser<'a> {
             if ttok.peek("- locked") {
                 ttok.expect("- locked")?;
                 let object = ttok.remaining().trim().into();
-                traces.push(Element::Lock(Object(object)));
+                traces.push(Element::Lock {
+                    object: Object(object),
+                });
             } else if line.contains("(") {
                 let method = ttok.take_until_exclusive("(")?.trim().into();
                 let source = ttok.take_within("(", ")")?.into();
-                let frame = Frame(method, source);
-                traces.push(Element::Frame(frame));
+                traces.push(Element::Frame { method, source });
             } else {
                 let _ = tok.get_line();
                 break;

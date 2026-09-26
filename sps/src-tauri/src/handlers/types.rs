@@ -171,3 +171,27 @@ pub struct ConnectionDumpHolder {
     pub dump_count: u64,
     pub stack_trace: Vec<String>,
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadDumpSummary {
+    pub timestamp: u64,
+    pub threads: u64,
+    pub runnable: u64,
+    pub blocked: u64,
+    pub waiting: u64,
+    pub timed_waiting: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadDumpThread {
+    pub tid: u64,
+    pub name: String,
+    pub state: String,
+    pub waiting_on: Option<String>,
+    pub lock: Option<String>,
+    pub lock_owner_tid: Option<u64>,
+    pub lock_owner_name: Option<String>,
+    pub has_trace: bool,
+}

@@ -240,8 +240,8 @@
 		color: var(--green);
 	}
 	.badge.open {
-		background: color-mix(in srgb, var(--red) 18%, transparent);
-		color: var(--red);
+		background: color-mix(in srgb, var(--alert) 18%, transparent);
+		color: var(--alert);
 	}
 
 	.empty {

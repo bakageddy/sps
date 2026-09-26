@@ -8,9 +8,9 @@ import type { ThreadDumpThread, ThreadState } from "$lib/api/threaddump";
 export function stateColor(state: ThreadState): string {
 	switch (state) {
 		case "BLOCKED":
-			return "var(--red)";
+			return "var(--alert)";
 		case "WAITING":
-			return "var(--yellow)";
+			return "var(--fg-muted)";
 		case "TIMED_WAITING":
 			return "var(--chart-4)";
 		case "RUNNABLE":

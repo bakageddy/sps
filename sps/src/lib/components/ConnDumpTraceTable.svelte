@@ -131,7 +131,7 @@
 		background: var(--bg-hover);
 	}
 	.row.slow {
-		color: var(--red);
+		color: var(--alert);
 	}
 
 	.col-num {
@@ -164,6 +164,8 @@
 		color: var(--fg-muted);
 	}
 	.expand pre {
+		/* explicit: <pre> otherwise falls back to the UA monospace */
+		font-family: var(--font-mono);
 		margin: 0;
 		padding: 8px;
 		background: var(--bg);

@@ -127,7 +127,7 @@
 	.ring {
 		margin: 4px 12px 8px;
 		border-radius: var(--radius);
-		background: color-mix(in srgb, var(--red) 8%, transparent);
+		background: color-mix(in srgb, var(--alert) 8%, transparent);
 	}
 	.ring-head {
 		display: flex;
@@ -142,8 +142,8 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		background: color-mix(in srgb, var(--red) 20%, transparent);
-		color: var(--red);
+		background: color-mix(in srgb, var(--alert) 20%, transparent);
+		color: var(--alert);
 	}
 	.member {
 		display: grid;
@@ -181,11 +181,11 @@
 		white-space: nowrap;
 	}
 	.behind {
-		color: var(--yellow);
+		color: var(--fg-muted);
 		white-space: nowrap;
 	}
 	.behind.bad {
-		color: var(--red);
+		color: var(--alert);
 		font-weight: 600;
 	}
 	.empty {

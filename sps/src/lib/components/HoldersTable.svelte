@@ -131,7 +131,7 @@
 		background: var(--bg-hover);
 	}
 	.row.slow {
-		color: var(--red);
+		color: var(--alert);
 	}
 
 	.col-num {
