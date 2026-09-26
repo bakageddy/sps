@@ -8,16 +8,21 @@ use crate::{
 
 pub fn get_connectiondump_signals(
     cnx: &Connection,
+    include_suppressed: bool,
     from: Option<u64>,
     to: Option<u64>,
 ) -> Result<Vec<Signal>, Error> {
     let query = format!(
-        "SELECT timestamp, tid, cause::VARCHAR, suppressed FROM {0} WHERE timestamp BETWEEN $1 AND $2 AND cause IS NOT NULL ORDER BY timestamp",
+        "SELECT timestamp, tid, cause::VARCHAR, suppressed FROM {0} WHERE timestamp BETWEEN $1 AND $2 AND suppressed = $3 AND cause IS NOT NULL ORDER BY timestamp",
         Tables::ConnectionDump
     );
 
     let mut stmt = cnx.prepare_cached(&query)?;
-    let mut rows = stmt.query([from.unwrap_or(u64::MIN), to.unwrap_or(u64::MAX)])?;
+    let mut rows = stmt.query((
+        from.unwrap_or(u64::MIN),
+        to.unwrap_or(u64::MAX),
+        include_suppressed,
+    ))?;
     let mut result = Vec::new();
     while let Some(row) = rows.next()? {
         result.push(Signal {

@@ -48,17 +48,24 @@ export interface ConnDumpSignal {
 /**
  * ```rust
  * #[tauri::command]
- * fn connectiondump_signals(from: Option<u64>, to: Option<u64>, state: ...)
- *     -> Result<Vec<ConnDumpSignal>, String>
+ * fn connectiondump_signals(
+ *     from: Option<u64>, to: Option<u64>, include_suppressed: bool, state: ...,
+ * ) -> Result<Vec<ConnDumpSignal>, String>
  * ```
  * REQUIREMENTS: rows with from <= timestamp <= to (each bound applied only
- * when Some); ordered by timestamp ascending; empty Vec when nothing parsed.
+ * when Some). `include_suppressed` is an include flag, not a column filter:
+ * false = real dumps only (`suppressed = false`), true = real dumps AND the
+ * "Skipping to dump" lines. The UI defaults to false — a hot server emits a
+ * suppressed line every ~2 min, tens of thousands per bundle, and they must
+ * not cross the wire unless asked. Ordered by timestamp ascending; empty Vec
+ * when nothing parsed.
  */
 export function connectiondumpSignals(
+	includeSuppressed: boolean,
 	from?: number,
 	to?: number,
 ): Promise<ConnDumpSignal[]> {
-	return invoke("connectiondump_signals", { from, to });
+	return invoke("connectiondump_signals", { from, to, includeSuppressed });
 }
 
 // ---------------------------------------------------------------------------

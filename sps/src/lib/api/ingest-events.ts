@@ -12,8 +12,14 @@
  * are serialized IPC; thousands per second is waste).
  *
  * REQUIREMENTS: payloads must serialize to the shapes below (event names
- * exact); `ingest:file` carries per-file DELTAS; `ingest:finished` fires
- * exactly once per run, only after every parser has finished.
+ * exact); `ingest:file` fires once per file a parser has FINISHED with
+ * (success or not — a failed file additionally gets an `ingest:error`);
+ * `ingest:finished` fires exactly once per run, only after every parser
+ * has finished.
+ *
+ * Rust side: `app.emit("ingest:file", IngestFile { .. })` — `emit` lives on
+ * the `tauri::Emitter` trait in v2, so `use tauri::Emitter;` is required.
+ * Payload structs derive `Serialize + Clone`.
  */
 
 export const IngestEvent = {
@@ -27,14 +33,14 @@ export interface IngestStarted {
 	path: string;
 }
 
-/** One parsed file's contribution — additive. */
+/** One file done — the frontend counts these per kind. No entry/error
+ *  counts on purpose: parsers bulk-append and don't know row counts cheaply,
+ *  and the analyzers show the real data moments later anyway. */
 export interface IngestFile {
 	/** log kind, e.g. "cpumonitoring", "cpumemstats" */
 	kind: string;
-	/** the file this delta came from */
+	/** the file just finished */
 	file: string;
-	entries: number;
-	errors: number;
 }
 
 /** A non-fatal problem (unreadable file, invalid UTF-8, append failure). */

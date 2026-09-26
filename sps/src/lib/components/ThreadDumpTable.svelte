@@ -7,6 +7,7 @@
 	 */
 	import type { ThreadDumpThread } from "$lib/api/threaddump";
 	import { stateColor } from "$lib/threaddump";
+	import { virtualWindow } from "$lib/virtual";
 
 	interface Props {
 		threads: ThreadDumpThread[];
@@ -26,13 +27,29 @@
 		);
 	});
 
-	// bring an externally-selected row into view (owner-link jumps)
+	// Virtualized rows: a dump has thousands of threads. ROW/HEADER must
+	// match the fixed heights in the CSS below.
+	const ROW = 28;
+	const HEADER = 32;
 	let scroller = $state<HTMLDivElement>();
+	let viewport = $state(0);
+	let scrollTop = $state(0);
+	const win = $derived(
+		virtualWindow(scrollTop - HEADER, viewport, ROW, visible.length),
+	);
+	const slice = $derived(visible.slice(win.start, win.end));
+
+	// bring an externally-selected row into view (owner-link jumps) — by
+	// index, since the row may not exist in the DOM yet
 	$effect(() => {
-		void selected;
-		scroller
-			?.querySelector("tr.selected")
-			?.scrollIntoView({ block: "nearest" });
+		if (!scroller || selected === null) return;
+		const idx = visible.findIndex((t) => t.tid === selected);
+		if (idx < 0) return;
+		const top = HEADER + idx * ROW;
+		const cur = scroller.scrollTop;
+		if (top - HEADER < cur) scroller.scrollTop = top - HEADER;
+		else if (top + ROW > cur + viewport)
+			scroller.scrollTop = top + ROW - viewport;
 	});
 </script>
 
@@ -45,7 +62,12 @@
 		/>
 		<span class="count mono">{visible.length} / {threads.length}</span>
 	</div>
-	<div class="scroller" bind:this={scroller}>
+	<div
+		class="scroller"
+		bind:this={scroller}
+		bind:clientHeight={viewport}
+		onscroll={(e) => (scrollTop = (e.currentTarget as HTMLDivElement).scrollTop)}
+	>
 		<table>
 			<thead>
 				<tr>
@@ -57,7 +79,8 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each visible as t (t.tid)}
+				<tr class="spacer" style:height="{win.padTop}px"><td colspan="5"></td></tr>
+				{#each slice as t (t.tid)}
 					<tr
 						class:selected={selected === t.tid}
 						class:blocked={t.state === "BLOCKED"}
@@ -98,6 +121,7 @@
 						</td>
 					</tr>
 				{/each}
+				<tr class="spacer" style:height="{win.padBottom}px"><td colspan="5"></td></tr>
 			</tbody>
 		</table>
 	</div>
@@ -148,15 +172,25 @@
 	}
 	th {
 		text-align: left;
-		padding: 8px 10px;
+		height: 32px; /* = HEADER in the script */
+		box-sizing: border-box;
+		padding: 0 10px;
 		font-weight: 600;
 		color: var(--fg-strong);
 		white-space: nowrap;
 	}
 	td {
-		padding: 4px 10px;
+		height: 28px; /* = ROW in the script; virtualization needs it exact */
+		box-sizing: border-box;
+		padding: 0 10px;
 		border-top: 1px solid var(--hairline);
 		white-space: nowrap;
+		overflow: hidden;
+	}
+	.spacer td {
+		height: auto;
+		padding: 0;
+		border: 0;
 	}
 	tbody tr {
 		cursor: pointer;
@@ -200,6 +234,7 @@
 		background: var(--bg-hover);
 	}
 	.empty {
+		height: auto;
 		text-align: center;
 		color: var(--fg-muted);
 		padding: 24px;

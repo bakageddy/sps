@@ -22,9 +22,19 @@
 		domain: [number, number];
 		view: [number, number] | null;
 		onviewchange: (view: [number, number] | null) => void;
+		/** also draw "Skipping to dump" signals (off by default: a server
+		 *  that stays hot emits one every ~2 min — tens of thousands) */
+		showSuppressed?: boolean;
 	}
 
-	let { stats, signals, domain, view, onviewchange }: Props = $props();
+	let {
+		stats,
+		signals,
+		domain,
+		view,
+		onviewchange,
+		showSuppressed = false,
+	}: Props = $props();
 
 	const window_ = $derived(view ?? domain);
 
@@ -51,9 +61,30 @@
 
 	const visibleSignals = $derived(
 		signals.filter(
-			(s) => s.timestamp >= window_[0] && s.timestamp <= window_[1],
+			(s) =>
+				(showSuppressed || !s.suppressed) &&
+				s.timestamp >= window_[0] &&
+				s.timestamp <= window_[1],
 		),
 	);
+
+	// Alarm ticks as SVG PATHS, one per (cause, suppressed) — at most eight
+	// DOM nodes however many signals there are. A span per signal was the
+	// 35k-node freeze; the shape on screen is identical.
+	const tickPaths = $derived.by(() => {
+		const groups = new Map<string, { cause: string; suppressed: boolean; d: string }>();
+		for (const s of visibleSignals) {
+			const key = `${s.cause}|${s.suppressed}`;
+			let g = groups.get(key);
+			if (!g) {
+				g = { cause: s.cause, suppressed: s.suppressed, d: "" };
+				groups.set(key, g);
+			}
+			const x = xPct(s.timestamp).toFixed(3);
+			g.d += `M${x} 0V6`;
+		}
+		return [...groups.values()];
+	});
 
 	// y max = pool capacity (used can never exceed it); fall back to used
 	// in case a stats line ever lost its max_connections.
@@ -95,12 +126,6 @@
 		usedPath === "" ? "" : `${usedPath} V 100 H ${xPct(visible[0].timestamp).toFixed(2)} Z`,
 	);
 	const capacityPath = $derived(stepPath((s) => s.total));
-
-	const signalTimeFormat = new Intl.DateTimeFormat(undefined, {
-		dateStyle: "medium",
-		timeStyle: "medium",
-		hourCycle: "h23",
-	});
 
 	// --- sweep-zoom (same capture-free pattern as StuckConcurrency) -----------
 	let band = $state<HTMLDivElement>();
@@ -168,21 +193,19 @@
 			<path class="area" d={usedArea} />
 			<path class="capacity" d={capacityPath} />
 			<path class="line" d={usedPath} />
+			<!-- alarm ticks along the top edge, one path per cause -->
+			{#each tickPaths as p (`${p.cause}|${p.suppressed}`)}
+				<path
+					class="tick"
+					class:suppressed={p.suppressed}
+					d={p.d}
+					style:stroke={causeColor(p.cause)}
+				/>
+			{/each}
 		</svg>
 
 		{#each yTicks as v (v)}
 			<span class="ygrid" style:top="{yPct(v)}%"></span>
-		{/each}
-
-		<!-- alarm ticks along the top edge -->
-		{#each visibleSignals as s, i (i)}
-			<span
-				class="signal"
-				class:suppressed={s.suppressed}
-				style:left="{xPct(s.timestamp)}%"
-				style:background={causeColor(s.cause)}
-				title="{s.cause}{s.suppressed ? ' (dump suppressed)' : ''} — {signalTimeFormat.format(s.timestamp)}"
-			></span>
 		{/each}
 
 		<span class="label">connections in use</span>
@@ -263,14 +286,13 @@
 		color: var(--fg-muted);
 	}
 
-	.signal {
-		position: absolute;
-		top: 0;
-		width: 2px;
-		height: 10px;
-		transform: translateX(-50%);
+	.tick {
+		fill: none;
+		stroke-width: 2;
+		/* keep ticks 2 SCREEN px wide despite the stretched viewBox */
+		vector-effect: non-scaling-stroke;
 	}
-	.signal.suppressed {
+	.tick.suppressed {
 		opacity: 0.4;
 	}
 

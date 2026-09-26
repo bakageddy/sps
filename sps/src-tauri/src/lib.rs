@@ -96,7 +96,7 @@ pub fn run() {
                     }
                 };
 
-                if let Err(e) = util::parse_and_persist(&path, store) {
+                if let Err(e) = util::parse_and_persist(&path, store, None) {
                     warn!(
                         "Error during parsing/persisting entries from {:?}: {e}",
                         path.display()

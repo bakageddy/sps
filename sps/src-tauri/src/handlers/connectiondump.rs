@@ -14,6 +14,7 @@ use std::sync::Mutex;
 #[instrument(skip(state))]
 #[tauri::command]
 pub async fn connectiondump_signals(
+    include_suppressed: bool,
     from: Option<u64>,
     to: Option<u64>,
     state: tauri::State<'_, Mutex<AppState>>,
@@ -26,7 +27,7 @@ pub async fn connectiondump_signals(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::connectiondump::get_connectiondump_signals(&cnx, from, to)
+        store::connectiondump::get_connectiondump_signals(&cnx, include_suppressed, from, to)
             .map_err(|e| format!("Error during fetching ConnectionDump signals: {e}"))
     })
     .await

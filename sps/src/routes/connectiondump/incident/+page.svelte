@@ -93,6 +93,14 @@
 	);
 	const toleranceMs = $derived(Math.round(tolerance.value * 1000));
 
+	// "Skipping to dump" signals hidden by default — they're the bulk of the
+	// timeline (tens of thousands) and each is "the last incident is still
+	// going", not a new one. Same persisted key as the connectiondump page.
+	const showSuppressed = persisted("conndump-show-suppressed", false);
+	const visibleSignals = $derived(
+		signals.filter((s) => showSuppressed.value || !s.suppressed),
+	);
+
 	const timeFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: "medium",
 		timeStyle: "medium",
@@ -100,7 +108,7 @@
 	});
 
 	const rows = $derived<SnapshotRow[]>(
-		signals.map((s) => ({
+		visibleSignals.map((s) => ({
 			timestamp: s.timestamp,
 			kind: "signal" as const,
 			detail: s.cause + (s.suppressed ? " · suppressed" : ""),
@@ -110,9 +118,12 @@
 	);
 
 	async function refresh() {
+		// the include flag is part of the cache key, so flipping the toggle
+		// is a distinct (and cached) fetch
+		const include = showSuppressed.value;
 		try {
-			signals = await cached("connectiondump_signals", () =>
-				connectiondumpSignals(),
+			signals = await cached(`connectiondump_signals|${include}`, () =>
+				connectiondumpSignals(include),
 			);
 		} catch (e) {
 			errorMessage = String(e);
@@ -251,6 +262,13 @@
 		refresh();
 	});
 
+	// toggle flipped: re-pull the signals with the new filter
+	$effect(() => {
+		void showSuppressed.value;
+		if (db.state.status !== "open") return;
+		refresh();
+	});
+
 	// ?t=<ms> from another analyzer: select the nearest signal, once.
 	let linkConsumed = $state(false);
 	$effect(() => {
@@ -262,7 +280,7 @@
 		}
 		const target = Number(raw);
 		if (!Number.isFinite(target) || signals.length === 0) return;
-		const nearest = nearestByTimestamp(signals, target);
+		const nearest = nearestByTimestamp(visibleSignals, target);
 		if (nearest === null) return;
 		linkConsumed = true;
 		selected = nearest;
@@ -292,7 +310,16 @@
 
 	<SplitPane direction="row" initial={0.24}>
 		{#snippet a()}
-			<SnapshotList {rows} selected={selectedKey} {onselect} />
+			<div class="listcol">
+				<label class="toggle" title="Also list the 'Skipping to dump' alarms">
+					<input type="checkbox" bind:checked={showSuppressed.value} />
+					show suppressed
+					<span class="mono muted">{visibleSignals.length}</span>
+				</label>
+				<div class="listbody">
+					<SnapshotList {rows} selected={selectedKey} {onselect} />
+				</div>
+			</div>
 		{/snippet}
 		{#snippet b()}
 			<div class="content">
@@ -447,6 +474,33 @@
 		flex-direction: column;
 		height: 100%;
 		min-height: 0;
+	}
+	.listcol {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		min-height: 0;
+	}
+	.listbody {
+		flex: 1;
+		min-height: 0;
+	}
+	.toggle {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 10px;
+		border-bottom: 1px solid var(--hairline);
+		font-size: 11.5px;
+		color: var(--fg-muted);
+		flex-shrink: 0;
+	}
+	.toggle input {
+		margin: 0;
+	}
+	.toggle .mono {
+		margin-left: auto;
+		font-size: 11px;
 	}
 	.header {
 		display: flex;

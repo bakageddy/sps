@@ -391,6 +391,9 @@
 		flex: 1;
 		min-width: 0;
 		min-height: 0; /* without this, children can't shrink below content size */
+		/* the shell is the viewport: pages scroll INSIDE their own panes,
+		   never the document — whatever a page does wrong, it clips here */
+		overflow: hidden;
 	}
 
 	/* No orientation media query here on purpose: the sidebar is ALWAYS a

@@ -52,6 +52,10 @@
 
 	// slow-hold threshold (seconds, persisted) — rows above it flag red
 	const slowThreshold = persisted("conndump-slow-s", 60);
+	// "Skipping to dump" signals are the bulk of the timeline (one every
+	// ~2 min while the server stays hot) and mostly noise — hidden by
+	// default; shared key with the incident page so the choice follows you.
+	const showSuppressed = persisted("conndump-show-suppressed", false);
 
 	/** chart zoom window; null = full range */
 	let view = $state<[number, number] | null>(null);
@@ -123,10 +127,19 @@
 		});
 	});
 
+	// The include flag is part of the cache key, so flipping the toggle is a
+	// distinct (and cached) fetch.
+	const fetchSignals = () => {
+		const include = showSuppressed.value;
+		return cached(`connectiondump_signals|${include}`, () =>
+			connectiondumpSignals(include),
+		);
+	};
+
 	async function refresh() {
 		const [signalsResult, statsResult, snapshotsResult, holdersResult] =
 			await Promise.allSettled([
-				cached("connectiondump_signals", () => connectiondumpSignals()),
+				fetchSignals(),
 				cached("connectiondump_pool_stats", () =>
 					connectiondumpPoolStats(),
 				),
@@ -188,6 +201,16 @@
 		selected = null;
 		refresh();
 	});
+
+	// toggle flipped: re-pull just the signals (other series are unaffected)
+	$effect(() => {
+		void showSuppressed.value;
+		if (db.state.status !== "open") return;
+		fetchSignals().then(
+			(s) => (signals = s),
+			(e) => (errorMessage = String(e)),
+		);
+	});
 </script>
 
 <div class="page">
@@ -220,6 +243,10 @@
 
 			<span class="right">
 				{#if mode === Mode.Pool}
+					<label class="toggle" title="Also draw the 'Skipping to dump' alarms">
+						<input type="checkbox" bind:checked={showSuppressed.value} />
+						suppressed
+					</label>
 					<span class="legend">
 						{#each causes as cause (cause)}
 							<span class="key">
@@ -292,6 +319,7 @@
 											{domain}
 											{view}
 											onviewchange={(v) => (view = v)}
+											showSuppressed={showSuppressed.value}
 										/>
 									</div>
 									<div class="axis">
@@ -424,12 +452,16 @@
 		opacity: 0.5;
 	}
 
-	.threshold {
+	.threshold,
+	.toggle {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		font-size: 11.5px;
 		color: var(--fg-muted);
+	}
+	.toggle input {
+		margin: 0;
 	}
 	.threshold input {
 		width: 64px;

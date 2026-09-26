@@ -118,13 +118,10 @@
 
 {#if report}
 	<div class="report">
-		{#each report.kinds as [kind, counts] (kind)}
+		{#each report.kinds as [kind, files] (kind)}
 			<div class="kind">
 				<span class="mono">{kind}</span>
-				<span class="count">{counts.entries} entries</span>
-				{#if counts.errors > 0}
-					<span class="rejected">{counts.errors} rejected</span>
-				{/if}
+				<span class="count">{files} {files === 1 ? "file" : "files"}</span>
 			</div>
 		{:else}
 			{#if report.settled}
@@ -219,10 +216,6 @@
 	}
 	.count {
 		color: var(--green);
-	}
-	.rejected {
-		color: var(--yellow);
-		font-size: 12px;
 	}
 	.none {
 		color: var(--fg-muted);

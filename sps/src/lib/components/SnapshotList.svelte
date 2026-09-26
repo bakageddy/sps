@@ -24,6 +24,7 @@
 	 * moment, newest data comes pre-sorted from the backend.
 	 */
 	import { formatTimestamp } from "$lib/format";
+	import { virtualWindow } from "$lib/virtual";
 
 	interface Props {
 		rows: SnapshotRow[];
@@ -41,6 +42,19 @@
 		descending ? rows.toSorted((a, b) => b.timestamp - a.timestamp) : rows,
 	);
 
+	// Virtualized: only the rows in view (+ overscan) exist in the DOM, so a
+	// 35k-signal bundle renders as cheaply as 35 rows. ROW and HEADER are
+	// the fixed pixel heights the CSS below enforces — the math depends on
+	// them being exact.
+	const ROW = 48;
+	const HEADER = 34;
+	let viewport = $state(0);
+	let scrollTop = $state(0);
+	const win = $derived(
+		virtualWindow(scrollTop - HEADER, viewport, ROW, sorted.length),
+	);
+	const slice = $derived(sorted.slice(win.start, win.end));
+
 	const timeFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: "medium",
 		timeStyle: "medium",
@@ -48,14 +62,22 @@
 	});
 </script>
 
-<div class="list">
+<div
+	class="list"
+	bind:clientHeight={viewport}
+	onscroll={(e) => (scrollTop = (e.currentTarget as HTMLDivElement).scrollTop)}
+>
 	<div class="header">
 		<button class="sort" onclick={() => (descending = !descending)}>
 			Timestamp <span class="arrow">{descending ? "▼" : "▲"}</span>
 		</button>
 		<span class="count mono">{rows.length}</span>
 	</div>
-	{#each sorted as row}
+	<div class="spacer" style:height="{win.padTop}px"></div>
+	<!-- unkeyed on purpose: the window is positional, and two signals can
+	     share a timestamp (High CPU + NMC in the same ms), so snapshotKey()
+	     is not unique here -->
+	{#each slice as row}
 		<button
 			class="row"
 			class:selected={selected === snapshotKey(row)}
@@ -72,8 +94,9 @@
 			</span>
 		</button>
 	{:else}
-		<p class="empty">No stuck-query snapshots.</p>
+		<p class="empty">Nothing to list.</p>
 	{/each}
+	<div class="spacer" style:height="{win.padBottom}px"></div>
 </div>
 
 <style>
@@ -86,7 +109,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 8px 10px;
+		height: 34px; /* = HEADER in the script */
+		box-sizing: border-box;
+		padding: 0 10px;
 		background: var(--bg-soft);
 		font-size: 11px;
 		font-weight: 600;
@@ -119,9 +144,13 @@
 	.row {
 		display: flex;
 		flex-direction: column;
+		justify-content: center;
 		gap: 2px;
 		width: 100%;
-		padding: 6px 10px;
+		height: 48px; /* = ROW in the script; virtualization needs it exact */
+		box-sizing: border-box;
+		overflow: hidden;
+		padding: 0 10px;
 		text-align: left;
 		border-top: 1px solid var(--hairline);
 		border-radius: 0;

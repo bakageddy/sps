@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -5,19 +7,21 @@ pub struct DatabaseInfo {
     pub path: Option<String>,
 }
 
-#[derive(Debug, Default, Serialize)]
-pub struct ParseReport {
-    pub kinds: Vec<KindCount>,
-}
-
-#[derive(Debug, Default, Serialize)]
-pub struct KindCount {
-    /// Outlines the path of the file we parsed.
-    pub kind: String,
-    /// Outlines the entries successfully parsed
-    pub entries: u64,
-    /// Outlines the errors application faced during parsing
-    pub errors: u64,
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum IngestEvent {
+    Start {
+        path: PathBuf,
+    },
+    File {
+        kind: &'static str,
+        file: PathBuf,
+    },
+    Error {
+        file: Option<PathBuf>,
+        message: String,
+    },
+    Finished,
 }
 
 #[derive(Debug, Default, Serialize)]

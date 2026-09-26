@@ -23,15 +23,13 @@ import {
 	type IngestFinished,
 } from "$lib/api/ingest-events";
 
-export interface KindCounts {
-	entries: number;
-	errors: number;
-}
+/** kind → number of files finished so far */
+export type KindFiles = Record<string, number>;
 
 export type IngestState =
 	| { status: "idle" }
-	| { status: "parsing"; kinds: Record<string, KindCounts>; problems: string[] }
-	| { status: "done"; kinds: Record<string, KindCounts>; problems: string[] }
+	| { status: "parsing"; kinds: KindFiles; problems: string[] }
+	| { status: "done"; kinds: KindFiles; problems: string[] }
 	/** the command itself failed (bad path, no database) — nothing ran */
 	| { status: "error"; message: string };
 
@@ -57,12 +55,10 @@ listen<IngestStarted>(IngestEvent.Started, () => {
 
 listen<IngestFile>(IngestEvent.File, (event) => {
 	if (ingest.state.status !== "parsing") return; // stray/late event
-	const { kind, entries, errors } = event.payload;
-	// ??= : create the bucket on a kind's first file. $state proxies are
-	// deeply reactive, so mutating the record updates the UI.
-	const bucket = (ingest.state.kinds[kind] ??= { entries: 0, errors: 0 });
-	bucket.entries += entries;
-	bucket.errors += errors;
+	const { kind } = event.payload;
+	// $state proxies are deeply reactive, so mutating the record updates
+	// the UI; a kind's first file creates its key.
+	ingest.state.kinds[kind] = (ingest.state.kinds[kind] ?? 0) + 1;
 });
 
 listen<IngestError>(IngestEvent.Error, (event) => {

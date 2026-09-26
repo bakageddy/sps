@@ -1,5 +1,6 @@
 use memmap2::Mmap;
 
+use crate::handlers::types::IngestEvent;
 #[cfg(unix)]
 use memmap2::Advice;
 use std::{
@@ -7,6 +8,7 @@ use std::{
     ops::Deref,
     path::{Path, PathBuf},
 };
+use tauri::{AppHandle, Emitter};
 use time::{Date, PlainDateTime, Time, UtcDateTime, format_description::BorrowedFormatItem};
 use tracing::{error, info, warn};
 
@@ -131,7 +133,7 @@ where
     })
 }
 
-pub fn parse_and_persist<P>(root: P, store: Store) -> Result<()>
+pub fn parse_and_persist<P>(root: P, store: Store, app: Option<&AppHandle>) -> Result<()>
 where
     P: AsRef<Path>,
 {
@@ -145,7 +147,7 @@ where
     } = get_files(root)?;
     std::thread::scope(|s| {
         let _ = s.spawn(|| -> Result<()> {
-            let result = parse_cpumemstats_and_persist(&cpumemstats, store.clone());
+            let result = parse_cpumemstats_and_persist(&cpumemstats, store.clone(), app);
             if let Err(ref e) = result {
                 warn!("Error during parsing/persisting: {e}");
             }
@@ -153,7 +155,7 @@ where
         });
 
         let _ = s.spawn(|| -> Result<()> {
-            let result = parse_cpumonitoring_and_persist(&cpumonitoring, store.clone());
+            let result = parse_cpumonitoring_and_persist(&cpumonitoring, store.clone(), app);
             if let Err(ref e) = result {
                 warn!("Error during parsing/persisting: {e}");
             }
@@ -163,7 +165,7 @@ where
         let len = stuckthreads.len();
         if len <= 2 {
             s.spawn(|| -> Result<()> {
-                let result = parse_stuckthreads_and_persist(&stuckthreads, store.clone());
+                let result = parse_stuckthreads_and_persist(&stuckthreads, store.clone(), app);
                 if let Err(ref e) = result {
                     warn!("Error during parsing/persisting: {e}");
                 }
@@ -172,7 +174,7 @@ where
         } else {
             for chunk in stuckthreads.chunks(len) {
                 s.spawn(|| -> Result<()> {
-                    let result = parse_stuckthreads_and_persist(chunk, store.clone());
+                    let result = parse_stuckthreads_and_persist(chunk, store.clone(), app);
                     if let Err(ref e) = result {
                         warn!("Error during parsing/persisting: {e}");
                     }
@@ -184,7 +186,7 @@ where
         let len = threaddump.len();
         if len <= 2 {
             s.spawn(|| -> Result<()> {
-                let result = parse_threaddump_and_persist(&threaddump, store.clone());
+                let result = parse_threaddump_and_persist(&threaddump, store.clone(), app);
                 if let Err(ref e) = result {
                     warn!("Error during parsing/persisting: {e}");
                 }
@@ -193,7 +195,7 @@ where
         } else {
             for chunk in threaddump.chunks(len / 2) {
                 s.spawn(|| -> Result<()> {
-                    let result = parse_threaddump_and_persist(chunk, store.clone());
+                    let result = parse_threaddump_and_persist(chunk, store.clone(), app);
                     if let Err(ref e) = result {
                         warn!("Error during parsing/persisting: {e}");
                     }
@@ -203,7 +205,7 @@ where
         }
 
         let _ = s.spawn(|| -> Result<()> {
-            let result = parse_stuckqueries_and_persist(&stuckqueries, store.clone());
+            let result = parse_stuckqueries_and_persist(&stuckqueries, store.clone(), app);
             if let Err(ref e) = result {
                 warn!("Error during parsing/persisting: {e}");
             }
@@ -211,7 +213,7 @@ where
         });
 
         let _ = s.spawn(|| -> Result<()> {
-            let result = parse_connectiondump_and_persist(&connectiondump, store.clone());
+            let result = parse_connectiondump_and_persist(&connectiondump, store.clone(), app);
             if let Err(ref e) = result {
                 warn!("Error during parsing/persisting: {e}");
             }
@@ -234,6 +236,7 @@ where
 fn parse_stuckqueries_and_persist(
     entries: &[PathBuf],
     store: Store,
+    app: Option<&AppHandle>,
 ) -> std::result::Result<(), crate::error::Error> {
     let entries = entries
         .iter()
@@ -244,10 +247,26 @@ fn parse_stuckqueries_and_persist(
         info!("Parsing and Persisting: {:?}", entry.display());
         let result = StuckqueryParser::try_from(mmap.deref());
         if let Ok(parser) = result {
+            if let Some(a) = app { a.emit(
+                    "ingest:file",
+                    IngestEvent::File {
+                        kind: "stuckqueries",
+                        file: entry.to_path_buf(),
+                    },
+                )
+                .unwrap() }
             store::append_stuckqueries(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
+                        if let Some(a) = app { a.emit(
+                                "ingest:error",
+                                IngestEvent::Error {
+                                    file: Some(entry.to_path_buf()),
+                                    message: e.to_string(),
+                                },
+                            )
+                            .unwrap() }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -256,10 +275,19 @@ fn parse_stuckqueries_and_persist(
                 }),
             )?;
         } else {
+            let err = result.unwrap_err();
+            if let Some(a) = app { a.emit(
+                    "ingest:error",
+                    IngestEvent::Error {
+                        file: Some(entry.to_path_buf()),
+                        message: err.to_string(),
+                    },
+                )
+                .unwrap() }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
-                result.unwrap_err()
+                err
             );
             continue;
         }
@@ -267,7 +295,11 @@ fn parse_stuckqueries_and_persist(
     Ok(())
 }
 
-pub fn parse_cpumonitoring_and_persist(entries: &[PathBuf], store: Store) -> Result<()>
+pub fn parse_cpumonitoring_and_persist(
+    entries: &[PathBuf],
+    store: Store,
+    app: Option<&AppHandle>,
+) -> Result<()>
 where
 {
     let entries = entries
@@ -279,10 +311,26 @@ where
         info!("Parsing and Persisting: {:?}", entry.display());
         let result = CPUMonitoringParser::try_from(mmap.deref());
         if let Ok(parser) = result {
+            if let Some(a) = app { a.emit(
+                    "ingest:file",
+                    IngestEvent::File {
+                        kind: "CPUMonitoring",
+                        file: entry.to_path_buf(),
+                    },
+                )
+                .unwrap() }
             store::append_cpumonitoring(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
+                        if let Some(a) = app { a.emit(
+                                "ingest:error",
+                                IngestEvent::Error {
+                                    file: Some(entry.to_path_buf()),
+                                    message: e.to_string(),
+                                },
+                            )
+                            .unwrap(); }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -291,10 +339,19 @@ where
                 }),
             )?;
         } else {
+            let err = result.unwrap_err();
+            if let Some(a) = app { a.emit(
+                    "ingest:error",
+                    IngestEvent::Error {
+                        file: Some(entry.to_path_buf()),
+                        message: err.to_string(),
+                    },
+                )
+                .unwrap(); }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
-                result.unwrap_err()
+                err
             );
             continue;
         }
@@ -302,7 +359,11 @@ where
     Ok(())
 }
 
-pub fn parse_cpumemstats_and_persist(entries: &[PathBuf], store: Store) -> Result<()> {
+pub fn parse_cpumemstats_and_persist(
+    entries: &[PathBuf],
+    store: Store,
+    app: Option<&AppHandle>,
+) -> Result<()> {
     let entries = entries
         .iter()
         .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(e)?, e)) });
@@ -312,10 +373,26 @@ pub fn parse_cpumemstats_and_persist(entries: &[PathBuf], store: Store) -> Resul
         info!("Parsing and Persisting: {:?}", entry.display());
         let parser = CPUMemStatsParser::try_from(mmap.deref());
         if let Ok(parser) = parser {
+            if let Some(a) = app { a.emit(
+                    "ingest:file",
+                    IngestEvent::File {
+                        kind: "cpumemstats",
+                        file: entry.to_path_buf(),
+                    },
+                )
+                .unwrap() }
             store::append_cpumemstats(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
+                        if let Some(a) = app { a.emit(
+                                "ingest:error",
+                                IngestEvent::Error {
+                                    file: Some(entry.to_path_buf()),
+                                    message: e.to_string(),
+                                },
+                            )
+                            .unwrap() }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -324,10 +401,19 @@ pub fn parse_cpumemstats_and_persist(entries: &[PathBuf], store: Store) -> Resul
                 }),
             )?;
         } else {
+            let err = parser.unwrap_err();
+            if let Some(a) = app { a.emit(
+                    "ingest:error",
+                    IngestEvent::Error {
+                        file: Some(entry.to_path_buf()),
+                        message: err.to_string(),
+                    },
+                )
+                .unwrap(); }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
-                parser.unwrap_err()
+                err.to_string()
             );
             continue;
         }
@@ -335,7 +421,11 @@ pub fn parse_cpumemstats_and_persist(entries: &[PathBuf], store: Store) -> Resul
     Ok(())
 }
 
-pub fn parse_stuckthreads_and_persist(entries: &[PathBuf], store: Store) -> Result<()> {
+pub fn parse_stuckthreads_and_persist(
+    entries: &[PathBuf],
+    store: Store,
+    app: Option<&AppHandle>,
+) -> Result<()> {
     let entries = entries
         .iter()
         .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(e)?, e)) });
@@ -345,10 +435,26 @@ pub fn parse_stuckthreads_and_persist(entries: &[PathBuf], store: Store) -> Resu
         info!("Parsing and persisting: {:?}", entry.display());
         let parser = StuckthreadParser::try_from(mmap.deref());
         if let Ok(parser) = parser {
+            if let Some(a) = app { a.emit(
+                    "ingest:file",
+                    IngestEvent::File {
+                        kind: "stuckthreads",
+                        file: entry.to_path_buf(),
+                    },
+                )
+                .unwrap() }
             store::append_stuckthread(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
+                        if let Some(a) = app { a.emit(
+                                "ingest:error",
+                                IngestEvent::Error {
+                                    file: Some(entry.to_path_buf()),
+                                    message: e.to_string(),
+                                },
+                            )
+                            .unwrap(); }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -357,10 +463,19 @@ pub fn parse_stuckthreads_and_persist(entries: &[PathBuf], store: Store) -> Resu
                 }),
             )?;
         } else {
+            let err = parser.unwrap_err();
+            if let Some(a) = app { a.emit(
+                    "ingest:error",
+                    IngestEvent::Error {
+                        file: Some(entry.to_path_buf()),
+                        message: err.to_string(),
+                    },
+                )
+                .unwrap(); }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
-                parser.unwrap_err()
+                err
             );
             continue;
         }
@@ -371,6 +486,7 @@ pub fn parse_stuckthreads_and_persist(entries: &[PathBuf], store: Store) -> Resu
 fn parse_connectiondump_and_persist(
     entries: &[PathBuf],
     store: Store,
+    app: Option<&AppHandle>,
 ) -> std::result::Result<(), crate::error::Error> {
     let entries = entries
         .iter()
@@ -381,12 +497,21 @@ fn parse_connectiondump_and_persist(
         let parser = ConnectionDumpParser::try_from(mmap.deref());
 
         if let Ok(parser) = parser {
+            if let Some(a) = app { a.emit(
+                    "ingest:file",
+                    IngestEvent::File {
+                        kind: "connectiondump",
+                        file: entry.to_path_buf(),
+                    },
+                )
+                .unwrap() }
             store::append_connectiondump(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
                         if let crate::parser::connectiondump::error::Error::UnrecognizedConnectionDumpEntry(_) = e {
                         } else {
+                            if let Some(a) = app { a.emit("ingest:error", IngestEvent::Error { file: Some(entry.to_path_buf()), message: e.to_string() }).unwrap() }
                             warn!(
                                 "Error during parsing {:?} due to {}",
                                 entry.display(),
@@ -400,10 +525,19 @@ fn parse_connectiondump_and_persist(
                 }),
             )?;
         } else {
+            let err = parser.unwrap_err();
+            if let Some(a) = app { a.emit(
+                    "ingest:error",
+                    IngestEvent::Error {
+                        file: Some(entry.to_path_buf()),
+                        message: err.to_string(),
+                    },
+                )
+                .unwrap() }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
-                parser.unwrap_err()
+                err
             );
             continue;
         }
@@ -414,6 +548,7 @@ fn parse_connectiondump_and_persist(
 pub fn parse_threaddump_and_persist(
     entries: &[PathBuf],
     store: Store,
+    app: Option<&AppHandle>,
 ) -> std::result::Result<(), crate::error::Error> {
     let entries = entries
         .iter()
@@ -424,10 +559,26 @@ pub fn parse_threaddump_and_persist(
         info!("Parsing and persisting: {:?}", entry.display());
         let parser = ThreadDumpParser::try_from(mmap.deref());
         if let Ok(parser) = parser {
+            if let Some(a) = app { a.emit(
+                    "ingest:file",
+                    IngestEvent::File {
+                        kind: "threaddump",
+                        file: entry.to_path_buf(),
+                    },
+                )
+                .unwrap() }
             store::append_threaddump(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
+                        if let Some(a) = app { a.emit(
+                                "ingest:error",
+                                IngestEvent::Error {
+                                    file: Some(entry.to_path_buf()),
+                                    message: e.to_string(),
+                                },
+                            )
+                            .unwrap() }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -436,10 +587,19 @@ pub fn parse_threaddump_and_persist(
                 }),
             )?;
         } else {
+            let err = parser.unwrap_err();
+            if let Some(a) = app { a.emit(
+                    "ingest:error",
+                    IngestEvent::Error {
+                        file: Some(entry.to_path_buf()),
+                        message: err.to_string(),
+                    },
+                )
+                .unwrap() }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
-                parser.unwrap_err()
+                err
             );
             continue;
         }
