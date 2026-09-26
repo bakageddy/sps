@@ -3997,7 +3997,7 @@ dependencies = [
 
 [[package]]
 name = "sps"
-version = "2026.9.26"
+version = "2026.9.27"
 dependencies = [
  "clap",
  "duckdb",
