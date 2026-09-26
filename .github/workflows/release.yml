@@ -1,14 +1,23 @@
-# Rolling release: every push to main rebuilds the "latest" prerelease with
-# fresh dmg / msi bundles, deb/AppImage PER Ubuntu baseline (suffixed
-# _ubuntu-22.04 / _ubuntu-24.04 — pick the one matching your host), and an
-# rpm built in a real Fedora container (suffixed _fedora-42).
+# Tagged releases: pushing a tag like v2026.09.26 builds every bundle and
+# publishes them as the GitHub release for that tag — dmg (macOS), msi
+# (Windows), deb + AppImage PER Ubuntu baseline (suffixed _ubuntu-22.04 /
+# _ubuntu-24.04 — pick the one matching your host), and an rpm built in a
+# real Fedora container (suffixed _fedora-42).
 #
 # Design notes:
+#  - Releases are cut by TAG, not by pushes to main: main can move freely;
+#    a release is a deliberate `git tag vYYYY.MM.DD && git push --tags`.
+#    Every job releases under `github.ref_name` (the tag), so all bundles
+#    land in one release and nothing needs deleting first.
 #  - The auto-injected GITHUB_TOKEN is read-only by default on new repos;
 #    `permissions: contents: write` is what allows creating releases.
-#  - The old release is deleted first (single job, before the matrix) because
-#    the app version rarely changes — re-uploading identically named assets
-#    to an existing release fails.
+#  - rust-cache gets a PER-MATRIX-LEG key. Both Ubuntu legs share the job
+#    name, so the default key made them share one cache: 24.04's target/
+#    restored onto 22.04, where the -sys build scripts had baked a different
+#    system webkit/gtk version into rustc's metadata hash. cargo's
+#    fingerprints don't track system libraries, so it believed `tauri` was
+#    fresh and rustc then failed with "E0463 can't find crate for `tauri`".
+#    Distinct keys = distinct caches; those legs must never share artifacts.
 #  - BOTH Ubuntu baselines on purpose: a bundle built on 22.04 (GLib 2.72)
 #    breaks on 24.04 hosts ("undefined symbol: g_task_set_static_name" from
 #    newer gvfs modules) and vice versa — each distro generation gets its
@@ -28,36 +37,19 @@ name: release
 
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
 
 permissions:
   contents: write
 
 jobs:
-  refresh-release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: drop previous rolling release
-        run: gh release delete latest --cleanup-tag --yes || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-
   build:
-    needs: refresh-release
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-latest
             bundles: dmg
-          # BOTH Ubuntu baselines, deliberately: a bundle built on 22.04
-          # (GLib 2.72) breaks on 24.04 hosts ("undefined symbol:
-          # g_task_set_static_name" from newer gvfs modules) and vice versa
-          # for baseline libs — so each supported distro gets its own
-          # artifacts, suffixed by builder (see the upload step). 20.04
-          # runners are retired; 22.04 + 24.04 is the full hosted set.
           - platform: ubuntu-22.04
             bundles: deb,appimage
           - platform: ubuntu-24.04
@@ -82,10 +74,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # Caches target/ per platform; cuts warm builds down dramatically.
+      # Caches target/ per platform. `key` keeps each matrix leg's cache
+      # separate — see the design notes for the E0463 this prevents.
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: sps/src-tauri
+          key: ${{ matrix.platform }}
 
       - name: install linux system deps
         if: startsWith(matrix.platform, 'ubuntu')
@@ -97,17 +91,18 @@ jobs:
         working-directory: sps
 
       # macOS/Windows: tauri-action builds AND uploads straight into the
-      # release (their filenames never collide across jobs).
+      # tag's release (their filenames never collide across jobs).
       - uses: tauri-apps/tauri-action@v0
         if: ${{ !startsWith(matrix.platform, 'ubuntu') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: sps
-          tagName: latest
-          releaseName: sps latest (main)
-          releaseBody: Rolling build of the newest commit on main.
-          prerelease: true
+          tagName: ${{ github.ref_name }}
+          releaseName: sps ${{ github.ref_name }}
+          releaseBody: See the commits since the previous tag for what changed.
+          releaseDraft: false
+          prerelease: false
           args: --bundles ${{ matrix.bundles }}
 
       # Linux: build ONLY — both distro jobs produce identically named
@@ -124,6 +119,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -e
           shopt -s nullglob
@@ -135,13 +131,12 @@ jobs:
           done
           # the release may not exist yet (created by whichever job gets
           # there first; concurrent creates collapse into the || true)
-          gh release create latest --prerelease --title "sps latest (main)" \
-            --notes "Rolling build of the newest commit on main." 2>/dev/null || true
-          gh release upload latest out/* --clobber
+          gh release create "$TAG" --verify-tag --title "sps $TAG" \
+            --notes "See the commits since the previous tag for what changed." 2>/dev/null || true
+          gh release upload "$TAG" out/* --clobber
 
   # A real Fedora RPM must be BUILT on Fedora: same runner, fedora container.
   build-fedora-rpm:
-    needs: refresh-release
     runs-on: ubuntu-24.04
     container: fedora:42
     steps:
@@ -169,6 +164,7 @@ jobs:
           # to git — which would die on the container's uid mismatch with
           # "detected dubious ownership in repository".
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -e
           # belt and braces for anything else that runs git in here
@@ -179,6 +175,6 @@ jobs:
             base="$(basename "$f")"
             cp "$f" "out/${base%.rpm}_fedora-42.rpm"
           done
-          gh release create latest --prerelease --title "sps latest (main)" \
-            --notes "Rolling build of the newest commit on main." 2>/dev/null || true
-          gh release upload latest out/* --clobber
+          gh release create "$TAG" --verify-tag --title "sps $TAG" \
+            --notes "See the commits since the previous tag for what changed." 2>/dev/null || true
+          gh release upload "$TAG" out/* --clobber
