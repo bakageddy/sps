@@ -15,11 +15,12 @@ pub mod stuckthread;
 pub mod threaddump;
 pub mod tokenizer;
 
-pub enum DBKind {
-    PGSQL,
-    MSSQL,
+enum DBKind {
+    Pgsql,
+    Mssql,
 }
 
+#[derive(Debug)]
 pub enum TableKind {
     PGSQLRunningQuery,
     MSSQLRunningQuery,
@@ -28,7 +29,7 @@ pub enum TableKind {
 }
 
 impl TableKind {
-    pub fn detect_kind(table_header_lines: &[&str]) -> Option<DBKind> {
+    fn detect_kind(table_header_lines: &[&str]) -> Option<DBKind> {
         let table_column_names = table_header_lines.get(table_header_lines.len() - 2)?;
         let mut tok = Tokenizer::new(table_column_names);
         let mut columns = HashSet::new();
@@ -37,12 +38,12 @@ impl TableKind {
         }
 
         if columns.contains("pid") {
-            Some(DBKind::PGSQL)
+            Some(DBKind::Pgsql)
         } else if columns.contains("Session ID")
             || columns.contains("Logical Reads")
             || columns.contains("SPID")
         {
-            Some(DBKind::MSSQL)
+            Some(DBKind::Mssql)
         } else {
             None
         }
@@ -59,10 +60,10 @@ impl TableKind {
         let kind = Self::detect_kind(table_header_lines)?;
         let name = Self::table_name(table_header_lines)?;
         match (kind, name) {
-            (DBKind::PGSQL, "Currently Running Queries") => Some(Self::PGSQLRunningQuery),
-            (DBKind::MSSQL, "Currently Running Queries") => Some(Self::MSSQLRunningQuery),
-            (DBKind::MSSQL, "Currently Blocking Query Details") => Some(Self::MSSQLBlockingQuery),
-            (DBKind::MSSQL, "sp Who2") => Some(Self::MSSQLSPWho2),
+            (DBKind::Pgsql, "Currently Running Queries") => Some(Self::PGSQLRunningQuery),
+            (DBKind::Mssql, "Currently Running Queries") => Some(Self::MSSQLRunningQuery),
+            (DBKind::Mssql, "Currently Blocking Query Details") => Some(Self::MSSQLBlockingQuery),
+            (DBKind::Mssql, "sp Who2") => Some(Self::MSSQLSPWho2),
             _ => None,
         }
     }

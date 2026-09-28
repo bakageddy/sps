@@ -15,7 +15,7 @@ use tracing::{error, info, warn};
 use crate::{
     parser::{
         connectiondump::ConnectionDumpParser, cpumemstats::CPUMemStatsParser,
-        cpumonitoring::CPUMonitoringParser, stuckquery::StuckqueryParser,
+        cpumonitoring::CPUMonitoringParser, stuckquery::StuckQueryParser,
         stuckthread::StuckthreadParser, threaddump::ThreadDumpParser,
     },
     store::{self, Store},
@@ -245,28 +245,32 @@ fn parse_stuckqueries_and_persist(
     let cnx = store.get()?;
     for (mmap, entry) in entries {
         info!("Parsing and Persisting: {:?}", entry.display());
-        let result = StuckqueryParser::try_from(mmap.deref());
+        let result = StuckQueryParser::try_from(mmap.deref());
         if let Ok(parser) = result {
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:file",
                     IngestEvent::File {
                         kind: "stuckqueries",
                         file: entry.to_path_buf(),
                     },
                 )
-                .unwrap() }
+                .unwrap()
+            }
             store::append_stuckqueries(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
-                        if let Some(a) = app { a.emit(
+                        if let Some(a) = app {
+                            a.emit(
                                 "ingest:error",
                                 IngestEvent::Error {
                                     file: Some(entry.to_path_buf()),
                                     message: e.to_string(),
                                 },
                             )
-                            .unwrap() }
+                            .unwrap()
+                        }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -276,14 +280,16 @@ fn parse_stuckqueries_and_persist(
             )?;
         } else {
             let err = result.unwrap_err();
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:error",
                     IngestEvent::Error {
                         file: Some(entry.to_path_buf()),
                         message: err.to_string(),
                     },
                 )
-                .unwrap() }
+                .unwrap()
+            }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
@@ -311,26 +317,30 @@ where
         info!("Parsing and Persisting: {:?}", entry.display());
         let result = CPUMonitoringParser::try_from(mmap.deref());
         if let Ok(parser) = result {
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:file",
                     IngestEvent::File {
                         kind: "CPUMonitoring",
                         file: entry.to_path_buf(),
                     },
                 )
-                .unwrap() }
+                .unwrap()
+            }
             store::append_cpumonitoring(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
-                        if let Some(a) = app { a.emit(
+                        if let Some(a) = app {
+                            a.emit(
                                 "ingest:error",
                                 IngestEvent::Error {
                                     file: Some(entry.to_path_buf()),
                                     message: e.to_string(),
                                 },
                             )
-                            .unwrap(); }
+                            .unwrap();
+                        }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -340,14 +350,16 @@ where
             )?;
         } else {
             let err = result.unwrap_err();
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:error",
                     IngestEvent::Error {
                         file: Some(entry.to_path_buf()),
                         message: err.to_string(),
                     },
                 )
-                .unwrap(); }
+                .unwrap();
+            }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
@@ -373,26 +385,30 @@ pub fn parse_cpumemstats_and_persist(
         info!("Parsing and Persisting: {:?}", entry.display());
         let parser = CPUMemStatsParser::try_from(mmap.deref());
         if let Ok(parser) = parser {
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:file",
                     IngestEvent::File {
                         kind: "cpumemstats",
                         file: entry.to_path_buf(),
                     },
                 )
-                .unwrap() }
+                .unwrap()
+            }
             store::append_cpumemstats(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
-                        if let Some(a) = app { a.emit(
+                        if let Some(a) = app {
+                            a.emit(
                                 "ingest:error",
                                 IngestEvent::Error {
                                     file: Some(entry.to_path_buf()),
                                     message: e.to_string(),
                                 },
                             )
-                            .unwrap() }
+                            .unwrap()
+                        }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -402,14 +418,16 @@ pub fn parse_cpumemstats_and_persist(
             )?;
         } else {
             let err = parser.unwrap_err();
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:error",
                     IngestEvent::Error {
                         file: Some(entry.to_path_buf()),
                         message: err.to_string(),
                     },
                 )
-                .unwrap(); }
+                .unwrap();
+            }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
@@ -435,26 +453,30 @@ pub fn parse_stuckthreads_and_persist(
         info!("Parsing and persisting: {:?}", entry.display());
         let parser = StuckthreadParser::try_from(mmap.deref());
         if let Ok(parser) = parser {
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:file",
                     IngestEvent::File {
                         kind: "stuckthreads",
                         file: entry.to_path_buf(),
                     },
                 )
-                .unwrap() }
+                .unwrap()
+            }
             store::append_stuckthread(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
-                        if let Some(a) = app { a.emit(
+                        if let Some(a) = app {
+                            a.emit(
                                 "ingest:error",
                                 IngestEvent::Error {
                                     file: Some(entry.to_path_buf()),
                                     message: e.to_string(),
                                 },
                             )
-                            .unwrap(); }
+                            .unwrap();
+                        }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -464,14 +486,16 @@ pub fn parse_stuckthreads_and_persist(
             )?;
         } else {
             let err = parser.unwrap_err();
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:error",
                     IngestEvent::Error {
                         file: Some(entry.to_path_buf()),
                         message: err.to_string(),
                     },
                 )
-                .unwrap(); }
+                .unwrap();
+            }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
@@ -497,14 +521,16 @@ fn parse_connectiondump_and_persist(
         let parser = ConnectionDumpParser::try_from(mmap.deref());
 
         if let Ok(parser) = parser {
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:file",
                     IngestEvent::File {
                         kind: "connectiondump",
                         file: entry.to_path_buf(),
                     },
                 )
-                .unwrap() }
+                .unwrap()
+            }
             store::append_connectiondump(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
@@ -526,14 +552,16 @@ fn parse_connectiondump_and_persist(
             )?;
         } else {
             let err = parser.unwrap_err();
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:error",
                     IngestEvent::Error {
                         file: Some(entry.to_path_buf()),
                         message: err.to_string(),
                     },
                 )
-                .unwrap() }
+                .unwrap()
+            }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),
@@ -559,26 +587,30 @@ pub fn parse_threaddump_and_persist(
         info!("Parsing and persisting: {:?}", entry.display());
         let parser = ThreadDumpParser::try_from(mmap.deref());
         if let Ok(parser) = parser {
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:file",
                     IngestEvent::File {
                         kind: "threaddump",
                         file: entry.to_path_buf(),
                     },
                 )
-                .unwrap() }
+                .unwrap()
+            }
             store::append_threaddump(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
-                        if let Some(a) = app { a.emit(
+                        if let Some(a) = app {
+                            a.emit(
                                 "ingest:error",
                                 IngestEvent::Error {
                                     file: Some(entry.to_path_buf()),
                                     message: e.to_string(),
                                 },
                             )
-                            .unwrap() }
+                            .unwrap()
+                        }
                         warn!("Error during parsing {:?} due to {}", entry.display(), e);
                         None
                     } else {
@@ -588,14 +620,16 @@ pub fn parse_threaddump_and_persist(
             )?;
         } else {
             let err = parser.unwrap_err();
-            if let Some(a) = app { a.emit(
+            if let Some(a) = app {
+                a.emit(
                     "ingest:error",
                     IngestEvent::Error {
                         file: Some(entry.to_path_buf()),
                         message: err.to_string(),
                     },
                 )
-                .unwrap() }
+                .unwrap()
+            }
             warn!(
                 "Cannot convert bytes of {:?} to UTF8 due to {:?}",
                 entry.display(),

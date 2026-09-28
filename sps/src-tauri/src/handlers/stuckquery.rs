@@ -7,7 +7,7 @@ use crate::handlers::types::{
     BlockingSnapshot, MSSQLLongRunningQuery, MSSQLLongRunningTxn, MSSQLSnapshot,
     PGSQLLongRunningQuery, PGSQLSnapshot,
 };
-use crate::parser::stuckquery::{BlockingQuery, PGSQLQuery, RunningQuery};
+use crate::parser::query::{BlockingQuery, MSSQLQuery, PGSQLQuery};
 use crate::store;
 use crate::types::AppState;
 
@@ -104,7 +104,7 @@ pub async fn stuckquery_pgsql_queries(
 pub async fn stuckquery_mssql_queries(
     timestamp: u64,
     state: State<'_, Mutex<AppState>>,
-) -> Result<Vec<RunningQuery<'static>>, String> {
+) -> Result<Vec<MSSQLQuery<'static>>, String> {
     let cnx = state
         .lock()
         .unwrap()

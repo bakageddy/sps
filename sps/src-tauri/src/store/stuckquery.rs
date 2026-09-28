@@ -8,7 +8,7 @@ use crate::handlers::types::{
     PGSQLLongRunningQuery, PGSQLSnapshot,
 };
 use crate::parser::WaitType;
-use crate::parser::stuckquery::{BlockingQuery, MSSQLStatus, PGSQLQuery, PGSQLState, RunningQuery};
+use crate::parser::query::{BlockingQuery, MSSQLQuery, MSSQLStatus, PGSQLQuery, PGSQLState};
 use crate::store::error::Error;
 use crate::store::tables::Tables;
 
@@ -108,7 +108,7 @@ pub fn get_stuckquery_pgsql_queries<'a>(
 pub fn get_stuckquery_mssql_queries<'a>(
     cnx: &Connection,
     timestamp: u64,
-) -> Result<Vec<RunningQuery<'a>>, Error> {
+) -> Result<Vec<MSSQLQuery<'a>>, Error> {
     let query = format!(
         "SELECT session_id, status, txn_id, blocked_by, wait_type, wait_resource, wait_time_ms, cpu_time_ms, logical_reads, reads, writes, elapsed, statement, command_text, command, login, host, db, program, host_process, last_request_end, login_time, open_txn FROM {0} WHERE {0}.timestamp = $1",
         Tables::StuckqueryMSSQL.into_str()
@@ -122,7 +122,7 @@ pub fn get_stuckquery_mssql_queries<'a>(
         let wait_type = row
             .get::<usize, Option<String>>(4)?
             .map(|s| WaitType::parse(&s));
-        let query = RunningQuery {
+        let query = MSSQLQuery {
             session_id: row.get(0)?,
             status,
             txn_id: row.get(2)?,

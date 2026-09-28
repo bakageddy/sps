@@ -227,7 +227,10 @@ pub mod error {
 pub mod test {
     use std::ops::Deref;
 
-use crate::{parser::runningquery::{RunningQueryParser, error::Error}, util};
+    use crate::{
+        parser::runningquery::{RunningQueryParser, error::Error},
+        util,
+    };
 
     #[test]
     fn test_runningqueries() {
@@ -240,7 +243,11 @@ use crate::{parser::runningquery::{RunningQueryParser, error::Error}, util};
                 continue;
             }
 
-            assert!(result.is_ok(), "Error during parsing: {}", result.unwrap_err());
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
             let table = result.unwrap();
             assert_ne!(table.timestamp, 0);
             // assert_ne!(table.queries.len(), 0);
@@ -257,7 +264,11 @@ use crate::{parser::runningquery::{RunningQueryParser, error::Error}, util};
                 continue;
             }
 
-            assert!(result.is_ok(), "Error during parsing: {}", result.unwrap_err());
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
             let table = result.unwrap();
             assert_ne!(table.timestamp, 0);
             // assert_ne!(table.queries.len(), 0);
@@ -274,7 +285,11 @@ use crate::{parser::runningquery::{RunningQueryParser, error::Error}, util};
                 continue;
             }
 
-            assert!(result.is_ok(), "Error during parsing: {}", result.unwrap_err());
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
             let table = result.unwrap();
             assert_ne!(table.timestamp, 0);
             // assert_ne!(table.queries.len(), 0);
@@ -291,7 +306,11 @@ use crate::{parser::runningquery::{RunningQueryParser, error::Error}, util};
                 continue;
             }
 
-            assert!(result.is_ok(), "Error during parsing: {}", result.unwrap_err());
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
             let table = result.unwrap();
             assert_ne!(table.timestamp, 0);
             // assert_ne!(table.queries.len(), 0);
@@ -308,7 +327,11 @@ use crate::{parser::runningquery::{RunningQueryParser, error::Error}, util};
                 continue;
             }
 
-            assert!(result.is_ok(), "Error during parsing: {}", result.unwrap_err());
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
             let table = result.unwrap();
             assert_ne!(table.timestamp, 0);
             // assert_ne!(table.queries.len(), 0);
@@ -325,7 +348,11 @@ use crate::{parser::runningquery::{RunningQueryParser, error::Error}, util};
                 continue;
             }
 
-            assert!(result.is_ok(), "Error during parsing: {}", result.unwrap_err());
+            assert!(
+                result.is_ok(),
+                "Error during parsing: {}",
+                result.unwrap_err()
+            );
             let table = result.unwrap();
             assert_ne!(table.timestamp, 0);
             // assert_ne!(table.queries.len(), 0);

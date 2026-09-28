@@ -1,5 +1,10 @@
 use crate::{
-    handlers::types::{ThreadDumpPoint, ThreadDumpThread}, parser::threaddump::Element, store::threaddump::{get_thread_points, get_thread_trace, get_threaddump, get_threaddump_summary}, types::AppState,
+    handlers::types::{ThreadDumpPoint, ThreadDumpThread},
+    parser::threaddump::Element,
+    store::threaddump::{
+        get_thread_points, get_thread_trace, get_threaddump, get_threaddump_summary,
+    },
+    types::AppState,
 };
 use std::{ops::Deref, sync::Mutex};
 use tauri::command;
