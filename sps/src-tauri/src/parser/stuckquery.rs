@@ -28,6 +28,210 @@ const STUCKQUERY_STATE_CHANGE_FORMAT: &[BorrowedFormatItem] = format_description
 const STUCKQUERY_LOGIN_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]");
 
+pub mod refactor {
+
+    use self::error::Error;
+    use crate::parser::query::BlockingQuery;
+    use crate::parser::query::MSSQLQuery;
+    use crate::parser::query::PGSQLQuery;
+    use crate::parser::tokenizer::Tokenizer;
+    use time::format_description::BorrowedFormatItem;
+    use time::macros::format_description;
+    use crate::util;
+
+    const STUCKQUERY_TIME_FORMAT: &[BorrowedFormatItem] =
+        format_description!("[hour]:[minute]:[second].[subsecond]");
+    const STUCKQUERY_DATE_FORMAT: &[BorrowedFormatItem] = format_description!("[day]-[month]-[year]");
+
+    #[derive(Debug)]
+    pub struct StuckQueryParser<'a>(&'a str, ParserState);
+
+    #[derive(Debug)]
+    enum ParserState {
+        Initial,
+        Header,
+        QueryTable,
+    }
+
+    impl<'a> StuckQueryParser<'a> {
+        pub fn new(data: &'a str) -> Self {
+            Self(data, ParserState::Initial)
+        }
+
+        pub fn parse_header(data: &'a str) -> Result<u64, Error> {
+
+            let mut tok = Tokenizer::new(data);
+            let time = tok.take_within("[", "]")?;
+            let date = tok.take_within("[", "]")?;
+
+            let timestamp = util::unix_timestamp_millis(
+                time,
+                date,
+                STUCKQUERY_TIME_FORMAT,
+                STUCKQUERY_DATE_FORMAT,
+            )?;
+
+            Ok(timestamp)
+        }
+
+    }
+
+    impl<'a> Iterator for StuckQueryParser<'a> {
+        type Item = Result<StuckQueryTable<'a>, Error>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let mut tok = Tokenizer::new(self.0);
+            tok.skip_whitespace();
+            if tok.is_empty() {
+                return None;
+            }
+
+            self.1 = ParserState::Initial;
+            while let Some(line) = tok.peek_line() {
+                if line.trim_start().starts_with("[") && line.trim_end().ends_with("::") {
+                    self.1 = ParserState::Header;
+                    break;
+                }
+                let _ = tok.get_line()?;
+            }
+
+            if let ParserState::Initial = self.1 {
+                return None;
+            }
+
+            let header = tok.get_line()?;
+            let timestamp = Self::parse_header(header);
+            if let Err(e) = timestamp {
+                self.0 = tok.remaining();
+                return Some(Err(e));
+            }
+            let timestamp = timestamp.unwrap();
+
+            tok.skip_whitespace();
+            if tok.is_empty() {
+                return None;
+            }
+
+            if !tok.peek("|") {
+                self.0 = tok.remaining();
+                return Some(Err(Error::TableNotFound));
+            }
+
+            self.1 = ParserState::QueryTable;
+            let mut queries = Vec::new();
+            loop {
+                let mut table_header = Vec::new();
+                let mut table_header_count = 0;
+                while let Some(line) = tok.peek_line() {
+                    if table_header_count == 5 {
+                        break;
+                    }
+
+                    if line.trim_start().starts_with("|") {
+                        table_header.push(line);
+                        table_header_count += 1;
+                        let _ = tok.get_line()?;
+                    } else {
+                        break;
+                    }
+                }
+
+                if table_header.len() != 5 {
+                    self.0 = tok.remaining();
+                    return Some(Err(Error::MalformedTableHeader));
+                }
+
+                let table_kind = if let Some(kind) = TableKind::detect_table(&table_header) {
+                    kind
+                } else {
+                    self.0 = tok.remaining();
+                    return Some(Err(Error::UnableToDetectTableKind));
+                };
+
+                while let Some(line) = tok.peek_line() {
+                    if !line.trim_start().starts_with("|") {
+                        break;
+                    }
+
+                    match table_kind {
+                        TableKind::PGSQLRunningQuery => match PGSQLQuery::parse(line) {
+                            Ok(query) => queries.push(RunningQuery::PGSQL(query)),
+                            Err(e) => {
+                                self.0 = tok.remaining();
+                                return Some(Err(Error::from(e)));
+                            }
+                        },
+                        TableKind::MSSQLRunningQuery => match MSSQLQuery::parse(line) {
+                            Ok(query) => queries.push(RunningQuery::MSSQL(query)),
+                            Err(e) => {
+                                self.0 = tok.remaining();
+                                return Some(Err(Error::from(e)));
+                            }
+                        },
+                        TableKind::MSSQLBlockingQuery => match BlockingQuery::parse(line) {
+                            Ok(query) => queries.push(RunningQuery::Blocking(query)),
+                            Err(e) => {
+                                self.0 = tok.remaining();
+                                return Some(Err(Error::from(e)));
+                            }
+                        },
+
+                        TableKind::MSSQLSPWho2 => match SPWho2Query::parse(line) {
+                            Ok(query) => queries.push(RunningQuery::SPWho2(query)),
+                            Err(e) => {
+                                self.0 = tok.remaining();
+                                return Some(Err(Error::from(e)));
+                            }
+                        },
+                    }
+
+                    let _ = tok.get_line()?;
+                }
+
+                if let TableKind::MSSQLRunningQuery = table_kind {
+                    tok.skip_whitespace();
+                    continue;
+                } else {
+                    break;
+                }
+            }
+
+            self.0 = tok.remaining();
+            Some(Ok(StuckQueryTable { timestamp, queries }))
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct StuckQueryTable<'a> {
+        pub timestamp: u64,
+        pub queries: Vec<StuckQuery<'a>>,
+    }
+
+    #[derive(Debug)]
+    pub enum StuckQuery<'a> {
+        PGSQL(PGSQLQuery<'a>),
+        MSSQL(MSSQLQuery<'a>),
+        Blocking(BlockingQuery<'a>),
+    }
+
+    pub mod error {
+        use crate::parser::tokenizer;
+        use crate::types::TimestampError;
+
+        #[derive(Debug, thiserror::Error)]
+        pub enum Error {
+            #[error("Invalid Format in parsing: {0}")]
+            InvalidFormat(#[from] tokenizer::error::Error),
+
+            #[error("Invalid Timestamp in parsing: {0}")]
+            Timestamp(#[from] TimestampError),
+
+            #[error("Table not found")]
+            TableNotFound,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct StuckqueryParser<'a>(&'a str, ParserState);
 impl<'a> StuckqueryParser<'a> {

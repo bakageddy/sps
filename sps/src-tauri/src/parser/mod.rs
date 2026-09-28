@@ -1,9 +1,15 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
+
+use crate::parser::tokenizer::Tokenizer;
 
 pub mod connectiondump;
 pub mod cpumemstats;
 pub mod cpumonitoring;
 pub mod error;
+pub mod query;
+pub mod runningquery;
 pub mod stuckquery;
 pub mod stuckthread;
 pub mod threaddump;
@@ -12,6 +18,54 @@ pub mod tokenizer;
 pub enum DBKind {
     PGSQL,
     MSSQL,
+}
+
+pub enum TableKind {
+    PGSQLRunningQuery,
+    MSSQLRunningQuery,
+    MSSQLBlockingQuery,
+    MSSQLSPWho2,
+}
+
+impl TableKind {
+    pub fn detect_kind(table_header_lines: &[&str]) -> Option<DBKind> {
+        let table_column_names = table_header_lines.get(table_header_lines.len() - 2)?;
+        let mut tok = Tokenizer::new(table_column_names);
+        let mut columns = HashSet::new();
+        while let Ok(column_name) = tok.take_within_exclusive("|", "|") {
+            columns.insert(column_name.trim());
+        }
+
+        if columns.contains("pid") {
+            Some(DBKind::PGSQL)
+        } else if columns.contains("Session ID")
+            || columns.contains("Logical Reads")
+            || columns.contains("SPID")
+        {
+            Some(DBKind::MSSQL)
+        } else {
+            None
+        }
+    }
+
+    pub fn table_name<'table>(table_header_lines: &[&'table str]) -> Option<&'table str> {
+        let table_name = table_header_lines.get(1)?;
+        let mut tok = Tokenizer::new(table_name);
+        tok.skip_whitespace();
+        tok.take_within("|", "|").ok().map(|s| s.trim())
+    }
+
+    pub fn detect_table(table_header_lines: &[&str]) -> Option<TableKind> {
+        let kind = Self::detect_kind(table_header_lines)?;
+        let name = Self::table_name(table_header_lines)?;
+        match (kind, name) {
+            (DBKind::PGSQL, "Currently Running Queries") => Some(Self::PGSQLRunningQuery),
+            (DBKind::MSSQL, "Currently Running Queries") => Some(Self::MSSQLRunningQuery),
+            (DBKind::MSSQL, "Currently Blocking Query Details") => Some(Self::MSSQLBlockingQuery),
+            (DBKind::MSSQL, "sp Who2") => Some(Self::MSSQLSPWho2),
+            _ => None,
+        }
+    }
 }
 
 /// SQL Server wait types (sys.dm_os_wait_stats), generated from the
