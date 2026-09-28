@@ -11,6 +11,10 @@ pub enum Tables {
     StuckqueryPGSQL,
     StuckqueryMSSQL,
     StuckqueryBlockingMSSQL,
+    RunningQueryPGSQL,
+    RunningQueryMSSQL,
+    RunningQueryBlockingMSSQL,
+    RunningQuerySPWho2,
     ConnectionDump,
     ConnectionDumpTraces,
     Threaddump,
@@ -19,7 +23,7 @@ pub enum Tables {
 }
 
 impl Tables {
-    pub fn into_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::CPUMonitoringStackTraces => "cpumonitoring_stacktraces",
             Self::CPUMonitoring => "cpumonitoring",
@@ -36,12 +40,16 @@ impl Tables {
             Self::Threaddump => "threaddump",
             Self::ThreaddumpTraces => "threaddump_traces",
             Self::ThreaddumpThreads => "threaddump_threads",
+            Self::RunningQueryPGSQL => "runningquery_pgsql",
+            Self::RunningQueryMSSQL => "runningquery_mssql",
+            Self::RunningQueryBlockingMSSQL => "runningquery_mssql_blocking",
+            Self::RunningQuerySPWho2 => "runningquery_mssql_spwho2",
         }
     }
 }
 
 impl Display for Tables {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.into_str())
+        f.write_str(self.as_str())
     }
 }

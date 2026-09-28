@@ -18,6 +18,7 @@ use crate::{
         connectiondump::{ConnectionDumpEntry, Signal, Stats, TraceDump},
         cpumemstats::StatTable,
         cpumonitoring::CPUMonitoring,
+        runningquery::{RunningQuery, RunningQueryTable},
         stuckquery::{StuckQuery, StuckQueryTable},
         stuckthread::Stuckthread,
         threaddump::{
@@ -70,25 +71,30 @@ impl Clone for Store {
 
 pub fn flush_results(store: Store) -> Result<(), store::error::Error> {
     let cnx = store.get()?;
-    let mut cpumonitoring = cnx.appender_to_db(Tables::CPUMonitoring.into_str(), "main")?;
+    let mut cpumonitoring = cnx.appender_to_db(Tables::CPUMonitoring.as_str(), "main")?;
     let mut cpumonitoring_traces =
-        cnx.appender_to_db(Tables::CPUMonitoringStackTraces.into_str(), "main")?;
-    let mut linux_stat = cnx.appender_to_db(Tables::LinuxStats.into_str(), "main")?;
-    let mut windows_cpu = cnx.appender_to_db(Tables::WindowsCPUStats.into_str(), "main")?;
-    let mut windows_mem = cnx.appender_to_db(Tables::WindowsMemoryStats.into_str(), "main")?;
-    let mut stuckthread = cnx.appender_to_db(Tables::Stuckthread.into_str(), "main")?;
-    let mut stuckthread_traces =
-        cnx.appender_to_db(Tables::StuckthreadTraces.into_str(), "main")?;
+        cnx.appender_to_db(Tables::CPUMonitoringStackTraces.as_str(), "main")?;
+    let mut linux_stat = cnx.appender_to_db(Tables::LinuxStats.as_str(), "main")?;
+    let mut windows_cpu = cnx.appender_to_db(Tables::WindowsCPUStats.as_str(), "main")?;
+    let mut windows_mem = cnx.appender_to_db(Tables::WindowsMemoryStats.as_str(), "main")?;
+    let mut stuckthread = cnx.appender_to_db(Tables::Stuckthread.as_str(), "main")?;
+    let mut stuckthread_traces = cnx.appender_to_db(Tables::StuckthreadTraces.as_str(), "main")?;
 
-    let mut pgsql_appender = cnx.appender_to_db(Tables::StuckqueryPGSQL.into_str(), "main")?;
-    let mut mssql_appender = cnx.appender_to_db(Tables::StuckqueryMSSQL.into_str(), "main")?;
+    let mut pgsql_appender = cnx.appender_to_db(Tables::StuckqueryPGSQL.as_str(), "main")?;
+    let mut mssql_appender = cnx.appender_to_db(Tables::StuckqueryMSSQL.as_str(), "main")?;
     let mut block_appender =
-        cnx.appender_to_db(Tables::StuckqueryBlockingMSSQL.into_str(), "main")?;
-    let mut cd = cnx.appender_to_db(Tables::ConnectionDump.into_str(), "main")?;
-    let mut cd_traces = cnx.appender_to_db(Tables::ConnectionDumpTraces.into_str(), "main")?;
-    let mut threaddump = cnx.appender_to_db(Tables::Threaddump.into_str(), "main")?;
-    let mut threads = cnx.appender_to_db(Tables::ThreaddumpThreads.into_str(), "main")?;
-    let mut thread_traces = cnx.appender_to_db(Tables::ThreaddumpTraces.into_str(), "main")?;
+        cnx.appender_to_db(Tables::StuckqueryBlockingMSSQL.as_str(), "main")?;
+    let mut cd = cnx.appender_to_db(Tables::ConnectionDump.as_str(), "main")?;
+    let mut cd_traces = cnx.appender_to_db(Tables::ConnectionDumpTraces.as_str(), "main")?;
+    let mut threaddump = cnx.appender_to_db(Tables::Threaddump.as_str(), "main")?;
+    let mut threads = cnx.appender_to_db(Tables::ThreaddumpThreads.as_str(), "main")?;
+    let mut thread_traces = cnx.appender_to_db(Tables::ThreaddumpTraces.as_str(), "main")?;
+    let mut runningquery_pgsql = cnx.appender_to_db(Tables::RunningQueryPGSQL.as_str(), "main")?;
+    let mut runningquery_mssql = cnx.appender_to_db(Tables::RunningQueryMSSQL.as_str(), "main")?;
+    let mut runningquery_mssql_blocking =
+        cnx.appender_to_db(Tables::RunningQueryBlockingMSSQL.as_str(), "main")?;
+    let mut runningquery_spwho2 =
+        cnx.appender_to_db(Tables::RunningQuerySPWho2.as_str(), "main")?;
 
     cpumonitoring.flush()?;
     cpumonitoring_traces.flush()?;
@@ -100,6 +106,10 @@ pub fn flush_results(store: Store) -> Result<(), store::error::Error> {
     pgsql_appender.flush()?;
     mssql_appender.flush()?;
     block_appender.flush()?;
+    runningquery_pgsql.flush()?;
+    runningquery_mssql.flush()?;
+    runningquery_mssql_blocking.flush()?;
+    runningquery_spwho2.flush()?;
     cd.flush()?;
     cd_traces.flush()?;
     threaddump.flush()?;
@@ -112,9 +122,9 @@ pub fn append_cpumonitoring<'a>(
     cnx: &Connection,
     iter: impl Iterator<Item = CPUMonitoring<'a>>,
 ) -> Result<(), store::error::Error> {
-    let mut cpu_appender = cnx.appender_to_db(Tables::CPUMonitoring.into_str(), "main")?;
+    let mut cpu_appender = cnx.appender_to_db(Tables::CPUMonitoring.as_str(), "main")?;
     let mut trace_appender =
-        cnx.appender_to_db(Tables::CPUMonitoringStackTraces.into_str(), "main")?;
+        cnx.appender_to_db(Tables::CPUMonitoringStackTraces.as_str(), "main")?;
     for item in iter {
         cpu_appender.append_row((
             item.tid,
@@ -144,9 +154,9 @@ pub fn append_cpumemstats<'a>(
     cnx: &Connection,
     iter: impl Iterator<Item = StatTable<'a>>,
 ) -> Result<(), store::error::Error> {
-    let mut linux_stat = cnx.appender_to_db(Tables::LinuxStats.into_str(), "main")?;
-    let mut windows_cpu = cnx.appender_to_db(Tables::WindowsCPUStats.into_str(), "main")?;
-    let mut windows_mem = cnx.appender_to_db(Tables::WindowsMemoryStats.into_str(), "main")?;
+    let mut linux_stat = cnx.appender_to_db(Tables::LinuxStats.as_str(), "main")?;
+    let mut windows_cpu = cnx.appender_to_db(Tables::WindowsCPUStats.as_str(), "main")?;
+    let mut windows_mem = cnx.appender_to_db(Tables::WindowsMemoryStats.as_str(), "main")?;
 
     for table in iter {
         match table {
@@ -197,8 +207,8 @@ pub fn append_stuckthread<'a>(
     cnx: &Connection,
     iter: impl Iterator<Item = Stuckthread<'a>>,
 ) -> Result<(), store::error::Error> {
-    let mut appender = cnx.appender_to_db(Tables::Stuckthread.into_str(), "main")?;
-    let mut traces_appender = cnx.appender_to_db(Tables::StuckthreadTraces.into_str(), "main")?;
+    let mut appender = cnx.appender_to_db(Tables::Stuckthread.as_str(), "main")?;
+    let mut traces_appender = cnx.appender_to_db(Tables::StuckthreadTraces.as_str(), "main")?;
     for event in iter {
         let (timestamp, tid, duration, name, request, active) = match event {
             Stuckthread::Begin {
@@ -232,10 +242,10 @@ pub fn append_stuckqueries<'a>(
     cnx: &Connection,
     iter: impl Iterator<Item = StuckQueryTable<'a>>,
 ) -> Result<(), store::error::Error> {
-    let mut pgsql_appender = cnx.appender_to_db(Tables::StuckqueryPGSQL.into_str(), "main")?;
-    let mut mssql_appender = cnx.appender_to_db(Tables::StuckqueryMSSQL.into_str(), "main")?;
+    let mut pgsql_appender = cnx.appender_to_db(Tables::StuckqueryPGSQL.as_str(), "main")?;
+    let mut mssql_appender = cnx.appender_to_db(Tables::StuckqueryMSSQL.as_str(), "main")?;
     let mut block_appender =
-        cnx.appender_to_db(Tables::StuckqueryBlockingMSSQL.into_str(), "main")?;
+        cnx.appender_to_db(Tables::StuckqueryBlockingMSSQL.as_str(), "main")?;
     for result in iter {
         for query in result.queries {
             match query {
@@ -309,13 +319,111 @@ pub fn append_stuckqueries<'a>(
     Ok(())
 }
 
+pub fn append_runningqueries<'a>(
+    cnx: &Connection,
+    iter: impl Iterator<Item = RunningQueryTable<'a>>,
+) -> Result<(), store::error::Error> {
+    let mut pgsql_appender = cnx.appender_to_db(Tables::RunningQueryPGSQL.as_str(), "main")?;
+    let mut mssql_appender = cnx.appender_to_db(Tables::RunningQueryMSSQL.as_str(), "main")?;
+    let mut block_appender =
+        cnx.appender_to_db(Tables::RunningQueryBlockingMSSQL.as_str(), "main")?;
+    let mut spwho2_appender = cnx.appender_to_db(Tables::RunningQuerySPWho2.as_str(), "main")?;
+    for result in iter {
+        for query in result.queries {
+            match query {
+                RunningQuery::PGSQL(pgsql) => {
+                    pgsql_appender.append_row((
+                        result.timestamp,
+                        pgsql.pid,
+                        pgsql.query_time,
+                        pgsql.txn_time,
+                        pgsql.db_name,
+                        pgsql.state.as_str(),
+                        pgsql.waiting,
+                        pgsql.query,
+                        pgsql.state_change,
+                        pgsql.application_name,
+                        pgsql.client_addr,
+                        pgsql.client_host,
+                        pgsql.client_port,
+                    ))?;
+                }
+                RunningQuery::MSSQL(mssql) => {
+                    mssql_appender.append_row(params![
+                        result.timestamp,
+                        mssql.session_id,
+                        mssql.status.as_str(),
+                        mssql.txn_id,
+                        mssql.blocked_by,
+                        mssql.wait_type.map(|w| w.as_str()),
+                        mssql.wait_resource,
+                        mssql.wait_time_ms,
+                        mssql.cpu_time_ms,
+                        mssql.logical_reads,
+                        mssql.reads,
+                        mssql.writes,
+                        mssql.elapsed,
+                        mssql.statement,
+                        mssql.command_text,
+                        mssql.command,
+                        mssql.login,
+                        mssql.host,
+                        mssql.db,
+                        mssql.program,
+                        mssql.host_process,
+                        mssql.last_request_end,
+                        mssql.login_time,
+                        mssql.open_txn
+                    ])?;
+                }
+                RunningQuery::Blocking(block) => {
+                    block_appender.append_row((
+                        result.timestamp,
+                        block.head_blocker,
+                        block.session_id,
+                        block.txn_id,
+                        block.blocking_session_id,
+                        block.wait_type.map(|w| w.as_str()),
+                        block.wait_duration,
+                        block.wait_resource,
+                        block.statement_start_offset,
+                        block.statement_end_offset,
+                        block.plan_handle,
+                        block.sql_handle,
+                        block.most_recent_sql_handle,
+                        block.level,
+                        block.blocker_query_or_most_recent_query,
+                    ))?;
+                }
+                RunningQuery::SPWho2(spwho2) => {
+                    spwho2_appender.append_row((
+                        result.timestamp,
+                        spwho2.spid,
+                        spwho2.status.as_str(),
+                        spwho2.login,
+                        spwho2.hostname,
+                        spwho2.blocked_by,
+                        spwho2.dbname,
+                        spwho2.command,
+                        spwho2.cputime,
+                        spwho2.diskio,
+                        spwho2.lastbatch,
+                        spwho2.program_name,
+                        spwho2.request_id,
+                    ))?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn append_connectiondump<'a>(
     cnx: &Connection,
     iter: impl Iterator<Item = ConnectionDumpEntry<'a>>,
 ) -> Result<(), store::error::Error> {
-    let mut appender = cnx.appender_to_db(Tables::ConnectionDump.into_str(), "main")?;
-    let mut traces_appender =
-        cnx.appender_to_db(Tables::ConnectionDumpTraces.into_str(), "main")?;
+    let mut appender = cnx.appender_to_db(Tables::ConnectionDump.as_str(), "main")?;
+    let mut traces_appender = cnx.appender_to_db(Tables::ConnectionDumpTraces.as_str(), "main")?;
 
     for entry in iter {
         match entry {
@@ -388,9 +496,9 @@ pub fn append_threaddump<'a>(
     cnx: &Connection,
     iter: impl Iterator<Item = ThreadDump<'a>>,
 ) -> Result<(), store::error::Error> {
-    let mut threaddump = cnx.appender_to_db(Tables::Threaddump.into_str(), "main")?;
-    let mut threads = cnx.appender_to_db(Tables::ThreaddumpThreads.into_str(), "main")?;
-    let mut traces = cnx.appender_to_db(Tables::ThreaddumpTraces.into_str(), "main")?;
+    let mut threaddump = cnx.appender_to_db(Tables::Threaddump.as_str(), "main")?;
+    let mut threads = cnx.appender_to_db(Tables::ThreaddumpThreads.as_str(), "main")?;
+    let mut traces = cnx.appender_to_db(Tables::ThreaddumpTraces.as_str(), "main")?;
 
     for dump in iter {
         threaddump.append_row([dump.timestamp])?;

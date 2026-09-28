@@ -10,6 +10,7 @@ pub struct LogFiles {
     pub cpumemstats: Vec<PathBuf>,
     pub stuckthreads: Vec<PathBuf>,
     pub stuckqueries: Vec<PathBuf>,
+    pub runningqueries: Vec<PathBuf>,
     pub connectiondump: Vec<PathBuf>,
     pub threaddump: Vec<PathBuf>,
 }

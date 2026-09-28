@@ -8,9 +8,9 @@ use crate::{
 pub fn get_cpu_memory_summary(cnx: &Connection) -> Result<Vec<CPUMemoryDumpSummary>, Error> {
     let query = format!(
         "(SELECT {0}.timestamp, MAX({0}.total) AS TotalCPU, MAX({1}.total) AS TotalMemory FROM {0} INNER JOIN {1} ON {0}.timestamp = {1}.timestamp GROUP BY {0}.timestamp ORDER BY {0}.timestamp) UNION ALL (SELECT timestamp, MAX({2}.total_cpu) AS TotalCPU, MAX({2}.total_mem) AS TotalMemory FROM {2} GROUP BY timestamp ORDER BY timestamp)",
-        Tables::WindowsCPUStats.into_str(),
-        Tables::WindowsMemoryStats.into_str(),
-        Tables::LinuxStats.into_str(),
+        Tables::WindowsCPUStats.as_str(),
+        Tables::WindowsMemoryStats.as_str(),
+        Tables::LinuxStats.as_str(),
     );
 
     let mut stmt = cnx.prepare_cached(&query)?;
@@ -31,8 +31,8 @@ pub fn get_cpu_memory_summary(cnx: &Connection) -> Result<Vec<CPUMemoryDumpSumma
 pub fn get_cpu_processes(cnx: &Connection, timestamp: u64) -> Result<Vec<ProcessUsage>, Error> {
     let query = format!(
         "(SELECT {0}.pid as pid, {0}.name as name, coalesce(null) as user, {0}.cpu as cpu, {0}.path as path FROM {0} WHERE {0}.timestamp = $1) UNION ALL (SELECT {1}.pid as pid, {1}.name as name, {1}.user as user, {1}.cpu as cpu, {1}.path FROM {1} WHERE {1}.timestamp = $1)",
-        Tables::WindowsCPUStats.into_str(),
-        Tables::LinuxStats.into_str()
+        Tables::WindowsCPUStats.as_str(),
+        Tables::LinuxStats.as_str()
     );
 
     let mut stmt = cnx.prepare_cached(&query)?;
@@ -54,8 +54,8 @@ pub fn get_cpu_processes(cnx: &Connection, timestamp: u64) -> Result<Vec<Process
 pub fn get_mem_processes(cnx: &Connection, timestamp: u64) -> Result<Vec<ProcessUsage>, Error> {
     let query = format!(
         "(SELECT {0}.pid as pid, {0}.name as name, coalesce(null) as user, {0}.mem as mem, {0}.path as path FROM {0} WHERE {0}.timestamp = $1) UNION ALL (SELECT {1}.pid as pid, {1}.name as name, {1}.user as user, {1}.mem as mem, {1}.path FROM {1} WHERE {1}.timestamp = $1)",
-        Tables::WindowsMemoryStats.into_str(),
-        Tables::LinuxStats.into_str()
+        Tables::WindowsMemoryStats.as_str(),
+        Tables::LinuxStats.as_str()
     );
 
     let mut stmt = cnx.prepare_cached(&query)?;
@@ -77,13 +77,13 @@ pub fn get_mem_processes(cnx: &Connection, timestamp: u64) -> Result<Vec<Process
 pub fn get_cpumem_series(cnx: &Connection, pid: u64) -> Result<ProcessSeries, Error> {
     let cpu_series_query = format!(
         "(SELECT {0}.timestamp, {0}.cpu FROM {0} WHERE {0}.pid = $1 ORDER BY {0}.timestamp) UNION ALL (SELECT {1}.timestamp, {1}.cpu FROM {1} WHERE {1}.pid = $1 ORDER BY {1}.timestamp)",
-        Tables::WindowsCPUStats.into_str(),
-        Tables::LinuxStats.into_str(),
+        Tables::WindowsCPUStats.as_str(),
+        Tables::LinuxStats.as_str(),
     );
     let mem_series_query = format!(
         "(SELECT {0}.timestamp, {0}.mem FROM {0} WHERE {0}.pid = $1 ORDER BY {0}.timestamp) UNION ALL (SELECT {1}.timestamp, {1}.mem FROM {1} WHERE {1}.pid = $1 ORDER BY {1}.timestamp)",
-        Tables::WindowsMemoryStats.into_str(),
-        Tables::LinuxStats.into_str(),
+        Tables::WindowsMemoryStats.as_str(),
+        Tables::LinuxStats.as_str(),
     );
 
     let mut cpu_stmt = cnx.prepare_cached(&cpu_series_query)?;
@@ -121,14 +121,14 @@ pub fn get_cpumem_path_series(
 ) -> Result<ProcessSeries, Error> {
     let cpu_query = format!(
         "(SELECT {0}.timestamp, SUM({0}.cpu) FROM {0} WHERE {0}.path = $1 OR {0}.name = $2 GROUP BY {0}.path, {0}.name, {0}.timestamp ORDER BY {0}.timestamp ) UNION ALL (SELECT {1}.timestamp, SUM({1}.cpu) FROM {1} WHERE {1}.path = $1 OR {1}.name = $2 GROUP BY {1}.path, {1}.name, {1}.timestamp ORDER BY {1}.timestamp)",
-        Tables::WindowsCPUStats.into_str(),
-        Tables::LinuxStats.into_str()
+        Tables::WindowsCPUStats.as_str(),
+        Tables::LinuxStats.as_str()
     );
 
     let mem_query = format!(
         "(SELECT {0}.timestamp, SUM({0}.mem) FROM {0} WHERE {0}.path = $1 OR {0}.name = $2 GROUP BY {0}.path, {0}.name, {0}.timestamp ORDER BY {0}.timestamp ) UNION ALL (SELECT {1}.timestamp, SUM({1}.mem) FROM {1} WHERE {1}.path = $1 OR {1}.name = $2 GROUP BY {1}.path, {1}.name, {1}.timestamp ORDER BY {1}.timestamp)",
-        Tables::WindowsMemoryStats.into_str(),
-        Tables::LinuxStats.into_str()
+        Tables::WindowsMemoryStats.as_str(),
+        Tables::LinuxStats.as_str()
     );
 
     let mut cpu_stmt = cnx.prepare_cached(&cpu_query)?;
@@ -162,8 +162,8 @@ pub fn get_cpumem_path_series(
 pub fn get_cpumem_cpu_total_series(cnx: &Connection) -> Result<Vec<CPUMemoryPoint>, Error> {
     let query = format!(
         "(SELECT {0}.timestamp, {0}.total AS TotalCPU FROM {0} GROUP BY {0}.timestamp, {0}.total ORDER BY {0}.timestamp) UNION ALL (SELECT {1}.timestamp, {1}.total_cpu AS TotalCPU FROM {1} GROUP BY {1}.timestamp, {1}.total_cpu ORDER BY {1}.timestamp)",
-        Tables::WindowsCPUStats.into_str(),
-        Tables::LinuxStats.into_str()
+        Tables::WindowsCPUStats.as_str(),
+        Tables::LinuxStats.as_str()
     );
 
     let mut stmt = cnx.prepare_cached(&query)?;
@@ -182,8 +182,8 @@ pub fn get_cpumem_cpu_total_series(cnx: &Connection) -> Result<Vec<CPUMemoryPoin
 pub fn get_cpumem_mem_total_series(cnx: &Connection) -> Result<Vec<CPUMemoryPoint>, Error> {
     let query = format!(
         "(SELECT {0}.timestamp, {0}.total AS TotalCPU FROM {0} GROUP BY {0}.timestamp, {0}.total ORDER BY {0}.timestamp) UNION ALL (SELECT {1}.timestamp, {1}.total_mem AS TotalCPU FROM {1} GROUP BY {1}.timestamp, {1}.total_mem ORDER BY {1}.timestamp)",
-        Tables::WindowsMemoryStats.into_str(),
-        Tables::LinuxStats.into_str()
+        Tables::WindowsMemoryStats.as_str(),
+        Tables::LinuxStats.as_str()
     );
 
     let mut stmt = cnx.prepare_cached(&query)?;

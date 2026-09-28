@@ -13,7 +13,7 @@ pub fn get_stackframes(
 ) -> Result<Option<Vec<Frame>>, Error> {
     let query = format!(
         "SELECT method, source FROM {} WHERE tid=$1 AND timestamp=$2",
-        Tables::CPUMonitoringStackTraces.into_str()
+        Tables::CPUMonitoringStackTraces.as_str()
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut result = stmt.query([tid, timestamp])?;
@@ -36,7 +36,7 @@ pub fn get_stackframes(
 pub fn get_cpu_dumps(cnx: &Connection) -> Result<Vec<DumpSummary>, Error> {
     let query = format!(
         "SELECT timestamp, COUNT(DISTINCT tid), MAX(cpu), SUM(cpu) FROM {} GROUP BY timestamp ORDER BY timestamp",
-        Tables::CPUMonitoring.into_str()
+        Tables::CPUMonitoring.as_str()
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut result = stmt.query([])?;
@@ -56,7 +56,7 @@ pub fn get_cpu_dumps(cnx: &Connection) -> Result<Vec<DumpSummary>, Error> {
 pub fn get_cpu_dump_threads(cnx: &Connection, timestamp: u64) -> Result<Vec<CPUThread>, Error> {
     let query = format!(
         "SELECT tid, name, state, cpu FROM {} WHERE timestamp = $1",
-        Tables::CPUMonitoring.into_str()
+        Tables::CPUMonitoring.as_str()
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut result = stmt.query([timestamp])?;
@@ -77,7 +77,7 @@ pub fn get_cpu_dump_threads(cnx: &Connection, timestamp: u64) -> Result<Vec<CPUT
 pub fn get_cpu_series(cnx: &Connection, tid: u64) -> Result<Vec<CPUPoint>, Error> {
     let query = format!(
         "SELECT cpu, timestamp FROM {} WHERE tid = $1 ORDER BY timestamp",
-        Tables::CPUMonitoring.into_str()
+        Tables::CPUMonitoring.as_str()
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut result = stmt.query([tid])?;

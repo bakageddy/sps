@@ -17,7 +17,7 @@ pub fn get_stuckthread_aggregates(
 ) -> Result<Vec<AggregatedStuckthread>, Error> {
     let query = format!(
         "SELECT {0}.timestamp, {0}.tid, {0}.duration, {0}.name, {0}.request, {0}.active FROM {0} WHERE timestamp BETWEEN $1 AND $2 ORDER BY timestamp",
-        Tables::Stuckthread.into_str()
+        Tables::Stuckthread.as_str()
     );
 
     let from = from.unwrap_or(0);
@@ -99,7 +99,7 @@ pub fn get_stuckthread_trace<'a>(
 ) -> Result<Vec<Frame<'a>>, Error> {
     let query = format!(
         "SELECT {0}.method, {0}.source FROM {0} WHERE {0}.tid = $1 AND {0}.timestamp = $2 ORDER BY {0}.idx",
-        Tables::StuckthreadTraces.into_str()
+        Tables::StuckthreadTraces.as_str()
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut rows = stmt.query([tid, timestamp])?;

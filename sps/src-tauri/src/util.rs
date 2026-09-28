@@ -1,6 +1,6 @@
 use memmap2::Mmap;
 
-use crate::handlers::types::IngestEvent;
+use crate::{handlers::types::IngestEvent, parser::runningquery::RunningQueryParser};
 #[cfg(unix)]
 use memmap2::Advice;
 use std::{
@@ -123,11 +123,13 @@ where
     let stuckqueries = get_files_reverse_sort(&root, "stuckqueries", ".txt")?;
     let connectiondump = get_files_reverse_sort(&root, "cd", ".txt")?;
     let threaddump = get_files_reverse_sort(&root, "threaddump", ".txt")?;
+    let runningqueries = get_files_reverse_sort(&root, "runningqueries", ".txt")?;
     Ok(LogFiles {
         cpumonitoring,
         cpumemstats,
         stuckthreads,
         stuckqueries,
+        runningqueries,
         connectiondump,
         threaddump,
     })
@@ -143,6 +145,7 @@ where
         cpumemstats,
         stuckthreads,
         stuckqueries,
+        runningqueries,
         connectiondump,
     } = get_files(root)?;
     std::thread::scope(|s| {
@@ -213,14 +216,22 @@ where
         });
 
         let _ = s.spawn(|| -> Result<()> {
+            let result = parse_runningqueries_and_persist(&runningqueries, store.clone(), app);
+            if let Err(ref e) = result {
+                warn!("Error during parsing/persisting: {e}");
+            }
+            result
+        });
+
+        let _ = s.spawn(|| -> Result<()> {
             let result = parse_connectiondump_and_persist(&connectiondump, store.clone(), app);
             if let Err(ref e) = result {
                 warn!("Error during parsing/persisting: {e}");
             }
             result
         });
+
         // TODO:
-        // let _running_queries
         // let _query_monitoring
         // let _pgsql_log
         // let _access_log
@@ -258,6 +269,74 @@ fn parse_stuckqueries_and_persist(
                 .unwrap()
             }
             store::append_stuckqueries(
+                &cnx,
+                parser.into_iter().flat_map(|item| {
+                    if let Err(e) = item {
+                        if let Some(a) = app {
+                            a.emit(
+                                "ingest:error",
+                                IngestEvent::Error {
+                                    file: Some(entry.to_path_buf()),
+                                    message: e.to_string(),
+                                },
+                            )
+                            .unwrap()
+                        }
+                        warn!("Error during parsing {:?} due to {}", entry.display(), e);
+                        None
+                    } else {
+                        item.ok()
+                    }
+                }),
+            )?;
+        } else {
+            let err = result.unwrap_err();
+            if let Some(a) = app {
+                a.emit(
+                    "ingest:error",
+                    IngestEvent::Error {
+                        file: Some(entry.to_path_buf()),
+                        message: err.to_string(),
+                    },
+                )
+                .unwrap()
+            }
+            warn!(
+                "Cannot convert bytes of {:?} to UTF8 due to {:?}",
+                entry.display(),
+                err
+            );
+            continue;
+        }
+    }
+    Ok(())
+}
+
+pub fn parse_runningqueries_and_persist(
+    entries: &[PathBuf],
+    store: Store,
+    app: Option<&AppHandle>,
+) -> std::result::Result<(), crate::error::Error> {
+    let entries = entries
+        .iter()
+        .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(e)?, e)) });
+
+    let cnx = store.get()?;
+    for (mmap, entry) in entries {
+        info!("Parsing and Persisting: {:?}", entry.display());
+        let result = RunningQueryParser::try_from(mmap.deref());
+        if let Ok(parser) = result {
+            if let Some(a) = app {
+                a.emit(
+                    "ingest:file",
+                    IngestEvent::File {
+                        kind: "runningqueries",
+                        file: entry.to_path_buf(),
+                    },
+                )
+                .unwrap()
+            }
+            store::append_runningqueries(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
