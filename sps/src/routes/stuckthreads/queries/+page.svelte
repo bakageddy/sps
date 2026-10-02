@@ -47,6 +47,7 @@
 	import { cached } from "$lib/query-cache";
 	import { persisted } from "$lib/persisted.svelte";
 	import { page } from "$app/state";
+	import { pushSelection } from "$lib/navhistory.svelte";
 
 	let errorMessage = $state<string | null>(null);
 	let threads = $state<StuckThread[]>([]);
@@ -208,19 +209,17 @@
 	// Cross-page link: /stuckqueries navigated here with ?t=<ms>. Waits for
 	// snapshots, selects the nearest one (should be exact — the sender picked
 	// it from the same data), consumed ONCE so later clicks aren't overridden.
-	let linkConsumed = $state(false);
+	// re-entrant: a NEW ?t= (another analyzer's link, the palette's "jump
+	// to time") re-selects; the same value is consumed once
+	let consumedLink = $state<string | null>(null);
 	$effect(() => {
-		if (linkConsumed) return;
 		const raw = page.url.searchParams.get("t");
-		if (raw === null) {
-			linkConsumed = true;
-			return;
-		}
+		if (raw === null || raw === consumedLink) return;
 		const target = Number(raw);
 		if (!Number.isFinite(target) || snapshots.length === 0) return; // wait for data
 		const nearest = nearestByTimestamp(snapshots, target);
 		if (nearest === null) return;
-		linkConsumed = true;
+		consumedLink = raw;
 		onselectsnapshot(nearest);
 	});
 
@@ -271,6 +270,11 @@
 	}
 
 	function onselectsnapshot(snap: SnapshotRow) {
+		// the selection is a history entry: back/forward walk the incidents.
+		// Mark it consumed first so the ?t= handler below doesn't echo the
+		// selection back when the URL changes.
+		consumedLink = String(snap.timestamp);
+		pushSelection(snap.timestamp);
 		selectedSnap = snap;
 		loadSnapshot(snap);
 		const candidates = threads.map((t) => ({ timestamp: targetOf(t), t }));

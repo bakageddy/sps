@@ -24,6 +24,7 @@
 </script>
 
 <script lang="ts">
+	import { formatTimestamp } from "$lib/format";
 	import Icon from "$lib/components/Icon.svelte";
 	import { scaleUtc, scaleLinear } from "d3-scale";
 	import { line as d3line, area as d3area } from "d3-shape";
@@ -365,7 +366,7 @@
 					y={height - margin.bottom + 16}
 					text-anchor="middle"
 				>
-					{tickFormat.format(tick)}
+					{formatTimestamp(tickFormat, +tick)}
 				</text>
 			{/each}
 
@@ -430,7 +431,7 @@
 			>
 				<strong>{hover.series.label}</strong>
 				<span>
-					{hover.point.value.toFixed(2)}{unit} at {tickFormat.format(
+					{hover.point.value.toFixed(2)}{unit} at {formatTimestamp(tickFormat, 
 						hover.point.timestamp,
 					)}
 				</span>

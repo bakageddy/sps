@@ -33,9 +33,16 @@ export type IngestState =
 	/** the command itself failed (bad path, no database) — nothing ran */
 	| { status: "error"; message: string };
 
-export const ingest = $state<{ state: IngestState; generation: number }>({
+export const ingest = $state<{
+	state: IngestState;
+	generation: number;
+	/** the path most recently handed to parse() — bundle-level lookups
+	 *  (HealthMeter timezone) happen beside it once the run finishes */
+	lastPath: string | null;
+}>({
 	state: { status: "idle" },
 	generation: 0,
+	lastPath: null,
 });
 
 // Dropping several paths starts several concurrent runs; counts merge into
@@ -81,6 +88,7 @@ listen<IngestFinished>(IngestEvent.Finished, () => {
 });
 
 export async function parse(path: string): Promise<void> {
+	ingest.lastPath = path;
 	try {
 		// Opening a database explicitly is optional — default to in-memory.
 		await ensureOpen();

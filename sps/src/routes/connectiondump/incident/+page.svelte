@@ -15,10 +15,12 @@
 	 * Stuck threads and stuck queries are deliberately absent: both ride
 	 * the VALVE trigger, not the performance-dump trigger, so they never
 	 * co-occur with a signal (/stuckthreads/queries is their matcher).
-	 * Running queries will join the hub once that parser exists.
+	 * Running queries DO join: they are periodic, so there is always a
+	 * tick near a signal — the Queries panel shows that tick's tables.
 	 */
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
+	import { pushSelection } from "$lib/navhistory.svelte";
 	import {
 		connectiondumpSignals,
 		connectiondumpSnapshots,
@@ -26,12 +28,23 @@
 		connectiondumpThreaddump,
 		connectiondumpCpumonitoring,
 		connectiondumpCpumemstats,
+		connectiondumpRunningqueries,
 		INCIDENT_TOLERANCE_MS,
 		type ConnDumpSignal,
 	} from "$lib/api/connectiondump";
 	import { threaddumpThreads, threaddumpTrace } from "$lib/api/threaddump";
 	import { cpuDumpThreads } from "$lib/api/cpumonitoring";
 	import { cpuMemCpuProcesses } from "$lib/api/cpumemstats";
+	import {
+		runningqueryMssqlQueries,
+		runningqueryPgsqlQueries,
+		runningqueryMssqlBlocking,
+		runningquerySpwho2,
+		type MssqlQuery,
+		type PgsqlQuery,
+		type MssqlBlockingRow,
+		type SpWho2Row,
+	} from "$lib/api/runningquery";
 	import {
 		buildCensus,
 		causeColor,
@@ -45,6 +58,7 @@
 	import { db } from "$lib/database.svelte";
 	import { ingest } from "$lib/ingest.svelte";
 	import SplitPane from "$lib/components/SplitPane.svelte";
+	import Icon from "$lib/components/Icon.svelte";
 	import SnapshotList, {
 		snapshotKey,
 		type SnapshotRow,
@@ -56,6 +70,13 @@
 	import ProcessTable, {
 		type UsageRow,
 	} from "$lib/components/ProcessTable.svelte";
+	import { buildIncidentReport, reportStackThreads } from "$lib/incident-report";
+	import { cpuStacktrace } from "$lib/api/cpumonitoring";
+	import { copyText } from "$lib/clipboard";
+	import MssqlQueryTable from "$lib/components/MssqlQueryTable.svelte";
+	import PgsqlQueryTable from "$lib/components/PgsqlQueryTable.svelte";
+	import BlockingTree from "$lib/components/BlockingTree.svelte";
+	import SpWho2Table from "$lib/components/SpWho2Table.svelte";
 
 	let errorMessage = $state<string | null>(null);
 	let signals = $state<ConnDumpSignal[]>([]);
@@ -68,10 +89,26 @@
 		cpumemstats: number | null;
 		/** connectiondump's own trace dump (holders) */
 		traces: number | null;
+		/** running-query tick (periodic log, so normally always present) */
+		runningqueries: number | null;
 	}
 	let anchors = $state<Anchors | null>(null);
 	let census = $state<IncidentThread[]>([]);
 	let processes = $state<UsageRow[]>([]);
+
+	// the running-query tick's tables; a bundle logs ONE flavor, so either
+	// the pgsql list or the three mssql ones are populated
+	let rqMssql = $state<MssqlQuery[]>([]);
+	let rqPgsql = $state<PgsqlQuery[]>([]);
+	let rqBlocking = $state<MssqlBlockingRow[]>([]);
+	let rqSpwho2 = $state<SpWho2Row[]>([]);
+	const QueryView = {
+		Active: "active",
+		Blocking: "blocking",
+		Sessions: "sessions",
+	} as const;
+	type QueryView = (typeof QueryView)[keyof typeof QueryView];
+	let queryView = $state<QueryView>(QueryView.Active);
 
 	let selectedTid = $state<number | null>(null);
 	let trace = $state<ThreadTraceState>({ status: "idle" });
@@ -134,11 +171,20 @@
 		anchors = null;
 		census = [];
 		processes = [];
+		rqMssql = [];
+		rqPgsql = [];
+		rqBlocking = [];
+		rqSpwho2 = [];
 		selectedTid = null;
 		trace = { status: "idle" };
 	}
 
 	function onselect(row: SnapshotRow) {
+		// the selection is a history entry: back/forward walk the incidents.
+		// Mark it consumed first so the ?t= handler below doesn't echo the
+		// selection back when the URL changes.
+		consumedLink = String(row.timestamp);
+		pushSelection(row.timestamp);
 		const sig = signals.find((s) => s.timestamp === row.timestamp);
 		if (sig) selected = sig;
 	}
@@ -169,7 +215,7 @@
 			selected === null || selected.timestamp !== ts || toleranceMs !== tol;
 
 		// wave 1: anchors
-		const [tdR, cpuR, memR, snapsR] = await Promise.allSettled([
+		const [tdR, cpuR, memR, rqR, snapsR] = await Promise.allSettled([
 			cached(`connectiondump_threaddump:${ts}:${tol}`, () =>
 				connectiondumpThreaddump(ts, tol),
 			),
@@ -179,6 +225,9 @@
 			cached(`connectiondump_cpumemstats:${ts}:${tol}`, () =>
 				connectiondumpCpumemstats(ts, tol),
 			),
+			cached(`connectiondump_runningqueries:${ts}:${tol}`, () =>
+				connectiondumpRunningqueries(ts, tol),
+			),
 			cached("connectiondump_snapshots", connectiondumpSnapshots),
 		]);
 		if (stale()) return;
@@ -186,12 +235,25 @@
 			threaddump: settled(tdR, null),
 			cpumonitoring: settled(cpuR, null),
 			cpumemstats: settled(memR, null),
+			runningqueries: settled(rqR, null),
 			traces: latestWithin(settled(snapsR, []), ts, tol)?.timestamp ?? null,
 		};
 		anchors = a;
 
-		// wave 2: each anchor's rows through the existing commands
-		const [threadsR, cpuThreadsR, tracesR, procR] = await Promise.allSettled([
+		// wave 2: each anchor's rows through the existing commands. The
+		// running-query tick fetches all four flavors — three of them come
+		// back empty for a bundle's other database, which is cheap.
+		const rq = a.runningqueries;
+		const [
+			threadsR,
+			cpuThreadsR,
+			tracesR,
+			procR,
+			rqMssqlR,
+			rqPgsqlR,
+			rqBlockingR,
+			rqSpwho2R,
+		] = await Promise.allSettled([
 			a.threaddump === null
 				? Promise.resolve([])
 				: cached(`threaddump_threads:${a.threaddump}`, () =>
@@ -212,6 +274,24 @@
 				: cached(`cpumem_cpu_processes:${a.cpumemstats}`, () =>
 						cpuMemCpuProcesses(a.cpumemstats!),
 					),
+			rq === null
+				? Promise.resolve([])
+				: cached(`runningquery_mssql_queries:${rq}`, () =>
+						runningqueryMssqlQueries(rq),
+					),
+			rq === null
+				? Promise.resolve([])
+				: cached(`runningquery_pgsql_queries:${rq}`, () =>
+						runningqueryPgsqlQueries(rq),
+					),
+			rq === null
+				? Promise.resolve([])
+				: cached(`runningquery_mssql_blocking:${rq}`, () =>
+						runningqueryMssqlBlocking(rq),
+					),
+			rq === null
+				? Promise.resolve([])
+				: cached(`runningquery_spwho2:${rq}`, () => runningquerySpwho2(rq)),
 		]);
 		if (stale()) return;
 		census = buildCensus(
@@ -226,6 +306,10 @@
 			value: p.value,
 			path: p.path,
 		}));
+		rqMssql = settled(rqMssqlR, []);
+		rqPgsql = settled(rqPgsqlR, []);
+		rqBlocking = settled(rqBlockingR, []);
+		rqSpwho2 = settled(rqSpwho2R, []);
 	}
 
 	async function onselectthread(tid: number) {
@@ -241,6 +325,73 @@
 			trace = { status: "ready", tid, timestamp: dump, elements };
 		} catch (e) {
 			trace = { status: "error", message: String(e) };
+		}
+	}
+
+	// the resolved incident as Markdown, for the ticket
+	let copiedReport = $state(false);
+	let reportBusy = $state(false);
+
+	/** stack lines for one thread: the thread dump's trace (frames and lock
+	 *  lines in order), else cpumonitoring's captured stack, else nothing */
+	async function stackLines(tid: number, a: Anchors): Promise<string[]> {
+		if (a.threaddump !== null) {
+			try {
+				const els = await cached(`threaddump_trace:${tid}:${a.threaddump}`, () =>
+					threaddumpTrace(tid, a.threaddump!),
+				);
+				if (els && els.length > 0)
+					return els.map((e) =>
+						e.kind === "frame" ? `at ${e.method}(${e.source})` : `- ${e.object}`,
+					);
+			} catch {
+				/* fall through to cpumonitoring */
+			}
+		}
+		if (a.cpumonitoring !== null) {
+			try {
+				const frames = await cached(`cpu_stacktrace:${tid}:${a.cpumonitoring}`, () =>
+					cpuStacktrace(tid, a.cpumonitoring!),
+				);
+				if (frames && frames.length > 0)
+					return frames.map((f) => `at ${f.method}(${f.source})`);
+			} catch {
+				/* no stack for this thread */
+			}
+		}
+		return [];
+	}
+
+	async function copyReport() {
+		if (selected === null || anchors === null || reportBusy) return;
+		reportBusy = true;
+		try {
+			// stacks for the threads the report prints — fetched on demand,
+			// in parallel; the census alone never loads them
+			const a = anchors;
+			const wanted = reportStackThreads(census);
+			const fetched = await Promise.all(
+				wanted.map(async (t) => [t.tid, await stackLines(t.tid, a)] as const),
+			);
+			const stacks = new Map(fetched.filter(([, lines]) => lines.length > 0));
+			const text = buildIncidentReport({
+				signal: selected,
+				toleranceMs,
+				anchors: a,
+				census,
+				processes,
+				mssql: rqMssql,
+				pgsql: rqPgsql,
+				blocking: rqBlocking,
+				spwho2: rqSpwho2,
+				stacks,
+			});
+			if (await copyText(text)) {
+				copiedReport = true;
+				setTimeout(() => (copiedReport = false), 1500);
+			} else errorMessage = "Clipboard write failed.";
+		} finally {
+			reportBusy = false;
 		}
 	}
 
@@ -270,19 +421,17 @@
 	});
 
 	// ?t=<ms> from another analyzer: select the nearest signal, once.
-	let linkConsumed = $state(false);
+	// re-entrant: a NEW ?t= (another analyzer's link, the palette's "jump
+	// to time") re-selects; the same value is consumed once
+	let consumedLink = $state<string | null>(null);
 	$effect(() => {
-		if (linkConsumed) return;
 		const raw = page.url.searchParams.get("t");
-		if (raw === null) {
-			linkConsumed = true;
-			return;
-		}
+		if (raw === null || raw === consumedLink) return;
 		const target = Number(raw);
 		if (!Number.isFinite(target) || signals.length === 0) return;
 		const nearest = nearestByTimestamp(visibleSignals, target);
 		if (nearest === null) return;
-		linkConsumed = true;
+		consumedLink = raw;
 		selected = nearest;
 	});
 
@@ -344,6 +493,7 @@
 									{ label: "threaddump", ts: anchors.threaddump, href: "/threaddump" },
 									{ label: "cpu", ts: anchors.cpumonitoring, href: "/cpumonitoring" },
 									{ label: "processes", ts: anchors.cpumemstats, href: "/cpumemstats" },
+									{ label: "queries", ts: anchors.runningqueries, href: "/runningqueries" },
 									{ label: "holders", ts: anchors.traces, href: null },
 								]}
 								{#each links as l (l.label)}
@@ -368,6 +518,14 @@
 								<span class="muted">resolving…</span>
 							{/if}
 						</span>
+						<button
+							class="report"
+							onclick={copyReport}
+							disabled={anchors === null || reportBusy}
+							title="Copy this incident as Markdown (anchors, blocked/hot threads with stacks, holders, processes, queries)"
+							><Icon name={copiedReport ? "check" : "copy"} size={12} />
+							{reportBusy ? "report…" : "report"}</button
+						>
 					</div>
 
 					<div class="toolbar">
@@ -385,9 +543,34 @@
 							>
 							<button
 								class:active={mode === Mode.Queries}
-								onclick={() => (mode = Mode.Queries)}>Queries</button
+								onclick={() => (mode = Mode.Queries)}
+								>Queries <span class="n mono"
+									>{rqMssql.length + rqPgsql.length}</span
+								></button
 							>
 						</span>
+						{#if mode === Mode.Queries && rqMssql.length + rqBlocking.length + rqSpwho2.length > 0}
+							<!-- mssql logs three tables per tick; pgsql just one -->
+							<span class="chips sub" role="group" aria-label="Table">
+								<button
+									class:active={queryView === QueryView.Active}
+									onclick={() => (queryView = QueryView.Active)}
+									>Active <span class="n mono">{rqMssql.length}</span></button
+								>
+								<button
+									class:active={queryView === QueryView.Blocking}
+									onclick={() => (queryView = QueryView.Blocking)}
+									>Blocking <span class="n mono">{rqBlocking.length}</span
+									></button
+								>
+								<button
+									class:active={queryView === QueryView.Sessions}
+									onclick={() => (queryView = QueryView.Sessions)}
+									>sp_who2 <span class="n mono">{rqSpwho2.length}</span
+									></button
+								>
+							</span>
+						{/if}
 						<label
 							class="tolerance"
 							title="How far from the signal a subsystem's dump may be to count as this incident"
@@ -432,12 +615,20 @@
 										goto(`/cpumemstats?t=${anchors!.cpumemstats}`)}
 								/>
 							{/if}
-						{:else}
+						{:else if anchors?.runningqueries == null}
 							<p class="empty">
-								Running queries at the incident — arrives with the
-								running-queries parser. (Stuck queries ride the valve
-								trigger, not this one; see Stuck Threads → Queries.)
+								No running-query tick within the incident window. (Stuck
+								queries ride the valve trigger, not this one; see Stuck
+								Threads → Queries.)
 							</p>
+						{:else if rqPgsql.length > 0}
+							<PgsqlQueryTable queries={rqPgsql} />
+						{:else if queryView === QueryView.Blocking}
+							<BlockingTree rows={rqBlocking} />
+						{:else if queryView === QueryView.Sessions}
+							<SpWho2Table rows={rqSpwho2} />
+						{:else}
+							<MssqlQueryTable queries={rqMssql} />
 						{/if}
 					</div>
 				{/if}
@@ -586,6 +777,30 @@
 		padding: 2px;
 		background: var(--bg-hard);
 		border-radius: 999px;
+	}
+	/* second chip group hugs the first; the tolerance knob stays right */
+	.chips.sub {
+		margin-right: auto;
+	}
+	.report {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin-left: auto;
+		padding: 2px 12px;
+		border-radius: 999px;
+		background: var(--bg-hard);
+		color: var(--accent);
+		font-size: 11.5px;
+		font-weight: 600;
+		flex-shrink: 0;
+	}
+	.report:hover:not(:disabled) {
+		background: var(--bg-hover);
+	}
+	.report:disabled {
+		color: var(--fg-muted);
+		opacity: 0.6;
 	}
 	.chips button {
 		padding: 2px 12px;

@@ -6,4 +6,5 @@ pub mod parse;
 pub mod stuckquery;
 pub mod stuckthread;
 pub mod threaddump;
+pub mod runningquery;
 pub mod types;

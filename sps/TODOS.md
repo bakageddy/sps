@@ -12,6 +12,39 @@ the spec; reconcile against them, not memory.
       Contract + Rust sketch: `src/lib/api/ingest-events.ts`.
       Kills: ParseReport::default() placeholder, mutex-held-during-parse,
       main-thread freeze.
+- [ ] **Running-query commands** (11, requirements in
+      `src/lib/api/runningquery.ts`):
+      `runningquery_{mssql,pgsql,mssql_blocking,spwho2}_snapshots`,
+      `runningquery_{mssql_queries,pgsql_queries,mssql_blocking,spwho2}(timestamp)`,
+      `runningquery_{mssql,pgsql}_longrunning`, `runningquery_mssql_longtxns`
+      — the stuckquery_* store bodies over the runningquery_* tables; sp_who2
+      is the one new shape (`status::VARCHAR`, `lastbatch` ms epoch). Plus
+      the hub resolver `connectiondump_runningqueries(timestamp, tolerance)`
+      (see the incident entry). Frontend is live: /runningqueries and the
+      incident page's Queries panel.
+- [ ] **SQL console commands** (3, requirements in `src/lib/api/sql.ts`):
+      `sql_query(sql, limit, offset)` (SELECT-only + single-statement gate
+      ON THE PARSED STATEMENT, `LIMIT limit+1 OFFSET offset` probe →
+      hasMore, NO DESCRIBE of the user statement, cells stringified in
+      Rust from row values), `sql_schema()`
+      (information_schema + COUNT(*)), `sql_export_csv(sql, path)` (`COPY
+      (<sql>) TO path (FORMAT CSV, HEADER)`, returns rows written).
+      Capability: `save()` is covered by the existing `dialog:default`.
+      Frontend is live at /sql.
+- [ ] **`healthmeter_info(path)`** (requirements in `src/lib/api/healthmeter.ts`):
+      find `HealthMeter.html` beside the dropped path, scrape the "Server
+      Time" row (`Sep 10, 2026 05:20 PM  Asia/Kolkata` → zone = last token)
+      and "OS Locale"; `Result<Option<HealthMeterInfo>, String>`, None when
+      absent. Frontend is live: the Ingest page's Display timezone control
+      (Bundle / Local / UTC / Custom + paste), applied app-wide through
+      `formatTimestamp`.
+- [ ] **Notes commands** (3, requirements in `src/lib/api/notes.ts`):
+      `notes_list()`, `notes_upsert(note)` (`INSERT OR REPLACE`, PK
+      created_at), `notes_delete(created_at)`; table `main.notes(created_at
+      UBIGINT PRIMARY KEY, text, updated_at, route)` in schema.sql — must
+      SURVIVE re-ingest
+      (never truncated with the log tables). Frontend is live: Ctrl+\
+      editor + sidebar section, optimistic with debounced write-through.
 - [ ] **cpumemstats**: schema DONE (platform-split: windows_cpu_stats /
       windows_memory_stats / linux_stats, totals denormalized per row).
       Remaining: column-map parser (header is ground truth; jagged Total rows
@@ -90,8 +123,10 @@ the spec; reconcile against them, not memory.
       4000 = first-dump alignment only — RAISE to the burst span once the
       repeat interval is known (needed anyway to confirm the cpumonitoring
       2s fragment-merge can't swallow a repeat). Subsystems:
-      `threaddump`, `cpumonitoring`, `cpumemstats`; `runningqueries` once
-      that parser exists. NO joined census command — the frontend joins
+      `threaddump`, `cpumonitoring`, `cpumemstats`, `runningqueries`
+      (UNION of the four runningquery_* tables' distinct timestamps; the
+      log is periodic, so LATEST-in-window = the tick just after the
+      signal). NO joined census command — the frontend joins
       threaddump ⋈ cpu ⋈ holds by exact tid (`lib/connectiondump.ts
       buildCensus`) from the existing per-timestamp commands.
       EXCLUDED from the hub on purpose: stuck threads AND stuck queries —

@@ -184,3 +184,25 @@ pub async fn connectiondump_cpumemstats(
     .await
     .map_err(|e| e.to_string())?
 }
+
+#[instrument(skip(state))]
+#[tauri::command]
+pub async fn connectiondump_runningqueries(
+    tolerance: u64,
+    timestamp: u64,
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> Result<Option<u64>, String> {
+    let cnx = state
+        .lock()
+        .unwrap()
+        .store
+        .get()
+        .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        store::connectiondump::get_connectiondump_runningqueries(&cnx, timestamp, tolerance)
+            .map_err(|e| format!("Error during resolving the incidents's running queries: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

@@ -1,6 +1,6 @@
 use memmap2::Mmap;
 
-use crate::{handlers::types::IngestEvent, parser::runningquery::RunningQueryParser};
+use crate::{handlers::types::IngestEvent, parser::runningquery::{self, RunningQueryParser}};
 #[cfg(unix)]
 use memmap2::Advice;
 use std::{
@@ -340,7 +340,9 @@ pub fn parse_runningqueries_and_persist(
                 &cnx,
                 parser.into_iter().flat_map(|item| {
                     if let Err(e) = item {
-                        if let Some(a) = app {
+                        if let runningquery::error::Error::TableNotFound = e {
+                            return None;
+                        } else if let Some(a) = app {
                             a.emit(
                                 "ingest:error",
                                 IngestEvent::Error {

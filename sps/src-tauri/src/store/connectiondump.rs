@@ -215,7 +215,7 @@ pub fn get_connectiondump_threaddump(
     tolerance: u64,
 ) -> Result<Option<u64>, Error> {
     let query = format!(
-        "SELECT {0}.timestamp FROM {0} WHERE {0}.timestamp BETWEEN $1 - $2 AND $1 + $2 ORDER BY 1 LIMIT 1",
+        "SELECT {0}.timestamp FROM {0} WHERE {0}.timestamp BETWEEN $1 - $2 AND $1 + $2 ORDER BY 1 DESC LIMIT 1",
         Tables::Threaddump,
     );
     let mut stmt = cnx.prepare_cached(&query)?;
@@ -259,6 +259,32 @@ pub fn get_connectiondump_cpumemstats(
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     stmt.query_one([timestamp, tolerance], |r| r.get::<_, u64>(0))
+        .optional()
+        .map_err(Error::from)
+}
+
+pub fn get_connectiondump_runningqueries(
+    cnx: &Connection,
+    timestamp: u64,
+    tolerance: u64
+) -> Result<Option<u64>, Error> {
+    let query = format!(r"
+        SELECT (timestamp) FROM (
+            SELECT timestamp FROM {0} WHERE {0}.timestamp BETWEEN $1 - $2 AND $1 + $2
+            UNION ALL
+            SELECT timestamp FROM {1} WHERE {1}.timestamp BETWEEN $1 - $2 AND $1 + $2
+            UNION ALL
+            SELECT timestamp FROM {2} WHERE {2}.timestamp BETWEEN $1 - $2 AND $1 + $2
+            UNION ALL
+            SELECT timestamp FROM {3} WHERE {3}.timestamp BETWEEN $1 - $2 AND $1 + $2
+        ) ORDER BY timestamp DESC LIMIT 1",
+        Tables::RunningQueryPGSQL,
+        Tables::RunningQueryMSSQL,
+        Tables::RunningQueryBlockingMSSQL,
+        Tables::RunningQuerySPWho2
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    stmt.query_one([timestamp, tolerance], |r| r.get(0))
         .optional()
         .map_err(Error::from)
 }

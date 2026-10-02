@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- sps — a shooting star heading left: one straight dash, a six-spoke
+       star at its head, a faint glow that fades toward the star.
+       Kanso Zen: tile #05080b, mark #949fb5 (teal). Star stroke 3.4, dash 2. -->
+  <defs>
+    <linearGradient id="trail" gradientUnits="userSpaceOnUse" x1="20" y1="0" x2="58" y2="0">
+      <stop offset="0" stop-color="#949fb5" stop-opacity="0"/>
+      <stop offset="0.45" stop-color="#949fb5" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#949fb5" stop-opacity="0.35"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-300%" width="140%" height="700%">
+      <feGaussianBlur stdDeviation="1.4"/>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#05080b"/>
+  <rect x="26.5" y="29.8" width="31.5" height="4.4" fill="url(#trail)" filter="url(#soft)"/>
+  <rect x="20" y="31.0" width="38" height="2" fill="#949fb5"/>
+  <path d="M14.37 28.75 L25.63 35.25 M20.00 25.50 L20.00 38.50 M25.63 28.75 L14.37 35.25" stroke="#949fb5" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+</svg>

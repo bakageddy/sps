@@ -7,7 +7,6 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tracing::instrument;
 
-// TODO: implement parse status
 #[instrument(skip(state))]
 #[tauri::command]
 pub async fn parse_logs(

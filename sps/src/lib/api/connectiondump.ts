@@ -241,8 +241,8 @@ export function connectiondumpHolders(
 // EXCLUDED on purpose: stuck threads AND stuck queries — both ride the
 // VALVE trigger, not the performance-dump trigger, so they never co-occur
 // with a signal (/stuckthreads/queries is their matcher). Running queries
-// WILL join once that parser exists — connectiondump_runningqueries, same
-// resolver shape.
+// are periodic (a timer, not a trigger), so there is always a snapshot
+// near a signal — they join through connectiondump_runningqueries below.
 
 /**
  * ms: the frontend's DEFAULT window. It is a caller parameter, not a
@@ -268,8 +268,11 @@ export const INCIDENT_TOLERANCE_MS = 4000;
  * #[tauri::command]
  * fn connectiondump_cpumemstats(timestamp: u64, tolerance: u64, state: ...)
  *     -> Result<Option<u64>, String>
+ * #[tauri::command]
+ * fn connectiondump_runningqueries(timestamp: u64, tolerance: u64, state: ...)
+ *     -> Result<Option<u64>, String>
  * ```
- * REQUIREMENTS (identical for all three): $1 is a signal timestamp from
+ * REQUIREMENTS (identical for all four): $1 is a signal timestamp from
  * connectiondump_signals, $2 the window in ms. Return the LATEST dump
  * timestamp of that log within the window — MAX(dump_ts) over
  * dump_ts BETWEEN $1 - $2 AND $1 + $2 — else None.
@@ -284,7 +287,12 @@ export const INCIDENT_TOLERANCE_MS = 4000;
  *
  * Dump timestamps per log: threaddump = distinct threaddump timestamps;
  * cpumonitoring = distinct cpumonitoring.timestamp; cpumemstats = distinct
- * dump timestamps across its platform tables.
+ * dump timestamps across its platform tables; runningqueries = distinct
+ * timestamps across runningquery_{pgsql,mssql,mssql_blocking,mssql_spwho2}
+ * (a snapshot logs one flavor; UNION them so either flavor resolves).
+ * Running queries are periodic rather than triggered, so LATEST-in-window
+ * is simply "the tick just after the signal" — the one that saw the
+ * incident's statements running.
  *
  * Ok(None) vs Err: no dump in the window is NOT a failure — it is
  * Ok(None), and an empty table (that log wasn't in the bundle) is just the
@@ -309,4 +317,10 @@ export function connectiondumpCpumemstats(
 	tolerance: number,
 ): Promise<number | null> {
 	return invoke("connectiondump_cpumemstats", { timestamp, tolerance });
+}
+export function connectiondumpRunningqueries(
+	timestamp: number,
+	tolerance: number,
+): Promise<number | null> {
+	return invoke("connectiondump_runningqueries", { timestamp, tolerance });
 }

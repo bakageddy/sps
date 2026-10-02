@@ -21,6 +21,7 @@
 		Mode,
 		Colorscheme,
 		COLORSCHEME_LABELS,
+		hasLight,
 	} from "$lib/theme.svelte";
 
 	// The option list falls out of the enum — add a scheme to the const
@@ -40,7 +41,10 @@
 
 	<button
 		onclick={toggleMode}
-		title="Switch to {theme.mode === Mode.Dark ? 'light' : 'dark'} mode"
+		disabled={!hasLight(theme.colorscheme)}
+		title={hasLight(theme.colorscheme)
+			? `Switch to ${theme.mode === Mode.Dark ? "light" : "dark"} mode`
+			: "This colorscheme has no light variant"}
 	>
 		{theme.mode === Mode.Dark ? "☀" : "☾"}
 	</button>
@@ -77,7 +81,11 @@
 	button:hover {
 		background: var(--bg-hover);
 	}
-	button:hover {
+	button:hover:not(:disabled) {
 		color: var(--fg);
+	}
+	button:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 </style>

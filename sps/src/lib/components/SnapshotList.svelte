@@ -7,7 +7,15 @@
 	 */
 	export interface SnapshotRow {
 		timestamp: number;
-		kind: "mssql" | "pgsql" | "blocking" | "dump" | "signal";
+		kind:
+			| "mssql"
+			| "pgsql"
+			| "blocking"
+			| "spwho2"
+			| "running"
+			| "stuck"
+			| "dump"
+			| "signal";
 		/** e.g. "21 queries · 3 blocked" */
 		detail: string;
 		/** true = something is wrong in this snapshot (blocked/idle-in-txn) */
@@ -25,6 +33,8 @@
 	 */
 	import { formatTimestamp } from "$lib/format";
 	import { virtualWindow } from "$lib/virtual";
+	import { applyWindow } from "$lib/timewindow.svelte";
+	import { stepIndex } from "$lib/listkeys";
 
 	interface Props {
 		rows: SnapshotRow[];
@@ -33,7 +43,9 @@
 		onselect: (row: SnapshotRow) => void;
 	}
 
-	let { rows, selected, onselect }: Props = $props();
+	let { rows: allRows, selected, onselect }: Props = $props();
+	// the global time window narrows every list from inside the component
+	const rows = $derived(applyWindow(allRows));
 
 	// The ONLY sort key is the timestamp — snapshots are moments in time,
 	// nothing else about them orders meaningfully. The header toggles it.
@@ -55,6 +67,22 @@
 	);
 	const slice = $derived(sorted.slice(win.start, win.end));
 
+	// j/k / arrows step the selection; the list must be focused (click or Tab)
+	let list = $state<HTMLDivElement>();
+	function onkeydown(e: KeyboardEvent) {
+		const cur = sorted.findIndex((r) => snapshotKey(r) === selected);
+		const next = stepIndex(e, cur, sorted.length);
+		if (next === null) return;
+		e.preventDefault();
+		onselect(sorted[next]);
+		// keep the new row in view (it may not be in the DOM yet)
+		if (!list) return;
+		const top = HEADER + next * ROW;
+		if (top - HEADER < list.scrollTop) list.scrollTop = top - HEADER;
+		else if (top + ROW > list.scrollTop + viewport)
+			list.scrollTop = top + ROW - viewport;
+	}
+
 	const timeFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: "medium",
 		timeStyle: "medium",
@@ -64,7 +92,12 @@
 
 <div
 	class="list"
+	role="listbox"
+	aria-label="Snapshots"
+	bind:this={list}
 	bind:clientHeight={viewport}
+	tabindex="0"
+	{onkeydown}
 	onscroll={(e) => (scrollTop = (e.currentTarget as HTMLDivElement).scrollTop)}
 >
 	<div class="header">
@@ -103,6 +136,10 @@
 	.list {
 		overflow: auto;
 		height: 100%;
+		outline: none;
+	}
+	.list:focus-visible {
+		box-shadow: inset 0 0 0 1px var(--accent);
 	}
 
 	.header {

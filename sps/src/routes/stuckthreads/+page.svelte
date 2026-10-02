@@ -25,6 +25,7 @@
 	import StuckOverview from "$lib/components/StuckOverview.svelte";
 	import StuckPathTable from "$lib/components/StuckPathTable.svelte";
 	import TimeRangePicker from "$lib/components/TimeRangePicker.svelte";
+	import { timeWindow } from "$lib/timewindow.svelte";
 	import { db } from "$lib/database.svelte";
 	import { ingest } from "$lib/ingest.svelte";
 	import { cached } from "$lib/query-cache";
@@ -40,8 +41,12 @@
 	let threads = $state<StuckThread[]>([]);
 	let selected = $state<StuckThread | null>(null);
 	let trace = $state<TraceState>({ status: "idle" });
-	/** overview brush window; null = full range */
+	/** overview brush window; null = full range. Follows the global time
+	 *  window whenever that changes; local sweeps still refine it. */
 	let view = $state<[number, number] | null>(null);
+	$effect(() => {
+		view = timeWindow.value;
+	});
 
 	const bars = $derived(threads.map(threadBar));
 

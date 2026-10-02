@@ -36,6 +36,7 @@
 	import { ingest } from "$lib/ingest.svelte";
 	import { cached } from "$lib/query-cache";
 	import { persisted } from "$lib/persisted.svelte";
+	import { timeWindow } from "$lib/timewindow.svelte";
 	import { formatDuration, formatTimestamp } from "$lib/format";
 
 	let errorMessage = $state<string | null>(null);
@@ -75,6 +76,9 @@
 	);
 
 	const domain = $derived.by<[number, number]>(() => {
+		// the global time window, when set, IS the chart's domain
+		const w = timeWindow.value;
+		if (w !== null) return w;
 		let lo = Infinity;
 		let hi = -Infinity;
 		for (const s of poolStats) {

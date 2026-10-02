@@ -12,6 +12,7 @@
 	 * locally with zero IPC.
 	 */
 	import { goto } from "$app/navigation";
+	import { pushSelection } from "$lib/navhistory.svelte";
 	import { page } from "$app/state";
 	import { nearestByTimestamp } from "$lib/nearest";
 	import {
@@ -132,19 +133,17 @@
 
 	// Cross-analyzer link (see cpumonitoring's twin): wait for dumps,
 	// select the nearest, consume once.
-	let linkConsumed = $state(false);
+	// re-entrant: a NEW ?t= (another analyzer's link, the palette's "jump
+	// to time") re-selects; the same value is consumed once
+	let consumedLink = $state<string | null>(null);
 	$effect(() => {
-		if (linkConsumed) return;
 		const raw = page.url.searchParams.get("t");
-		if (raw === null) {
-			linkConsumed = true;
-			return;
-		}
+		if (raw === null || raw === consumedLink) return;
 		const target = Number(raw);
 		if (!Number.isFinite(target) || dumps.length === 0) return; // wait for data
 		const nearest = nearestByTimestamp(dumps, target);
 		if (nearest === null) return;
-		linkConsumed = true;
+		consumedLink = raw;
 		onselectdump(nearest.timestamp);
 	});
 
@@ -152,6 +151,11 @@
 	// preserveChart: a chart-point click jumps dumps to inspect that moment —
 	// clearing the plotted series would destroy the very thing being clicked.
 	async function onselectdump(timestamp: number, preserveChart = false) {
+		// the selection is a history entry: back/forward walk the incidents.
+		// Mark it consumed first so the ?t= handler below doesn't echo the
+		// selection back when the URL changes.
+		consumedLink = String(timestamp);
+		pushSelection(timestamp);
 		selectedDump = timestamp;
 		if (!preserveChart) resetBelow("process");
 		const [cpu, memory] = await Promise.allSettled([

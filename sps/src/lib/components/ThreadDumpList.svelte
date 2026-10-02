@@ -5,6 +5,8 @@
 	 * the state distribution as the metrics: a dump with many BLOCKED
 	 * threads is the one to open first.
 	 */
+	import { applyWindow } from "$lib/timewindow.svelte";
+	import { stepIndex } from "$lib/listkeys";
 	import type { ThreadDumpSummary } from "$lib/api/threaddump";
 	import { formatTimestamp } from "$lib/format";
 
@@ -15,7 +17,23 @@
 		onselect: (timestamp: number) => void;
 	}
 
-	let { dumps, selected, onselect }: Props = $props();
+	let { dumps: allDumps, selected, onselect }: Props = $props();
+	// the global time window narrows every list from inside the component
+	const dumps = $derived(applyWindow(allDumps));
+
+	// j/k / arrows step the selection; the table must be focused (click or Tab)
+	function onkeydown(e: KeyboardEvent) {
+		const cur = visible.findIndex((d) => d.timestamp === selected);
+		const next = stepIndex(e, cur, visible.length);
+		if (next === null) return;
+		e.preventDefault();
+		onselect(visible[next].timestamp);
+		requestAnimationFrame(() =>
+			(scroller ?? document)
+				.querySelector("tr.selected")
+				?.scrollIntoView({ block: "nearest" }),
+		);
+	}
 
 	type SortKey = "timestamp" | "threads" | "blocked" | "waiting" | "runnable";
 	let sortKey = $state<SortKey>("timestamp");
@@ -63,7 +81,11 @@
 
 <div class="wrap">
 	<div class="scroller" bind:this={scroller}>
-		<table>
+		<!-- the table is the keyboard target for j/k row stepping: a grid in
+		     ARIA terms, hence focusable — the linter's "non-interactive" is the
+		     default <table> role, not this one -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+		<table role="grid" tabindex="0" {onkeydown}>
 			<thead>
 				<tr>
 					{#each columns as col (col.key)}

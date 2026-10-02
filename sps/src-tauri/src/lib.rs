@@ -13,8 +13,8 @@ use crate::{arg::Command, store::Store, types::AppState};
 use arg::AppArgs;
 use clap::Parser;
 use handlers::{
-    connectiondump::*, cpumemstats::*, cpumonitoring::*, database::*, parse::*, stuckquery::*,
-    stuckthread::*, threaddump::*,
+    connectiondump::*, cpumemstats::*, cpumonitoring::*, database::*, parse::*, runningquery::*,
+    stuckquery::*, stuckthread::*, threaddump::*,
 };
 use tauri::Manager;
 use tracing::{level_filters::LevelFilter, warn};
@@ -62,10 +62,22 @@ pub fn launch(database: Option<PathBuf>) {
             connectiondump_threaddump,
             connectiondump_cpumonitoring,
             connectiondump_cpumemstats,
+            connectiondump_runningqueries,
             threaddump_dumps,
             threaddump_threads,
             threaddump_trace,
-            threaddump_thread_series
+            threaddump_thread_series,
+            runningquery_pgsql_snapshots,
+            runningquery_pgsql_queries,
+            runningquery_pgsql_longrunning,
+            runningquery_mssql_queries,
+            runningquery_mssql_snapshots,
+            runningquery_mssql_longrunning,
+            runningquery_mssql_longtxns,
+            runningquery_mssql_blocking_snapshots,
+            runningquery_mssql_blocking,
+            runningquery_spwho2_snapshots,
+            runningquery_spwho2,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

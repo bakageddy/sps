@@ -27,6 +27,8 @@
 		zoomOut: "\u{f010}", // nf-fa-search_minus
 		copy: "\u{f0c5}", // nf-fa-copy
 		database: "\u{f1c0}", // nf-fa-database
+		terminal: "\u{f120}", // nf-fa-terminal
+		note: "\u{f249}", // nf-fa-sticky_note
 		check: "\u{f00c}", // nf-fa-check
 		menu: "\u{f0c9}", // nf-fa-bars
 	} as const;

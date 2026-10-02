@@ -9,13 +9,8 @@ use crate::handlers::types::{
 };
 use crate::parser::query::{BlockingQuery, MSSQLQuery, PGSQLQuery};
 use crate::store;
+use crate::store::tables::Tables;
 use crate::types::AppState;
-
-// Async + spawn_blocking on every query command — see handlers/cpumemstats.rs
-// for the rationale. The row types that borrow (`PGSQLQuery<'a>` etc.) come
-// back from the store fully owned (Cow::Owned), so the commands return the
-// `'static` instantiation — an unconstrained lifetime on an async command is
-// exactly what the command macro can't express.
 
 #[instrument(skip(state))]
 #[tauri::command]
@@ -30,7 +25,7 @@ pub async fn stuckquery_mssql_snapshots(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::stuckquery::get_stuckquery_mssql_snapshots(&cnx)
+        store::query::get_mssql_snapshots(&cnx, Tables::StuckqueryMSSQL)
             .map_err(|e| format!("Error during fetching MSSQL snapshots from database: {e}"))
     })
     .await
@@ -50,9 +45,9 @@ pub async fn stuckquery_mssql_blocking_snapshots(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::stuckquery::get_stuckquery_mssql_blocking_snapshots(&cnx).map_err(|e| {
-            format!("Error during fetching MSSQL Blocking snapshots from database: {e}")
-        })
+        store::query::get_mssql_blocking_snapshots(&cnx, Tables::StuckqueryBlockingMSSQL).map_err(
+            |e| format!("Error during fetching MSSQL Blocking snapshots from database: {e}"),
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -71,7 +66,7 @@ pub async fn stuckquery_pgsql_snapshots(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::stuckquery::get_stuckquery_pgsql_snapshots(&cnx)
+        store::query::get_pgsql_snapshots(&cnx, Tables::StuckqueryPGSQL)
             .map_err(|e| format!("Error during fetching PGSQL snapshots from database: {e}"))
     })
     .await
@@ -92,7 +87,7 @@ pub async fn stuckquery_pgsql_queries(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::stuckquery::get_stuckquery_pgsql_queries(&cnx, timestamp)
+        store::query::get_pgsql_queries(&cnx, Tables::StuckqueryPGSQL, timestamp)
             .map_err(|e| format!("Error during fetching PGSQL queries from database: {e}"))
     })
     .await
@@ -113,7 +108,7 @@ pub async fn stuckquery_mssql_queries(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::stuckquery::get_stuckquery_mssql_queries(&cnx, timestamp)
+        store::query::get_mssql_queries(&cnx, Tables::StuckqueryMSSQL, timestamp)
             .map_err(|e| format!("Error during fetching MSSQL queries from database: {e}"))
     })
     .await
@@ -134,7 +129,7 @@ pub async fn stuckquery_mssql_blocking(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::stuckquery::get_stuckquery_mssql_blocking(&cnx, timestamp)
+        store::query::get_mssql_blocking(&cnx, Tables::StuckqueryBlockingMSSQL, timestamp)
             .map_err(|e| format!("Error during fetching MSSQL queries from database: {e}"))
     })
     .await
@@ -154,7 +149,7 @@ pub async fn stuckquery_mssql_longrunning(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::stuckquery::get_stuckquery_mssql_long_running(&cnx).map_err(|e| {
+        store::query::get_mssql_long_running(&cnx, Tables::StuckqueryMSSQL).map_err(|e| {
             format!("Error during fetching MSSQL Long running queries from database: {e}")
         })
     })
@@ -175,7 +170,7 @@ pub async fn stuckquery_pgsql_longrunning(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::stuckquery::get_stuckquery_pgsql_long_running(&cnx).map_err(|e| {
+        store::query::get_pgsql_long_running(&cnx, Tables::StuckqueryPGSQL).map_err(|e| {
             format!("Error during fetching PGSQL long running queries from database: {e}")
         })
     })
@@ -196,7 +191,7 @@ pub async fn stuckquery_mssql_longtxns(
         .map_err(|e| format!("Error during obtaining database connection: {e}"))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        store::stuckquery::get_stuckquery_mssql_long_running_txn(&cnx)
+        store::query::get_mssql_long_running_txn(&cnx, Tables::StuckqueryMSSQL)
             .map_err(|e| format!("Error during fetching MSSQL long running txn from database: {e}"))
     })
     .await

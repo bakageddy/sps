@@ -5,17 +5,19 @@ use duckdb::types::Value;
 
 use crate::handlers::types::{
     BlockingSnapshot, MSSQLLongRunningQuery, MSSQLLongRunningTxn, MSSQLSnapshot,
-    PGSQLLongRunningQuery, PGSQLSnapshot,
+    PGSQLLongRunningQuery, PGSQLSnapshot, SPWho2Snapshot,
 };
 use crate::parser::WaitType;
-use crate::parser::query::{BlockingQuery, MSSQLQuery, MSSQLStatus, PGSQLQuery, PGSQLState};
+use crate::parser::query::{
+    BlockingQuery, MSSQLQuery, MSSQLStatus, PGSQLQuery, PGSQLState, SPWho2Query,
+};
 use crate::store::error::Error;
 use crate::store::tables::Tables;
 
-pub fn get_stuckquery_mssql_snapshots(cnx: &Connection) -> Result<Vec<MSSQLSnapshot>, Error> {
+pub fn get_mssql_snapshots(cnx: &Connection, tables: Tables) -> Result<Vec<MSSQLSnapshot>, Error> {
     let query = format!(
         "SELECT timestamp, COUNT(session_id), COUNT(blocked_by) FILTER (WHERE blocked_by != 0) FROM {0} GROUP BY timestamp ORDER BY timestamp",
-        Tables::StuckqueryMSSQL.as_str()
+        tables,
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut rows = stmt.query([])?;
@@ -31,12 +33,13 @@ pub fn get_stuckquery_mssql_snapshots(cnx: &Connection) -> Result<Vec<MSSQLSnaps
     Ok(snapshots)
 }
 
-pub fn get_stuckquery_mssql_blocking_snapshots(
+pub fn get_mssql_blocking_snapshots(
     cnx: &Connection,
+    tables: Tables,
 ) -> Result<Vec<BlockingSnapshot>, Error> {
     let query = format!(
         "SELECT timestamp, COUNT(DISTINCT head_blocker), COUNT(session_id) FROM {0} GROUP BY timestamp ORDER BY timestamp",
-        Tables::StuckqueryBlockingMSSQL.as_str()
+        tables
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut rows = stmt.query([])?;
@@ -52,10 +55,10 @@ pub fn get_stuckquery_mssql_blocking_snapshots(
     Ok(snapshots)
 }
 
-pub fn get_stuckquery_pgsql_snapshots(cnx: &Connection) -> Result<Vec<PGSQLSnapshot>, Error> {
+pub fn get_pgsql_snapshots(cnx: &Connection, tables: Tables) -> Result<Vec<PGSQLSnapshot>, Error> {
     let query = format!(
         "SELECT timestamp, COUNT(pid), COUNT(waiting) FILTER (WHERE waiting = true), COUNT(state) FILTER (WHERE state = 'idle in transaction') FROM {0} GROUP BY timestamp ORDER BY timestamp",
-        Tables::StuckqueryPGSQL.as_str()
+        tables
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut rows = stmt.query([])?;
@@ -72,13 +75,14 @@ pub fn get_stuckquery_pgsql_snapshots(cnx: &Connection) -> Result<Vec<PGSQLSnaps
     Ok(snapshots)
 }
 
-pub fn get_stuckquery_pgsql_queries<'a>(
+pub fn get_pgsql_queries<'a>(
     cnx: &Connection,
+    tables: Tables,
     timestamp: u64,
 ) -> Result<Vec<PGSQLQuery<'a>>, Error> {
     let query = format!(
         "SELECT pid, query_time, txn_time, db_name, state, waiting, query, state_change, application_name, client_host, client_port FROM {} WHERE timestamp = $1",
-        Tables::StuckqueryPGSQL.as_str()
+        tables,
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut rows = stmt.query([timestamp])?;
@@ -105,13 +109,14 @@ pub fn get_stuckquery_pgsql_queries<'a>(
     Ok(queries)
 }
 
-pub fn get_stuckquery_mssql_queries<'a>(
+pub fn get_mssql_queries<'a>(
     cnx: &Connection,
+    tables: Tables,
     timestamp: u64,
 ) -> Result<Vec<MSSQLQuery<'a>>, Error> {
     let query = format!(
         "SELECT session_id, status, txn_id, blocked_by, wait_type, wait_resource, wait_time_ms, cpu_time_ms, logical_reads, reads, writes, elapsed, statement, command_text, command, login, host, db, program, host_process, last_request_end, login_time, open_txn FROM {0} WHERE {0}.timestamp = $1",
-        Tables::StuckqueryMSSQL.as_str()
+        tables
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut rows = stmt.query([timestamp])?;
@@ -152,13 +157,14 @@ pub fn get_stuckquery_mssql_queries<'a>(
     Ok(queries)
 }
 
-pub fn get_stuckquery_mssql_blocking<'a>(
+pub fn get_mssql_blocking<'a>(
     cnx: &Connection,
+    tables: Tables,
     timestamp: u64,
 ) -> Result<Vec<BlockingQuery<'a>>, Error> {
     let query = format!(
         "SELECT head_blocker, session_id, txn_id, blocking_session_id, wait_type, wait_duration, wait_resource, statement_start_offset, statement_end_offset, plan_handle, sql_handle, most_recent_sql_handle, level, blocker_query_or_most_recent_query FROM {0} WHERE {0}.timestamp = $1",
-        Tables::StuckqueryBlockingMSSQL.as_str()
+        tables,
     );
 
     let mut stmt = cnx.prepare_cached(&query)?;
@@ -189,12 +195,13 @@ pub fn get_stuckquery_mssql_blocking<'a>(
     Ok(queries)
 }
 
-pub fn get_stuckquery_mssql_long_running(
+pub fn get_mssql_long_running(
     cnx: &Connection,
+    tables: Tables,
 ) -> Result<Vec<MSSQLLongRunningQuery>, Error> {
     let query = format!(
-        "SELECT session_id, txn_id, statement, login, COUNT(timestamp), MIN(timestamp), MAX(timestamp), MAX(elapsed), MAX(cpu_time_ms), COUNT(blocked_by) FILTER (WHERE blocked_by != 0) FROM {0} GROUP BY session_id, txn_id, statement, login HAVING COUNT(timestamp) > 1 ORDER BY timestamp",
-        Tables::StuckqueryMSSQL.as_str()
+        "SELECT session_id, txn_id, statement, login, COUNT(timestamp), MIN(timestamp), MAX(timestamp), MAX(elapsed), MAX(cpu_time_ms), COUNT(blocked_by) FILTER (WHERE blocked_by != 0) FROM {0} GROUP BY timestamp, session_id, txn_id, statement, login HAVING COUNT(timestamp) > 1 ORDER BY timestamp",
+        tables,
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut rows = stmt.query([])?;
@@ -218,12 +225,13 @@ pub fn get_stuckquery_mssql_long_running(
     Ok(queries)
 }
 
-pub fn get_stuckquery_pgsql_long_running(
+pub fn get_pgsql_long_running(
     cnx: &Connection,
+    tables: Tables,
 ) -> Result<Vec<PGSQLLongRunningQuery>, Error> {
     let query = format!(
-        "SELECT pid, query, FIRST(db_name), COUNT(timestamp), MIN(timestamp), MAX(timestamp), MAX(query_time), COUNT(state) FILTER (WHERE state = 'idle in transaction') FROM {} GROUP BY pid, query HAVING COUNT(timestamp) > 1 ORDER BY timestamp",
-        Tables::StuckqueryPGSQL.as_str()
+        "SELECT pid, query, FIRST(db_name), COUNT(timestamp), MIN(timestamp), MAX(timestamp), MAX(query_time), COUNT(state) FILTER (WHERE state = 'idle in transaction') FROM {} GROUP BY timestamp, pid, query HAVING COUNT(timestamp) > 1 ORDER BY timestamp",
+        tables
     );
     let mut stmt = cnx.prepare_cached(&query)?;
     let mut rows = stmt.query([])?;
@@ -244,12 +252,13 @@ pub fn get_stuckquery_pgsql_long_running(
     Ok(queries)
 }
 
-pub fn get_stuckquery_mssql_long_running_txn(
+pub fn get_mssql_long_running_txn(
     cnx: &Connection,
+    tables: Tables,
 ) -> Result<Vec<MSSQLLongRunningTxn>, Error> {
     let query = format!(
-        "SELECT session_id, txn_id, FIRST(login), COUNT(timestamps), MIN(timestamps), MAX(timestamps), LIST(statement_text) FROM {} GROUP BY session_id, txn_id ORDER BY timestamp",
-        Tables::StuckqueryMSSQL.as_str()
+        "SELECT session_id, txn_id, FIRST(login), COUNT(timestamp), MIN(timestamp), MAX(timestamp), LIST(statement) FROM {} GROUP BY timestamp, session_id, txn_id ORDER BY timestamp",
+        tables,
     );
 
     let mut stmt = cnx.prepare_cached(&query)?;
@@ -279,4 +288,81 @@ pub fn get_stuckquery_mssql_long_running_txn(
         result.push(query);
     }
     Ok(result)
+}
+
+pub fn get_mssql_spwho2_snapshots(cnx: &Connection) -> Result<Vec<SPWho2Snapshot>, Error> {
+    let query = format!(
+        r"
+        SELECT
+            timestamp,
+            COUNT(spid),
+            COUNT(status) FILTER (WHERE status != 'sleeping'),
+            COUNT(*) FILTER (WHERE blocked_by IS NOT NULL AND blocked_by != 0)
+        FROM {}
+        GROUP BY timestamp
+        ORDER BY timestamp
+    ",
+        Tables::RunningQuerySPWho2
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    stmt.query_and_then([], |r| {
+        Ok::<SPWho2Snapshot, Error>(SPWho2Snapshot {
+            timestamp: r.get(0)?,
+            sessions: r.get(1)?,
+            active: r.get(2)?,
+            blocked: r.get(3)?,
+        })
+    })?
+    .into_iter()
+    .collect()
+}
+
+pub fn get_mssql_spwho2(
+    cnx: &Connection,
+    timestamp: u64,
+) -> Result<Vec<SPWho2Query<'static>>, Error> {
+    let query = format!(
+        r"
+        SELECT 
+            timestamp,
+            spid,
+            status::VARCHAR,
+            login,
+            hostname,
+            blocked_by,
+            dbname,
+            command,
+            cputime,
+            diskio,
+            lastbatch,
+            program_name,
+            request_id
+        FROM {}
+        WHERE timestamp = $1
+        ",
+        Tables::RunningQuerySPWho2
+    );
+    let mut stmt = cnx.prepare_cached(&query)?;
+    stmt.query_and_then([timestamp], |r| {
+        let status = r
+            .get::<_, String>(2)?
+            .parse()
+            .unwrap_or(crate::parser::query::SPWho2Status::Sleeping);
+        Ok(SPWho2Query {
+            spid: r.get(1)?,
+            status,
+            login: r.get::<_, String>(3)?.into(),
+            hostname: r.get::<_, Option<String>>(4)?.map(|s| s.into()),
+            blocked_by: r.get(5)?,
+            dbname: r.get::<_, String>(6)?.into(),
+            command: r.get::<_, String>(7)?.into(),
+            cputime: r.get(8)?,
+            diskio: r.get(9)?,
+            lastbatch: r.get(10)?,
+            program_name: r.get::<_, Option<String>>(11)?.map(|s| s.into()),
+            request_id: r.get(12)?,
+        })
+    })?
+    .into_iter()
+    .collect()
 }

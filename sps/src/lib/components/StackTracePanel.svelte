@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatTimestamp } from "$lib/format";
 	/**
 	 * Shows the stack trace of one clicked sample.
 	 *
@@ -41,7 +42,7 @@
 		<h2>Stack trace</h2>
 		{#if trace.status === "ready" || trace.status === "loading"}
 			<span class="context mono">
-				tid {trace.tid} @ {timeFormat.format(trace.timestamp)}
+				tid {trace.tid} @ {formatTimestamp(timeFormat, trace.timestamp)}
 			</span>
 		{/if}
 	</header>

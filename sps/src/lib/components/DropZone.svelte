@@ -128,9 +128,22 @@
 				<p class="none">Nothing recognized in that path.</p>
 			{/if}
 		{/each}
-		{#each report.problems as problem, i (i)}
-			<p class="error">{problem}</p>
-		{/each}
+		{#if report.problems.length > 0}
+			<!-- problems fold away: a bundle with a few unparseable lines is
+			     normal, and the list can be long — the count is the headline -->
+			<details class="problems">
+				<summary>
+					<span class="chev" aria-hidden="true">▸</span>
+					{report.problems.length}
+					{report.problems.length === 1 ? "problem" : "problems"} while parsing
+				</summary>
+				<ul>
+					{#each report.problems as problem, i (i)}
+						<li class="mono">{problem}</li>
+					{/each}
+				</ul>
+			</details>
+		{/if}
 	</div>
 {:else if ingest.state.status === "error"}
 	<p class="error" role="alert">{ingest.state.message}</p>
@@ -226,6 +239,46 @@
 		margin-top: 16px;
 		color: var(--red);
 		font-size: 13px;
+	}
+
+	.problems {
+		padding: 8px 12px;
+		background: color-mix(in srgb, var(--alert) 8%, var(--bg-soft));
+		border-radius: var(--radius);
+	}
+	.problems summary {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12.5px;
+		color: var(--alert);
+		cursor: pointer;
+		list-style: none;
+		user-select: none;
+	}
+	.problems summary::-webkit-details-marker {
+		display: none;
+	}
+	.problems[open] summary .chev {
+		transform: rotate(90deg);
+	}
+	.chev {
+		display: inline-block;
+		width: 10px;
+		font-size: 11px;
+		transition: transform 120ms;
+	}
+	.problems ul {
+		margin: 8px 0 0;
+		padding: 0 0 0 18px;
+		max-height: 240px;
+		overflow: auto;
+		font-size: 11.5px;
+		color: var(--fg-muted);
+	}
+	.problems li {
+		margin: 2px 0;
+		overflow-wrap: anywhere;
 	}
 
 	.mono {

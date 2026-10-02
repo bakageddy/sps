@@ -17,6 +17,19 @@
 	import { persisted } from "$lib/persisted.svelte";
 	import { getCurrentWebview } from "@tauri-apps/api/webview";
 	import Icon, { type IconName } from "$lib/components/Icon.svelte";
+	import TimeStrip from "$lib/components/TimeStrip.svelte";
+	import CommandPalette, {
+		type Command,
+	} from "$lib/components/CommandPalette.svelte";
+	import { goto } from "$app/navigation";
+	import { timeWindow, bundleDomain } from "$lib/timewindow.svelte";
+	import { tzMode, parseZonedTime } from "$lib/timezone.svelte";
+	import { formatTimestamp } from "$lib/format";
+	import NotesPanel from "$lib/components/NotesPanel.svelte";
+	import QuickNote from "$lib/components/QuickNote.svelte";
+	import { toggleQuickNote, openQuickNote, loadNotes, flushNotes } from "$lib/notes.svelte";
+	import { trackHistory, back, forward, canBack, canForward } from "$lib/navhistory.svelte";
+	import { db } from "$lib/database.svelte";
 
 	let { children }: { children: Snippet } = $props();
 
@@ -76,10 +89,39 @@
 		applyZoom();
 	}
 
-	// App-wide shortcuts: Ctrl/Cmd+B sidebar, Ctrl/Cmd +/-/0 zoom.
+	// App-wide shortcuts: Ctrl/Cmd+B sidebar, Ctrl/Cmd+K palette,
+	// Ctrl/Cmd+\ quick note, Ctrl/Cmd +/-/0 zoom.
+	let paletteOpen = $state(false);
 	function onwindowkeydown(event: KeyboardEvent) {
+		// Alt+←/→: history, like a browser (also Ctrl+[ / ] below)
+		if (event.altKey && !event.ctrlKey && !event.metaKey) {
+			if (event.key === "ArrowLeft") {
+				event.preventDefault();
+				back();
+			} else if (event.key === "ArrowRight") {
+				event.preventDefault();
+				forward();
+			}
+			return;
+		}
 		if (!(event.ctrlKey || event.metaKey)) return;
 		switch (event.key) {
+			case "[":
+				event.preventDefault();
+				back();
+				break;
+			case "]":
+				event.preventDefault();
+				forward();
+				break;
+			case "\\":
+				event.preventDefault();
+				toggleQuickNote();
+				break;
+			case "k":
+				event.preventDefault();
+				paletteOpen = !paletteOpen;
+				break;
 			case "b":
 				event.preventDefault();
 				collapsed.value = !collapsed.value;
@@ -105,6 +147,16 @@
 	// already has open (matters after a dev-mode webview reload).
 	sync();
 
+	// back/forward position tracking (afterNavigate has to be registered
+	// during component init — this is the only component that always exists)
+	trackHistory();
+
+	// notes live in the database: (re)load on every open, drop on close
+	$effect(() => {
+		if (db.state.status === "open") void db.epoch;
+		loadNotes();
+	});
+
 	interface NavItem {
 		href: string;
 		label: string;
@@ -129,7 +181,23 @@
 				},
 			],
 		},
-		{ href: "/threaddump", label: "Thread Dumps", icon: "stuck" },
+		{
+			href: "/threaddump",
+			label: "Thread Dumps",
+			icon: "stuck",
+			children: [
+				// a thread census paired with the queries the database was
+				// running at that moment (running-query ticks, optionally
+				// stuck-query snapshots), linked by time
+				{
+					href: "/threaddump/queries",
+					label: "Queries",
+					icon: "database",
+				},
+			],
+		},
+		// next to Thread Dumps: its periodic partner
+		{ href: "/runningqueries", label: "Running Queries", icon: "database" },
 		{ href: "/cpumonitoring", label: "CPU Monitoring", icon: "cpu" },
 		{
 			href: "/cpumemstats",
@@ -171,18 +239,109 @@
 			],
 		},
 		{ href: "/stuckqueries", label: "Stuck Queries", icon: "database" },
+		// not an analyzer: the escape hatch when none of them asks your question
+		{ href: "/sql", label: "SQL Console", icon: "terminal" },
 	];
+
+	// "jump to time": typed into the palette, it selects the nearest
+	// snapshot on the current analyzer (or the incident page, the hub, when
+	// the current page has no timeline) via the pages' ?t= deep link
+	const JUMPABLE = [
+		"/connectiondump/incident",
+		"/threaddump",
+		"/runningqueries",
+		"/cpumonitoring",
+		"/cpumemstats",
+		"/stuckthreads/queries",
+	];
+	const jumpFormat = new Intl.DateTimeFormat(undefined, {
+		dateStyle: "medium",
+		timeStyle: "medium",
+		hourCycle: "h23",
+	});
+	function jumpCommands(query: string): Command[] {
+		const d = bundleDomain.value;
+		const ref = d === null ? Date.now() : Math.round((d[0] + d[1]) / 2);
+		const ms = parseZonedTime(query, ref);
+		if (ms === null) return [];
+		const here = page.url.pathname;
+		const route = JUMPABLE.includes(here) ? here : "/connectiondump/incident";
+		return [
+			{
+				label: `Jump to ${formatTimestamp(jumpFormat, ms)}`,
+				hint: route,
+				run: () => goto(`${route}?t=${ms}`),
+			},
+		];
+	}
+
+	// the time strip decorates analyzers only — not the ingest hub or the console
+	const showStrip = $derived(
+		page.url.pathname !== "/" && !page.url.pathname.startsWith("/sql"),
+	);
+
+	// Ctrl+K palette: every page (children as "Parent › Child") plus the
+	// handful of app-level toggles worth a keystroke
+	const commands = $derived.by<Command[]>(() => {
+		const out: Command[] = [];
+		for (const item of nav) {
+			out.push({ label: item.label, hint: item.href, run: () => goto(item.href) });
+			for (const c of item.children ?? [])
+				out.push({
+					label: `${item.label} › ${c.label}`,
+					hint: c.href,
+					run: () => goto(c.href),
+				});
+		}
+		out.push(
+			{ label: "New note", hint: "Ctrl+\\", run: () => openQuickNote(null) },
+			{
+				label: "Clear time window",
+				hint: timeWindow.value === null ? "none set" : "active",
+				run: () => (timeWindow.value = null),
+			},
+			{
+				label: collapsed.value ? "Show sidebar" : "Hide sidebar",
+				hint: "Ctrl+B",
+				run: () => (collapsed.value = !collapsed.value),
+			},
+			{ label: "Timezone: Bundle", hint: tzMode.value === "auto" ? "current" : "", run: () => (tzMode.value = "auto") },
+			{ label: "Timezone: Local", hint: tzMode.value === "local" ? "current" : "", run: () => (tzMode.value = "local") },
+			{ label: "Timezone: UTC", hint: tzMode.value === "utc" ? "current" : "", run: () => (tzMode.value = "utc") },
+			{ label: "Reset zoom", hint: "100%", run: () => setZoomLevel(1) },
+		);
+		return out;
+	});
 </script>
 
 <!-- svelte:window attaches listeners to window with automatic cleanup —
      no addEventListener/onMount bookkeeping. -->
-<svelte:window onkeydown={onwindowkeydown} />
+<svelte:window onkeydown={onwindowkeydown} onblur={flushNotes} onbeforeunload={flushNotes} />
 
 <div class="shell">
 	{#if !collapsed.value}
 		<aside class="sidebar" style:width="{sidebarWidth.value}px">
 			<div class="brand-row">
-				<div class="brand">sps</div>
+				<div class="brand">
+					<img class="logo" src="/logo.svg" alt="" width="22" height="22" />
+					sps
+				</div>
+				<span class="hist" role="group" aria-label="History">
+					<button
+						class="collapse"
+						onclick={back}
+						disabled={!canBack()}
+						title="Back (Alt+← / Ctrl+[)"
+						aria-label="Back">‹</button
+					>
+					<button
+						class="collapse"
+						onclick={forward}
+						disabled={!canForward()}
+						title="Forward (Alt+→ / Ctrl+])"
+						aria-label="Forward">›</button
+					>
+				</span>
 				<button
 					class="collapse"
 					onclick={() => (collapsed.value = true)}
@@ -218,6 +377,9 @@
 						</a>
 					{/each}
 				{/each}
+
+				<!-- notes live in the selector, right under the last page -->
+				<NotesPanel />
 			</nav>
 
 			<div class="footer">
@@ -252,9 +414,22 @@
 	{/if}
 
 	<main>
-		{@render children()}
+		{#if showStrip}
+			<TimeStrip />
+		{/if}
+		<div class="page-slot">
+			{@render children()}
+		</div>
 	</main>
 </div>
+
+<QuickNote />
+<CommandPalette
+	open={paletteOpen}
+	items={commands}
+	dynamic={jumpCommands}
+	onclose={() => (paletteOpen = false)}
+/>
 
 <style>
 	.shell {
@@ -282,12 +457,20 @@
 	/* Wordmark: caps, Geist Mono at its heaviest, wide tracking — small
      text needs letter-spacing to read as a mark rather than a typo. */
 	.brand {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		font-weight: 700;
 		font-size: 15px;
 		text-transform: uppercase;
 		letter-spacing: 0.18em;
 		color: var(--accent);
 		padding: 4px 8px;
+	}
+	.brand .logo {
+		display: block;
+		border-radius: 5px; /* the tile's rx at this size */
+		flex-shrink: 0;
 	}
 
 	.collapse,
@@ -300,6 +483,20 @@
 		border-radius: var(--radius);
 		cursor: pointer;
 		color: var(--fg-muted);
+	}
+	.hist {
+		display: flex;
+		margin-left: auto;
+		margin-right: 2px;
+	}
+	.hist button {
+		width: 22px;
+		font-size: 15px;
+		line-height: 1;
+	}
+	.hist button:disabled {
+		opacity: 0.3;
+		cursor: default;
 	}
 	.collapse:hover,
 	.reveal:hover {
@@ -393,6 +590,14 @@
 		min-height: 0; /* without this, children can't shrink below content size */
 		/* the shell is the viewport: pages scroll INSIDE their own panes,
 		   never the document — whatever a page does wrong, it clips here */
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+	/* the page sits under the (optional) time strip and takes the rest */
+	.page-slot {
+		flex: 1;
+		min-height: 0;
 		overflow: hidden;
 	}
 

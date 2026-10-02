@@ -14,6 +14,7 @@
 	 */
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
+	import { pushSelection } from "$lib/navhistory.svelte";
 	import { nearestByTimestamp } from "$lib/nearest";
 	import {
 		cpuDumps,
@@ -126,24 +127,27 @@
 	// effect waits until dumps are loaded, then selects the NEAREST dump
 	// (the two analyzers' timestamps never match exactly). Consumed once —
 	// the user's later clicks must not be overridden by the URL.
-	let linkConsumed = $state(false);
+	// re-entrant: a NEW ?t= (another analyzer's link, the palette's "jump
+	// to time") re-selects; the same value is consumed once
+	let consumedLink = $state<string | null>(null);
 	$effect(() => {
-		if (linkConsumed) return;
 		const raw = page.url.searchParams.get("t");
-		if (raw === null) {
-			linkConsumed = true;
-			return;
-		}
+		if (raw === null || raw === consumedLink) return;
 		const target = Number(raw);
 		if (!Number.isFinite(target) || groupedDumps.length === 0) return; // wait for data
 		const nearest = nearestByTimestamp(groupedDumps, target);
 		if (nearest === null) return;
-		linkConsumed = true;
+		consumedLink = raw;
 		onselectdump(nearest.timestamp);
 	});
 
 	// --- drill-down actions ------------------------------------------------
 	async function onselectdump(timestamp: number) {
+		// the selection is a history entry: back/forward walk the incidents.
+		// Mark it consumed first so the ?t= handler below doesn't echo the
+		// selection back when the URL changes.
+		consumedLink = String(timestamp);
+		pushSelection(timestamp);
 		selectedDump = timestamp;
 		resetBelow("thread");
 		// The row is a merged group; fetch every fragment's threads and union

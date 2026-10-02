@@ -116,6 +116,16 @@ pub struct PGSQLSnapshot {
     pub idle_in_txn: u64,
 }
 
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SPWho2Snapshot {
+    pub timestamp: u64,
+    pub sessions: u64,
+    pub active: u64,
+    pub blocked: u64,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MSSQLLongRunningQuery {

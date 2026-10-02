@@ -2,7 +2,7 @@ pub mod connectiondump;
 pub mod cpumemstats;
 pub mod cpumonitoring;
 pub mod error;
-pub mod stuckquery;
+pub mod query;
 pub mod stuckthread;
 pub mod tables;
 pub mod threaddump;
