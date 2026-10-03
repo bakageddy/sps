@@ -71,3 +71,6 @@ curl -OL https://github.com/bakageddy/sps/releases/download/v2026.10.5/sps_2026.
 # Contributing
 
 0. Strictly no AI on the rust based code, however the frontend is your playground
+1. Recommended IDE Setup
+
+[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
