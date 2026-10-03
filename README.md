@@ -4,6 +4,11 @@ Linux/Windows/MacOS GUI Application to analyze stability-performance-scalability
 
 Hand-Written FSM-powered, single-pass, zero-copy, multi-threaded parser that can purely parse logs totalling 1GB in 0.2s, and persists the entire result under a second.
 
+![Ingest](./assets/IngestHomePage.png)
+
+
+![Notes](./assets/NotesPopup.png)
+
 # Usage
 
 ```bash
