@@ -9,7 +9,7 @@ pub mod util;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::{arg::Command, store::Store, types::AppState};
+use crate::{arg::Command, store::{Store, sql}, types::AppState};
 use arg::AppArgs;
 use clap::Parser;
 use handlers::{
@@ -17,7 +17,7 @@ use handlers::{
     runningquery::*, sql::*, stuckquery::*, stuckthread::*, threaddump::*,
 };
 use tauri::Manager;
-use tracing::{level_filters::LevelFilter, warn};
+use tracing::{info, level_filters::LevelFilter, warn};
 
 pub fn launch(database: Option<PathBuf>) {
     let database = database.clone();
@@ -105,11 +105,42 @@ pub fn run() {
             Command::Launch { database } => {
                 launch(database);
             }
+            Command::Schema { database } => {
+                let store = match Store::init(Some(&database)) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        warn!("Cannot load/initialize database due to: {e}");
+                        std::process::exit(1);
+                    }
+                };
+
+                let cnx = match store.get() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        warn!("Failed to obtain connection from the pool: {e}");
+                        std::process::exit(1);
+                    }
+                };
+
+                let schema = match sql::get_schema(&cnx) {
+                    Ok(s) => s,
+                    Err(e) =>  {
+                        warn!("Failed to derive schema from {:?}: {e}", database.display());
+                        std::process::exit(1);
+                    }
+                };
+
+                let stdio = std::io::stdout().lock();
+                if let Err(e) = serde_json::to_writer_pretty(stdio, &schema) {
+                    warn!("Failed to serialize schema to stdio: {e}");
+                    std::process::exit(1);
+                }
+            }
             Command::Parse { path, database, .. } => {
                 let store = match Store::init(database) {
                     Ok(x) => x,
                     Err(e) => {
-                        warn!("Cannot initialize database due to: {e}");
+                        warn!("Cannot load/initialize database due to: {e}");
                         std::process::exit(1);
                     }
                 };
@@ -120,6 +151,66 @@ pub fn run() {
                         path.display()
                     )
                 };
+            }
+            Command::Query {
+                sql,
+                database,
+                export,
+                limit,
+                offset,
+            } => {
+                let store = match Store::init(Some(&database)) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!(
+                            "Cannot load/initialize database on path {:?} due to {e}",
+                            database.display()
+                        );
+                        std::process::exit(1);
+                    }
+                };
+
+                let cnx = match store.get() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        warn!("Failed to obtain connection from the pool: {e}");
+                        std::process::exit(1);
+                    }
+                };
+
+                if let Some(export) = export {
+                    match store::sql::export(&cnx, &sql, &export) {
+                        Ok(rows) => {
+                            info!("Serialized {rows} rows to {:?}", export.display());
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to export/execute query {sql} to {} due to {e}",
+                                export.display()
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    let res = match store::sql::execute_query(&cnx, &sql, limit, offset) {
+                        Ok(res) => res,
+                        Err(e) => {
+                            warn!("Failed to execute query {sql} due to {e}");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    if let Some(res) = res {
+
+                        let stdio = std::io::stdout().lock();
+                        if let Err(e) = serde_json::to_writer_pretty(stdio, &res) {
+                            warn!("Failed to serialize result into json: {e}");
+                            std::process::exit(1);
+                        }
+                    } else {
+                        info!("Query {sql} returned no results");
+                    }
+                }
             }
         }
     } else {

@@ -36,7 +36,7 @@ pub async fn sql_query(
         .get()
         .map_err(|e| format!("Error during obtaining connection from pool: {e}"))?;
     spawn_blocking(move || {
-        sql::execute_query(&cnx, &sql, limit, offset)
+        sql::execute_query(&cnx, &sql, Some(limit), Some(offset))
             .map_err(|e| format!("Failed to execute query: {sql} due to {e}"))
     })
     .await

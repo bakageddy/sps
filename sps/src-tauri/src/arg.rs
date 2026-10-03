@@ -16,14 +16,6 @@ pub enum Command {
         /// Path to persist logs as a Database
         #[arg(long, short)]
         database: Option<PathBuf>,
-
-        /// Hints the parser of Database Log Type (runningqueries, stuckqueries)
-        #[arg(long, short('t'), value_enum)]
-        db_kind: Option<DBKind>,
-
-        /// Hints the parser of OS Log Type (cpumemstats)
-        #[arg(long, short('o'), value_enum)]
-        os_kind: Option<OSKind>,
     },
 
     Launch {
@@ -31,16 +23,32 @@ pub enum Command {
         #[arg(long, short)]
         database: Option<PathBuf>,
     },
-}
 
-#[derive(clap::ValueEnum, Clone)]
-pub enum DBKind {
-    PGSQL,
-    MSSQL,
-}
+    /// Executes a `query` against --database and serializes result to `stdio` as json
+    Query {
+        /// SQL Query string to run against database
+        #[arg(default_value = "")]
+        sql: String,
 
-#[derive(clap::ValueEnum, Clone)]
-pub enum OSKind {
-    Windows,
-    UNIX,
+        /// Path to the database after parsing logs
+        #[arg(long, short)]
+        database: PathBuf,
+
+        /// Path to export the result as an csv file
+        #[arg(long, short)]
+        export: Option<PathBuf>,
+
+        /// Limit the number of rows
+        #[arg(long, short)]
+        limit: Option<u64>,
+
+        /// Skip --offset number of rows
+        #[arg(long, short)]
+        offset: Option<u64>
+    },
+
+    Schema {
+        /// Path to the database after parsing logs
+        database: PathBuf,
+    }
 }

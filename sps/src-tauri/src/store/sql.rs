@@ -61,8 +61,8 @@ pub fn get_table_columns(
 pub fn execute_query(
     cnx: &Connection,
     query: impl AsRef<str>,
-    limit: u64,
-    offset: u64,
+    limit: Option<u64>,
+    offset: Option<u64>,
 ) -> Result<Option<SQLResult>, Error> {
     let exec = format!(
         "SELECT COLUMNS(*)::VARCHAR FROM ({}) LIMIT $1 OFFSET $2",
@@ -70,7 +70,7 @@ pub fn execute_query(
     );
     let mut stmt = cnx.prepare_cached(&exec)?;
     let start = std::time::Instant::now();
-    let mut rows = stmt.query([limit, offset])?;
+    let mut rows = stmt.query([limit.unwrap_or(100), offset.unwrap_or(0)])?;
     let column_count = rows.as_ref().unwrap().column_count();
     let mut result = Vec::new();
     while let Some(row) = rows.next()? {
