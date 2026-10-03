@@ -8,23 +8,25 @@ pub struct AppArgs {
 
 #[derive(clap::Subcommand)]
 pub enum Command {
+    /// Parses the performance logs in `path` and persists it to --database
     Parse {
         /// Path to the logs
         #[arg(default_value = ".")]
         path: PathBuf,
 
-        /// Path to persist logs as a Database
+        /// Path to persist logs as a Database, Empty to persist it in memory
         #[arg(long, short)]
         database: Option<PathBuf>,
     },
 
+    /// Launches the GUI with the --database
     Launch {
         /// Lauches the application with the given database path
         #[arg(long, short)]
         database: Option<PathBuf>,
     },
 
-    /// Executes a `query` against --database and serializes result to `stdio` as json
+    /// Executes a `query` against --database and serializes result to `stdout` as json
     Query {
         /// SQL Query string to run against database
         #[arg(default_value = "")]
@@ -47,6 +49,7 @@ pub enum Command {
         offset: Option<u64>
     },
 
+    /// Prints the schema of the `database` to `stdout` in json
     Schema {
         /// Path to the database after parsing logs
         database: PathBuf,
