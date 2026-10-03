@@ -43,9 +43,8 @@ export interface Note {
  *  - notes_list: every row, ordered by updated_at desc.
  *  - notes_upsert: `INSERT OR REPLACE INTO main.notes …` keyed on
  *    created_at (the frontend sends the whole row every time; last write
- *    wins). Called
- *    debounced while typing, so it must be cheap — no appender, a plain
- *    prepared statement.
+ *    wins). One row per
+ *    Ctrl+S — a plain prepared statement, no appender.
  *  - notes_delete: DELETE WHERE created_at = $1; an unknown key is Ok(()).
  *  - `Note` derives Deserialize as well as Serialize (it is a command
  *    argument), with `rename_all = "camelCase"`.

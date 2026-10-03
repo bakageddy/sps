@@ -40,7 +40,7 @@
 			setTimeout(() => (confirming = confirming === id ? null : confirming), 2500);
 			return;
 		}
-		deleteNote(id);
+		deleteNote(id).catch((e) => (notes.error = String(e)));
 		confirming = null;
 	}
 

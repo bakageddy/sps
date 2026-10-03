@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
 pub struct DatabaseInfo {
@@ -116,7 +116,6 @@ pub struct PGSQLSnapshot {
     pub idle_in_txn: u64,
 }
 
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SPWho2Snapshot {
@@ -218,4 +217,13 @@ pub struct ThreadDumpPoint {
     pub waiting_on: Option<String>,
     pub lock_owner_tid: Option<u64>,
     pub lock_owner_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Note {
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub text: String,
+    pub route: String,
 }

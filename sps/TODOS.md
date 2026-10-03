@@ -44,7 +44,7 @@ the spec; reconcile against them, not memory.
       UBIGINT PRIMARY KEY, text, updated_at, route)` in schema.sql — must
       SURVIVE re-ingest
       (never truncated with the log tables). Frontend is live: Ctrl+\
-      editor + sidebar section, optimistic with debounced write-through.
+      editor (explicit Ctrl+S save) + sidebar section.
 - [ ] **cpumemstats**: schema DONE (platform-split: windows_cpu_stats /
       windows_memory_stats / linux_stats, totals denormalized per row).
       Remaining: column-map parser (header is ground truth; jagged Total rows

@@ -298,3 +298,10 @@ CREATE TABLE IF NOT EXISTS main.runningquery_mssql_spwho2 (
   program_name STRING NULL,
   request_id UBIGINT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS main.notes (
+	created_at UBIGINT PRIMARY KEY,
+	updated_at UBIGINT NOT NULL,
+	text STRING NOT NULL,
+	route STRING NOT NULL,
+);

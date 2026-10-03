@@ -7,6 +7,7 @@ pub mod stuckthread;
 pub mod tables;
 pub mod threaddump;
 pub mod types;
+pub mod note;
 
 use std::{iter, path::Path};
 

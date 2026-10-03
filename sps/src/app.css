@@ -12,14 +12,27 @@
    fonts from the network. font-display: swap = render with the fallback
    immediately, swap in the bundled face when loaded (a local file, so instantly). */
 /* Geist Mono — the UI face AND the wordmark (variable, 100–900; official
-   Vercel build, OFL). Replaced Space Grotesk 2026-09-26: a mono UI face,
-   so labels, numbers and stacks all share one rhythm. */
+   Vercel build, OFL). --font-ui went Space Grotesk → Geist Mono →
+   (briefly) Paper Mono → proportional Geist → back to Geist Mono
+   2026-10-03: a mono UI face, so labels, numbers and stacks all share one
+   rhythm. */
 @font-face {
   font-family: "Geist Mono";
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
   src: url("/fonts/geist-mono-var.woff2") format("woff2");
+}
+
+/* Paper Mono — --font-mono: tables, numbers, stack traces, code blocks.
+   Built on Geist Mono's foundation (paper-design/paper-mono, OFL, variable
+   weight 100–900). Replaced IBM Plex Mono 2026-10-03. */
+@font-face {
+  font-family: "Paper Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/paper-mono-var.woff2") format("woff2");
 }
 
 /* Icon glyphs (Private Use Area) for Icon.svelte */
@@ -31,20 +44,6 @@
   src: url("/fonts/symbols-nerd-font.woff2") format("woff2");
 }
 
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/fonts/ibm-plex-mono-400.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url("/fonts/ibm-plex-mono-700.woff2") format("woff2");
-}
 
 :root {
   --radius: 8px;
@@ -59,7 +58,7 @@
   --alert: var(--yellow);
   /* ui-monospace = the OS's own mono font (SF Mono on macOS, etc.);
      generic `monospace` is the last-resort fallback */
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-mono: "Paper Mono", ui-monospace, monospace;
   /* the UI face is a mono, so fall back within the monospace class —
      system-ui is proportional and would reflow everything mid-swap */
   --font-ui: "Geist Mono", ui-monospace, monospace;

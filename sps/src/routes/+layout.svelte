@@ -27,7 +27,7 @@
 	import { formatTimestamp } from "$lib/format";
 	import NotesPanel from "$lib/components/NotesPanel.svelte";
 	import QuickNote from "$lib/components/QuickNote.svelte";
-	import { toggleQuickNote, openQuickNote, loadNotes, flushNotes } from "$lib/notes.svelte";
+	import { toggleQuickNote, openQuickNote, loadNotes } from "$lib/notes.svelte";
 	import { trackHistory, back, forward, canBack, canForward } from "$lib/navhistory.svelte";
 	import { db } from "$lib/database.svelte";
 
@@ -316,7 +316,7 @@
 
 <!-- svelte:window attaches listeners to window with automatic cleanup —
      no addEventListener/onMount bookkeeping. -->
-<svelte:window onkeydown={onwindowkeydown} onblur={flushNotes} onbeforeunload={flushNotes} />
+<svelte:window onkeydown={onwindowkeydown} />
 
 <div class="shell">
 	{#if !collapsed.value}
