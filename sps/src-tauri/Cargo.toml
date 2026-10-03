@@ -1,6 +1,6 @@
 [package]
 name = "sps"
-version = "2026.10.3"
+version = "2026.10.4"
 description = "An App for Diagnosing Performance Issues in SDP OP"
 authors = ["Dinesh Kumar G <dinesh.gv@zohocorp.com>"]
 edition = "2024"

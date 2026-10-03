@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "sps",
-  "version": "2026.10.3",
+  "version": "2026.10.4",
   "identifier": "com.manageengine.sdpop.sps",
   "build": {
     "beforeDevCommand": "pnpm dev",
