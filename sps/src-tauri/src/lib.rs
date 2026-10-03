@@ -14,7 +14,7 @@ use arg::AppArgs;
 use clap::Parser;
 use handlers::{
     connectiondump::*, cpumemstats::*, cpumonitoring::*, database::*, notes::*, parse::*,
-    runningquery::*, stuckquery::*, stuckthread::*, threaddump::*,
+    runningquery::*, sql::*, stuckquery::*, stuckthread::*, threaddump::*,
 };
 use tauri::Manager;
 use tracing::{level_filters::LevelFilter, warn};
@@ -80,7 +80,10 @@ pub fn launch(database: Option<PathBuf>) {
             runningquery_spwho2,
             notes_list,
             notes_upsert,
-            notes_delete
+            notes_delete,
+            sql_schema,
+            sql_query,
+            sql_export_csv
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

@@ -61,11 +61,25 @@
 					<ul>
 						{#each t.columns as c (c.name)}
 							<li>
-								<button
-									class="col mono"
-									onclick={() => oninsert(c.name)}
-									title="Insert column name">{c.name}</button
-								>
+								<div class="col-head">
+									<button
+										class="col mono"
+										onclick={() => oninsert(c.name)}
+										title="Insert column name">{c.name}</button
+									>
+									{#if !c.nullable}
+										<span class="badge" title="NOT NULL">not null</span>
+									{/if}
+									{#if c.defaultValue !== null}
+										<span
+											class="default mono"
+											title="Default: {c.defaultValue}"
+											>= {c.defaultValue}</span
+										>
+									{/if}
+								</div>
+								<!-- full width, wraps — an ENUM's definition can be long
+								     and the values ARE the useful part, not clipped junk -->
 								<span class="type mono">{c.type}</span>
 							</li>
 						{/each}
@@ -149,12 +163,38 @@
 	}
 	li {
 		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		padding: 2px 0;
+	}
+	.col-head {
+		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 6px;
+	}
+	.badge {
+		flex-shrink: 0;
+		padding: 0 5px;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--alert) 16%, transparent);
+		color: var(--alert);
+		font-size: 9px;
+		font-family: var(--font-mono);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.default {
+		flex-shrink: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 10.5px;
+		color: var(--fg-muted);
 	}
 	.col {
-		flex: 1;
-		min-width: 0;
+		flex-shrink: 0;
+		max-width: 60%;
 		padding: 1px 4px;
 		text-align: left;
 		color: var(--fg);
@@ -164,9 +204,12 @@
 		border-radius: var(--radius);
 	}
 	.type {
+		display: block;
+		padding: 0 4px;
 		font-size: 10px;
 		color: var(--fg-muted);
-		white-space: nowrap;
+		white-space: normal;
+		overflow-wrap: break-word;
 	}
 	.mono {
 		font-family: var(--font-mono);

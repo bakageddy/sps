@@ -14,11 +14,17 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-/** a schema column (from information_schema, never from the user's query) */
+/** a schema column (from DuckDB's own catalog, never from the user's query) */
 export interface SqlColumn {
 	name: string;
-	/** DuckDB type name, e.g. "UBIGINT", "VARCHAR" */
+	/** DuckDB type text, e.g. "UBIGINT" or the full
+	 *  "ENUM('High CPU', 'No ManagedConnections', ...)" definition */
 	type: string;
+	nullable: boolean;
+	/** the column's default expression exactly as DuckDB prints it, or
+	 *  null when the column has none (named defaultValue, not default:
+	 *  a reserved word, awkward to destructure) */
+	defaultValue: string | null;
 }
 
 export interface SqlResult {
@@ -26,8 +32,6 @@ export interface SqlResult {
 	columns: string[];
 	/** one entry per column, in `columns` order; NULL → null */
 	rows: (string | null)[][];
-	/** true when the query has more rows past offset + limit */
-	hasMore: boolean;
 	/** backend-measured execution time, ms */
 	elapsedMs: number;
 }
@@ -36,7 +40,7 @@ export interface SqlResult {
  * ```rust
  * #[tauri::command]
  * async fn sql_query(sql: String, limit: u64, offset: u64, state: ...)
- *     -> Result<SqlResult, String>
+ *     -> Result<Option<SqlResult>, String>
  * ```
  * REQUIREMENTS:
  *  - SELECT-ONLY, ONE STATEMENT. Reject anything else with an Err that
@@ -48,9 +52,15 @@ export interface SqlResult {
  *    exactly 1; or duckdb-rs's prepare, which refuses multi-statement
  *    strings, plus a statement-type check (unverified on my side — check
  *    the crate). Either way the gate runs BEFORE execution.
- *  - CAP + PAGE: execute `SELECT * FROM (<sql>) AS q LIMIT $limit + 1
- *    OFFSET $offset`; hasMore = more than `limit` rows came back (drop the
- *    extra). The frontend picks limit from {100, 1000, 10000}.
+ *  - CAP + PAGE, NO PROBE: execute `SELECT * FROM (<sql>) AS q LIMIT
+ *    $limit OFFSET $offset` — plain limit, not limit+1; nothing to drop.
+ *    Ok(None) when that returns zero rows — covers BOTH "the query
+ *    genuinely matched nothing" and "offset is past the last row"; the
+ *    frontend renders the same "No rows" either way, so collapsing them
+ *    is fine. Ok(Some(result)) otherwise, 1..=limit rows. The frontend
+ *    picks limit from {100, 1000, 10000} and infers "maybe another page"
+ *    from `rows.length === limit` (a short page is definitely the last
+ *    one) — no hasMore field to compute.
  *  - NO DESCRIBE / EXPLAIN of the user's statement — the statement runs
  *    exactly once. `columns` = the executed statement's column names
  *    (statement metadata after execution); no types.
@@ -58,7 +68,8 @@ export interface SqlResult {
  *    (NULL → null; numbers/bools/timestamps in their DuckDB text form;
  *    ENUM by label; LIST/STRUCT in DuckDB's literal syntax or JSON —
  *    your call, the console only displays and copies them).
- *  - elapsedMs measured around the execution only (not the gate).
+ *  - elapsedMs measured around the execution only (not the gate); absent
+ *    on Ok(None) — there is no result to attach it to.
  *  - Err text = DuckDB's own message (Parser/Binder/Catalog errors carry
  *    the position and the candidate names — the console shows them raw).
  */
@@ -66,7 +77,7 @@ export function sqlQuery(
 	sql: string,
 	limit: number,
 	offset: number,
-): Promise<SqlResult> {
+): Promise<SqlResult | null> {
 	return invoke("sql_query", { sql, limit, offset });
 }
 
@@ -82,10 +93,28 @@ export interface SqlTable {
  * #[tauri::command]
  * async fn sql_schema(state: ...) -> Result<Vec<SqlTable>, String>
  * ```
- * REQUIREMENTS: every table in schema `main` (information_schema.columns
- * ordered by table_name, ordinal_position), with its row count; ENUM
- * columns report the enum's type name ("connectiondump_cause"), not
- * "ENUM". Empty Vec only if the schema was never applied.
+ * REQUIREMENTS: every table in schema `main`, with its row count
+ * (`SELECT COUNT(*)` per table, or duckdb_tables().estimated_size if
+ * approximate is fine). Columns and types come from DuckDB's own catalog,
+ * NOT information_schema (verified 2026-10-03):
+ *
+ *   SELECT table_name, column_index, column_name, data_type,
+ *          is_nullable, column_default
+ *   FROM duckdb_columns() AS col
+ *   JOIN duckdb_types() AS t
+ *     ON col.database_name = t.database_name
+ *    AND col.schema_name = t.schema_name
+ *    AND col.data_type_id = t.type_oid
+ *   WHERE col.schema_name = 'main'
+ *   ORDER BY table_name, column_index;
+ *
+ * This resolves an ENUM column to its FULL definition — e.g.
+ * `ENUM('High CPU', 'No ManagedConnections', 'High Memory Consumption',
+ * 'URL invocation')` — not the bare word "ENUM" and not just the type's
+ * catalog name; that's `type` verbatim. `is_nullable` -> `nullable`,
+ * `column_default` -> `defaultValue` (NULL -> null; it is the DEFAULT
+ * expression text, e.g. "0" or "now()", not a sentinel). Empty Vec only
+ * if the schema was never applied.
  */
 export function sqlSchema(): Promise<SqlTable[]> {
 	return invoke("sql_schema");

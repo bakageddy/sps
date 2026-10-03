@@ -227,3 +227,28 @@ pub struct Note {
     pub text: String,
     pub route: String,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SQLTable {
+    pub name: String,
+    pub rows: u64,
+    pub columns: Vec<SQLColumn>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SQLColumn {
+    pub name: String,
+    pub r#type: String,
+    pub nullable: bool,
+    pub default_value: Option<String>
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SQLResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
+    pub elapsed_ms: u128,
+}

@@ -5,9 +5,11 @@
 	 * Left: editor over results. Right: the schema as a tree (tables →
 	 * columns; click a name to insert it at the caret).
 	 * Run with the button or Ctrl/⌘+Enter. Results are paged: the backend
-	 * caps every page (limit + 1 probe → hasMore) and the console walks
-	 * pages with prev/next; "export CSV" writes the WHOLE result through
-	 * DuckDB COPY, so nothing large ever crosses IPC.
+	 * caps every page at `limit` rows and returns None past the last one
+	 * (Option<SqlResult>, no probe row to drop); the console infers "maybe
+	 * another page" from a page coming back exactly `limit` long, and
+	 * walks pages with prev/next. "export CSV" writes the WHOLE result
+	 * through DuckDB COPY, so nothing large ever crosses IPC.
 	 *
 	 * The SELECT-only rule lives in the backend (api/sql.ts) — the console
 	 * just shows whatever error comes back, verbatim, under the editor.
@@ -38,7 +40,11 @@
 	const LIMITS = [100, 1000, 10000];
 
 	let tables = $state<SqlTable[]>([]);
+	/** the current page's data; null both before the first run AND when a
+	 *  run came back empty (Option<SqlResult> collapses those — same "No
+	 *  rows" render either way) — `ranOnce` is what tells them apart */
 	let result = $state<SqlResult | null>(null);
+	let ranOnce = $state(false);
 	let offset = $state(0);
 	let running = $state(false);
 	let error = $state<string | null>(null);
@@ -68,6 +74,7 @@
 			const r = await sqlQuery(sql, limit.value, off);
 			result = r;
 			offset = off;
+			ranOnce = true;
 			if (page === 0) remember(sql);
 		} catch (e) {
 			error = String(e);
@@ -140,6 +147,9 @@
 	});
 
 	const page = $derived(Math.floor(offset / limit.value));
+	// a short page is DEFINITELY the last one; a full page MIGHT not be —
+	// the only way to know is to ask for the next page and see
+	const canGoNext = $derived(result !== null && result.rows.length === limit.value);
 </script>
 
 <div class="page">
@@ -203,15 +213,33 @@
 					<div class="results">
 						{#if !ready}
 							<p class="empty">Open a database to run queries.</p>
-						{:else if result === null}
+						{:else if !ranOnce}
 							<p class="empty">
 								{running ? "Running…" : "Run a query to see results here."}
+							</p>
+						{:else if result === null}
+							<!-- Ok(None): genuinely empty, or paged past the end — the
+							     same render either way; "prev" still works, "next" would
+							     only find more of the same -->
+							<div class="status">
+								<span class="mono">
+									No rows{offset > 0 ? ` · page ${page + 1}` : ""}
+								</span>
+								<span class="grow"></span>
+								{#if offset > 0}
+									<button disabled={running} onclick={() => run(page - 1)}
+										>‹ prev</button
+									>
+								{/if}
+							</div>
+							<p class="empty">
+								{offset > 0 ? "No rows on this page." : "No rows."}
 							</p>
 						{:else}
 							<div class="status">
 								<span class="mono">
 									{result.rows.length.toLocaleString()} rows
-									{#if offset > 0 || result.hasMore}
+									{#if offset > 0 || canGoNext}
 										· page {page + 1}
 									{/if}
 									· {formatDuration(result.elapsedMs)}
@@ -225,7 +253,7 @@
 									onclick={() => run(page - 1)}>‹ prev</button
 								>
 								<button
-									disabled={!result.hasMore || running}
+									disabled={!canGoNext || running}
 									onclick={() => run(page + 1)}>next ›</button
 								>
 							</div>

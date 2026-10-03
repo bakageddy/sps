@@ -6,6 +6,7 @@ pub mod query;
 pub mod stuckthread;
 pub mod tables;
 pub mod threaddump;
+pub mod sql;
 pub mod types;
 pub mod note;
 
