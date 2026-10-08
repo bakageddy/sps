@@ -2,13 +2,14 @@ pub mod connectiondump;
 pub mod cpumemstats;
 pub mod cpumonitoring;
 pub mod error;
+pub mod note;
 pub mod query;
+pub mod sql;
 pub mod stuckthread;
 pub mod tables;
 pub mod threaddump;
-pub mod sql;
+pub mod healthmeter;
 pub mod types;
-pub mod note;
 
 use std::{iter, path::Path};
 
@@ -20,6 +21,7 @@ use crate::{
         connectiondump::{ConnectionDumpEntry, Signal, Stats, TraceDump},
         cpumemstats::StatTable,
         cpumonitoring::CPUMonitoring,
+        healthmeter::HCell,
         runningquery::{RunningQuery, RunningQueryTable},
         stuckquery::{StuckQuery, StuckQueryTable},
         stuckthread::Stuckthread,
@@ -97,6 +99,7 @@ pub fn flush_results(store: Store) -> Result<(), store::error::Error> {
         cnx.appender_to_db(Tables::RunningQueryBlockingMSSQL.as_str(), "main")?;
     let mut runningquery_spwho2 =
         cnx.appender_to_db(Tables::RunningQuerySPWho2.as_str(), "main")?;
+    let mut healthmeter = cnx.appender_to_db(Tables::HealthMeter.as_str(), "main")?;
 
     cpumonitoring.flush()?;
     cpumonitoring_traces.flush()?;
@@ -117,6 +120,7 @@ pub fn flush_results(store: Store) -> Result<(), store::error::Error> {
     threaddump.flush()?;
     threads.flush()?;
     thread_traces.flush()?;
+    healthmeter.flush()?;
     Ok(())
 }
 
@@ -491,6 +495,15 @@ pub fn append_connectiondump<'a>(
         };
     }
 
+    Ok(())
+}
+
+pub fn append_healthmeter<'a>(
+    cnx: &Connection,
+    iter: impl Iterator<Item = HCell<'a>>,
+) -> Result<(), store::error::Error> {
+    let mut healthmeter = cnx.appender_to_db(Tables::HealthMeter.as_str(), "main")?;
+    healthmeter.append_rows(iter.map(|c| (c.key, c.val)))?;
     Ok(())
 }
 

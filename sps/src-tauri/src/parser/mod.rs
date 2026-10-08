@@ -13,6 +13,7 @@ pub mod runningquery;
 pub mod stuckquery;
 pub mod stuckthread;
 pub mod threaddump;
+pub mod healthmeter;
 pub mod tokenizer;
 
 enum DBKind {

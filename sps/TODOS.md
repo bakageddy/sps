@@ -31,12 +31,15 @@ the spec; reconcile against them, not memory.
       (<sql>) TO path (FORMAT CSV, HEADER)`, returns rows written).
       Capability: `save()` is covered by the existing `dialog:default`.
       Frontend is live at /sql.
-- [ ] **`healthmeter_info(path)`** (requirements in `src/lib/api/healthmeter.ts`):
-      find `HealthMeter.html` beside the dropped path, scrape the "Server
-      Time" row (`Sep 10, 2026 05:20 PM  Asia/Kolkata` → zone = last token)
-      and "OS Locale"; `Result<Option<HealthMeterInfo>, String>`, None when
-      absent. Frontend is live: the Ingest page's Display timezone control
-      (Bundle / Local / UTC / Custom + paste), applied app-wide through
+- [ ] **`healthmeter_info()`** (requirements in `src/lib/api/healthmeter.ts`):
+      `SELECT val FROM main.healthmeter WHERE key = 'Server Time' LIMIT 1`,
+      returned verbatim — `Result<Option<String>, String>`, None when the
+      table's empty or has no such key. No zone/offset parsing on the Rust
+      side; the table has no column identifying which capture a row
+      belongs to, so which row comes back absent an ORDER BY is accepted as
+      unspecified for now. Frontend is live: the Ingest page's Display
+      timezone control (Bundle / Local / UTC / Custom + paste) runs the raw
+      string through `extractZone()` itself, applied app-wide through
       `formatTimestamp`.
 - [ ] **Notes commands** (3, requirements in `src/lib/api/notes.ts`):
       `notes_list()`, `notes_upsert(note)` (`INSERT OR REPLACE`, PK

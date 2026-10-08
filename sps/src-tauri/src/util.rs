@@ -1,6 +1,10 @@
 use memmap2::Mmap;
 
-use crate::{handlers::types::IngestEvent, parser::runningquery::{self, RunningQueryParser}};
+use crate::{
+    handlers::types::IngestEvent, parser::{
+        healthmeter::{self, HealthMeterParser}, runningquery::{self, RunningQueryParser},
+    },
+};
 #[cfg(unix)]
 use memmap2::Advice;
 use std::{
@@ -124,7 +128,9 @@ where
     let connectiondump = get_files_reverse_sort(&root, "cd", ".txt")?;
     let threaddump = get_files_reverse_sort(&root, "threaddump", ".txt")?;
     let runningqueries = get_files_reverse_sort(&root, "runningqueries", ".txt")?;
+    let healthmeter = get_files_reverse_sort(&root, "HealthMeter.html", "")?;
     Ok(LogFiles {
+        healthmeter,
         cpumonitoring,
         cpumemstats,
         stuckthreads,
@@ -147,7 +153,14 @@ where
         stuckqueries,
         runningqueries,
         connectiondump,
+        healthmeter,
     } = get_files(root)?;
+
+    let result = parse_healthmeter_and_persist(&healthmeter, store.clone(), app);
+    if let Err(ref e) = result {
+        warn!("Error during parsing/persisting: {e}");
+    }
+
     std::thread::scope(|s| {
         let _ = s.spawn(|| -> Result<()> {
             let result = parse_cpumemstats_and_persist(&cpumemstats, store.clone(), app);
@@ -248,7 +261,7 @@ fn parse_stuckqueries_and_persist(
     entries: &[PathBuf],
     store: Store,
     app: Option<&AppHandle>,
-) -> std::result::Result<(), crate::error::Error> {
+) -> Result<()> {
     let entries = entries
         .iter()
         .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(e)?, e)) });
@@ -316,7 +329,7 @@ pub fn parse_runningqueries_and_persist(
     entries: &[PathBuf],
     store: Store,
     app: Option<&AppHandle>,
-) -> std::result::Result<(), crate::error::Error> {
+) -> Result<()> {
     let entries = entries
         .iter()
         .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(e)?, e)) });
@@ -592,7 +605,7 @@ fn parse_connectiondump_and_persist(
     entries: &[PathBuf],
     store: Store,
     app: Option<&AppHandle>,
-) -> std::result::Result<(), crate::error::Error> {
+) -> Result<()> {
     let entries = entries
         .iter()
         .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(e)?, e)) });
@@ -658,7 +671,7 @@ pub fn parse_threaddump_and_persist(
     entries: &[PathBuf],
     store: Store,
     app: Option<&AppHandle>,
-) -> std::result::Result<(), crate::error::Error> {
+) -> Result<()> {
     let entries = entries
         .iter()
         .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(e)?, e)) });
@@ -698,6 +711,76 @@ pub fn parse_threaddump_and_persist(
                         item.ok()
                     }
                 }),
+            )?;
+        } else {
+            let err = parser.unwrap_err();
+            if let Some(a) = app {
+                a.emit(
+                    "ingest:error",
+                    IngestEvent::Error {
+                        file: Some(entry.to_path_buf()),
+                        message: err.to_string(),
+                    },
+                )
+                .unwrap()
+            }
+            warn!(
+                "Cannot convert bytes of {:?} to UTF8 due to {:?}",
+                entry.display(),
+                err
+            );
+            continue;
+        }
+    }
+    Ok(())
+}
+
+pub fn parse_healthmeter_and_persist(
+    entries: &[PathBuf],
+    store: Store,
+    app: Option<&AppHandle>,
+) -> Result<()> {
+    let entries = entries
+        .iter()
+        .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(e)?, e)) });
+    let cnx = store.get()?;
+    for (mmap, entry) in entries {
+        info!("Parsing and persisting: {:?}", entry.display());
+        let parser = HealthMeterParser::try_from(mmap.deref());
+        if let Ok(parser) = parser {
+            if let Some(a) = app {
+                a.emit(
+                    "ingest:file",
+                    IngestEvent::File {
+                        kind: "healthmeter",
+                        file: entry.to_path_buf(),
+                    },
+                )
+                .unwrap()
+            }
+
+            store::append_healthmeter(
+                &cnx,
+                parser.into_iter().flat_map(|item| {
+                    if let Err(e) = item {
+                        if let healthmeter::error::Error::InvalidKey = e {
+                            return None;
+                        } else if let Some(a) = app {
+                            a.emit(
+                                "ingest:error",
+                                IngestEvent::Error {
+                                    file: Some(entry.to_path_buf()),
+                                    message: e.to_string(),
+                                },
+                            )
+                            .unwrap()
+                        }
+                        warn!("Error during parsing {:?} due to {}", entry.display(), e);
+                        None
+                    } else {
+                        item.ok()
+                    }
+                })
             )?;
         } else {
             let err = parser.unwrap_err();

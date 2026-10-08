@@ -1,41 +1,29 @@
 /**
- * HealthMeter.html — the one file in a bundle that states the SERVER's
- * timezone. Every log line is server-local wall-clock time with no offset,
- * so without this the UI can only guess; with it, timestamps can be shown
- * exactly as the server saw them ("display timezone" on the Ingest page).
+ * HealthMeter — just the "Server Time" cell, verbatim, nothing interpreted.
  *
- * Read-only lookup, not part of ingest: the frontend calls it once per
- * dropped path, right after the parse finishes, and keeps the answer.
+ * The backend's job stops at "here is the text DuckDB has"; zone extraction
+ * (pulling a token like "IST" or "Asia/Calcutta" out of it, validating it
+ * against Intl) lives entirely in the frontend (lib/timezone.svelte.ts
+ * extractZone/isValidZone) — one place that owns "how do we interpret this
+ * string", not split across Rust and TS.
  */
 
 import { invoke } from "@tauri-apps/api/core";
 
-export interface HealthMeterInfo {
-	/** IANA zone name exactly as the file prints it, e.g. "Asia/Kolkata" */
-	timezone: string;
-	/** the Server Time cell's text minus the zone, e.g. "Sep 10, 2026 05:20 PM" */
-	serverTime: string;
-	/** the OS Locale row, e.g. "en_US.UTF-8", when present */
-	osLocale: string | null;
-}
-
 /**
  * ```rust
  * #[tauri::command]
- * async fn healthmeter_info(path: String) -> Result<Option<HealthMeterInfo>, String>
+ * async fn healthmeter_info(state: ...) -> Result<Option<String>, String>
  * ```
- * REQUIREMENTS: `path` is whatever the user dropped — a bundle directory
- * or a single log file; look for `HealthMeter.html` (case-insensitive) in
- * that directory, or in the file's parent. Parse (scraper is already a
- * dependency) the table row whose first cell is "Server Time"; the second
- * cell reads `Sep 10, 2026 05:20 PM  Asia/Kolkata` — the zone is the LAST
- * whitespace-separated token, the rest is serverTime. Same for the
- * "OS Locale" row → osLocale.
- * Ok(None) = no HealthMeter.html, or no Server Time row (a bundle without
- * one is normal, not an error). Err = I/O or HTML parse failure only.
- * Do NOT convert or validate the zone name — the frontend checks it
- * against Intl and falls back if the runtime doesn't know it.
+ * REQUIREMENTS: `SELECT val FROM main.healthmeter WHERE key = 'Server Time'
+ * LIMIT 1` — the row text, unmodified (no IANA/offset parsing, no format
+ * validation). The table has no column identifying which capture a row
+ * belongs to, so absent an ORDER BY, which row comes back is whichever one
+ * DuckDB happens to return — that's a known, accepted gap for now, not a
+ * bug in this command. Ok(None) when the table is empty or has no such key
+ * (the bundle had no HealthMeter data — normal, not an error). Err is for
+ * actual query/database failures only.
  */
-export function healthmeterInfo(path: string): Promise<HealthMeterInfo | null> {
-	return invoke("healthmeter_info", { path });
+export function healthmeterInfo(): Promise<string | null> {
+	return invoke("healthmeter_info");
 }

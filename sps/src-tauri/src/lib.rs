@@ -9,12 +9,16 @@ pub mod util;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::{arg::Command, store::{Store, sql}, types::AppState};
+use crate::{
+    arg::Command,
+    store::{Store, sql},
+    types::AppState,
+};
 use arg::AppArgs;
 use clap::Parser;
 use handlers::{
-    connectiondump::*, cpumemstats::*, cpumonitoring::*, database::*, notes::*, parse::*,
-    runningquery::*, sql::*, stuckquery::*, stuckthread::*, threaddump::*,
+    connectiondump::*, cpumemstats::*, cpumonitoring::*, database::*, healthmeter::*, notes::*,
+    parse::*, runningquery::*, sql::*, stuckquery::*, stuckthread::*, threaddump::*,
 };
 use tauri::Manager;
 use tracing::{info, level_filters::LevelFilter, warn};
@@ -83,7 +87,8 @@ pub fn launch(database: Option<PathBuf>) {
             notes_delete,
             sql_schema,
             sql_query,
-            sql_export_csv
+            sql_export_csv,
+            healthmeter_info
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -124,7 +129,7 @@ pub fn run() {
 
                 let schema = match sql::get_schema(&cnx) {
                     Ok(s) => s,
-                    Err(e) =>  {
+                    Err(e) => {
                         warn!("Failed to derive schema from {:?}: {e}", database.display());
                         std::process::exit(1);
                     }
@@ -201,7 +206,6 @@ pub fn run() {
                     };
 
                     if let Some(res) = res {
-
                         let stdio = std::io::stdout().lock();
                         if let Err(e) = serde_json::to_writer_pretty(stdio, &res) {
                             warn!("Failed to serialize result into json: {e}");

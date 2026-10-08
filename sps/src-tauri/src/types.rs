@@ -6,6 +6,7 @@ pub struct AppState {
 }
 
 pub struct LogFiles {
+    pub healthmeter: Vec<PathBuf>,
     pub cpumonitoring: Vec<PathBuf>,
     pub cpumemstats: Vec<PathBuf>,
     pub stuckthreads: Vec<PathBuf>,

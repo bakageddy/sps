@@ -63,7 +63,7 @@ impl<'a> Iterator for StuckthreadParser<'a> {
         {
             let _ = tok.get_line()?;
             while let Some(line) = tok.peek_line()
-                && (!line.trim().starts_with("[") || line.trim().starts_with("at"))
+                && line.trim().starts_with("at")
             {
                 let frame = match Frame::parse(line) {
                     Ok(f) => f,

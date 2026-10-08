@@ -7,6 +7,7 @@ pub mod stuckquery;
 pub mod stuckthread;
 pub mod threaddump;
 pub mod runningquery;
+pub mod healthmeter;
 pub mod notes;
 pub mod sql;
 pub mod types;

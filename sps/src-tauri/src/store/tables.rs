@@ -20,6 +20,7 @@ pub enum Tables {
     Threaddump,
     ThreaddumpThreads,
     ThreaddumpTraces,
+    HealthMeter,
 }
 
 impl Tables {
@@ -44,6 +45,7 @@ impl Tables {
             Self::RunningQueryMSSQL => "runningquery_mssql",
             Self::RunningQueryBlockingMSSQL => "runningquery_mssql_blocking",
             Self::RunningQuerySPWho2 => "runningquery_mssql_spwho2",
+            Self::HealthMeter => "healthmeter",
         }
     }
 }

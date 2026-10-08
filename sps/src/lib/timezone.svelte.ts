@@ -41,6 +41,14 @@ export function extractZone(text: string): string | null {
 		...text.matchAll(/[A-Z][A-Za-z]+(?:\/[A-Za-z_+\-]+)+/g),
 		...text.matchAll(/\b(?:UTC|GMT|Etc\/[A-Za-z0-9+\-]+)\b/g),
 		...text.matchAll(/[+\-]\d{2}:?\d{2}\b/g),
+		// bare abbreviations (IST, EST, PST, ...) — Intl accepts these as
+		// legacy aliases even though they're not in the canonical
+		// supportedValuesOf() list (verified: IST resolves to Asia/Calcutta).
+		// A/PM and other short all-caps noise in the same string (e.g. the
+		// "PM" in "04:39 PM  IST") are harmless here: isValidZone() below
+		// rejects them (confirmed: Intl rejects "AM"/"PM" outright), so only
+		// a genuine zone abbreviation ever survives this candidate list.
+		...text.matchAll(/\b[A-Z]{2,5}\b/g),
 	].map((m) => m[0]);
 	for (const c of candidates) {
 		const z = /^[+\-]\d{4}$/.test(c) ? `${c.slice(0, 3)}:${c.slice(3)}` : c;

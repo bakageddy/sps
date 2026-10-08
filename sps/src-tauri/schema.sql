@@ -305,3 +305,8 @@ CREATE TABLE IF NOT EXISTS main.notes (
 	text STRING NOT NULL,
 	route STRING NOT NULL,
 );
+
+CREATE TABLE IF NOT EXISTS main.healthmeter (
+	key STRING NOT NULL,
+	val STRING NULL,
+);

@@ -2,14 +2,16 @@
 	/**
 	 * Display timezone, set once per bundle on the Ingest page.
 	 *
-	 * Auto follows HealthMeter.html (asked from the backend after every
-	 * parse, beside the dropped path); the other modes pin a zone. Custom
-	 * takes a typed IANA name OR a pasted HealthMeter "Server Time" cell —
-	 * the zone is extracted and validated against Intl before it applies.
-	 * A live preview shows what "now" looks like in the chosen zone.
+	 * Auto reads the ingested "Server Time" cell from the database (the
+	 * backend hands back the raw string, nothing parsed); the other modes
+	 * pin a zone. Custom takes a typed IANA name OR a pasted HealthMeter
+	 * "Server Time" cell — same extractZone() path either way, the zone is
+	 * extracted and validated against Intl before it applies. A live
+	 * preview shows what "now" looks like in the chosen zone.
 	 */
 	import { healthmeterInfo } from "$lib/api/healthmeter";
 	import { ingest } from "$lib/ingest.svelte";
+	import { db } from "$lib/database.svelte";
 	import {
 		tzMode,
 		tzCustom,
@@ -27,16 +29,20 @@
 	let pasted = $state("");
 	let pasteNote = $state<string | null>(null);
 
-	// after each finished run, read the bundle's declared zone
+	// re-check whenever the database changes — a fresh parse, or opening an
+	// existing .duckdb that already has healthmeter rows from a prior run
 	$effect(() => {
-		if (ingest.generation === 0 || ingest.lastPath === null) return;
-		const path = ingest.lastPath;
+		if (db.state.status !== "open") return;
+		void db.epoch;
+		void ingest.generation;
 		detectError = null;
-		healthmeterInfo(path).then(
-			(info) => {
-				if (info === null) return;
-				tzDetected.value = info.timezone;
-				tzDetectedAt.value = info.serverTime;
+		healthmeterInfo().then(
+			(raw) => {
+				if (raw === null) return;
+				const zone = extractZone(raw);
+				if (zone === null) return; // nothing recognizable in the cell
+				tzDetected.value = zone;
+				tzDetectedAt.value = raw;
 			},
 			(e) => (detectError = String(e)),
 		);
