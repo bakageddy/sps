@@ -1,4 +1,7 @@
-use crate::{parser::tokenizer, util};
+use crate::{
+    parser::{Context, tokenizer},
+    util,
+};
 use duckdb::types::{FromSql, FromSqlError};
 use error::Error;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -7,9 +10,12 @@ use std::{
     borrow::Cow,
     str::{FromStr, Utf8Error},
 };
+use time_tz::Tz;
 
 use crate::parser::tokenizer::Tokenizer;
-use time::{OffsetDateTime, format_description::BorrowedFormatItem, macros::format_description};
+use time::{
+    OffsetDateTime, format_description::BorrowedFormatItem, macros::format_description,
+};
 
 const CONNECTION_DUMP_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
@@ -20,7 +26,7 @@ const TRACE_DATE_TIME_FORMAT: &[BorrowedFormatItem] = format_description!(
 );
 
 #[derive(Debug)]
-pub struct ConnectionDumpParser<'a>(&'a str, ParserState);
+pub struct ConnectionDumpParser<'a>(&'a str, ParserState, Context);
 #[derive(Debug)]
 pub enum ParserState {
     Initial,
@@ -95,11 +101,15 @@ impl<'a> ConnectionDumpParser<'a> {
     const TRACE_INFO_PREAMBLE: &'static str = "In use TraceInfo ::";
 
     pub fn new(data: &'a str) -> Self {
-        Self(data, ParserState::Initial)
+        Self(data, ParserState::Initial, Context::EMPTY)
     }
 
-    pub fn parse_entry(line: &'a str) -> Result<ConnectionDumpEntry<'a>, Error> {
-        let mut tok = Tokenizer::new(line);
+    pub fn with_context(data: &'a str, ctx: Context) -> Self {
+        Self(data, ParserState::Initial, ctx)
+    }
+
+    pub fn parse_header(header: &'a str, zone: Option<&'static Tz>) -> Result<(u64, u64), Error> {
+        let mut tok = Tokenizer::new(header);
         let time = tok.take_within("[", "]")?;
         let date = tok.take_within("[", "]")?;
         let timestamp = util::unix_timestamp_millis(
@@ -107,16 +117,24 @@ impl<'a> ConnectionDumpParser<'a> {
             date,
             CONNECTION_DUMP_TIME_FORMAT,
             CONNECTION_DUMP_DATE_FORMAT,
+            zone,
         )?;
         let _ = tok.take_within("[", "]")?;
         let _ = tok.take_within("[", "]")?;
         let tid = tok.take_within("[", "]")?.parse()?;
-        let _ = tok.take_until("::").ok_or_else(|| {
-            Error::InvalidFormat(tokenizer::error::Error::DelimiterNotFound("::".to_owned()))
-        })?;
+        Ok((timestamp, tid))
+    }
+
+    pub fn parse_entry(
+        line: &'a str,
+        zone: Option<&'static Tz>,
+    ) -> Result<ConnectionDumpEntry<'a>, Error> {
+        let mut tok = Tokenizer::new(line);
+        let header = tok.take_until_fallible("::")?;
         tok.skip_whitespace();
         if tok.peek(Self::CAUSE_PREAMBLE) {
             tok.expect(Self::CAUSE_PREAMBLE)?;
+            let (timestamp, tid) = Self::parse_header(header, zone)?;
             tok.skip_whitespace();
             tok.expect("Cause")?;
             tok.skip_whitespace();
@@ -131,6 +149,7 @@ impl<'a> ConnectionDumpParser<'a> {
             }))
         } else if tok.peek(Self::SKIPPING_CAUSE_PREAMBLE) {
             tok.expect(Self::SKIPPING_CAUSE_PREAMBLE)?;
+            let (timestamp, tid) = Self::parse_header(header, zone)?;
             tok.take_until(".").ok_or_else(|| {
                 Error::InvalidFormat(tokenizer::error::Error::DelimiterNotFound(".".to_owned()))
             })?;
@@ -148,6 +167,7 @@ impl<'a> ConnectionDumpParser<'a> {
         } else if tok.peek(Self::CNX_STATS_PREAMBLE) {
             tok.expect(Self::CNX_STATS_PREAMBLE)?;
 
+            let (timestamp, tid) = Self::parse_header(header, zone)?;
             tok.skip_whitespace();
             tok.expect("used_connections:")?;
             let used = tok
@@ -180,6 +200,7 @@ impl<'a> ConnectionDumpParser<'a> {
             }))
         } else if tok.peek(Self::TRACE_INFO_PREAMBLE) {
             tok.expect(Self::TRACE_INFO_PREAMBLE)?;
+            let (timestamp, tid) = Self::parse_header(header, zone)?;
             tok.skip_whitespace();
             let json = tok.remaining();
             let traces: Vec<Trace> = serde_json::from_str(json)?;
@@ -228,7 +249,7 @@ impl<'a> Iterator for ConnectionDumpParser<'a> {
         }
 
         let line = tok.get_line()?;
-        match Self::parse_entry(line) {
+        match Self::parse_entry(line, self.2.zone) {
             Ok(e) => {
                 self.0 = tok.remaining();
                 Some(Ok(e))
@@ -346,7 +367,7 @@ pub mod test {
     #[test]
     fn cd_cause_entry() {
         let line = "[14:30:10.237]|[11-02-2026]|[ConnectionDump]|[INFO]|[201]| :: Going to dump performance logs. Cause : High CPU ";
-        let entry = ConnectionDumpParser::parse_entry(line);
+        let entry = ConnectionDumpParser::parse_entry(line, None);
         assert!(
             entry.is_ok(),
             "Error during parsing: {}",
@@ -371,7 +392,7 @@ pub mod test {
     #[test]
     fn cd_connection_pool_stats() {
         let line = "[14:30:11.022]|[11-02-2026]|[ConnectionDump]|[INFO]|[205]| :: Connection Pool Stats :: used_connections:9, free_connections:71, max_connections:80";
-        let entry = ConnectionDumpParser::parse_entry(line);
+        let entry = ConnectionDumpParser::parse_entry(line, None);
         assert!(
             entry.is_ok(),
             "Error during parsing: {}",
@@ -396,7 +417,7 @@ pub mod test {
 
         let map = util::map_file("test/cd0/cd1_traces.txt").unwrap();
         let data = std::str::from_utf8(map.deref()).unwrap();
-        let entry = ConnectionDumpParser::parse_entry(data);
+        let entry = ConnectionDumpParser::parse_entry(data, None);
         assert!(
             entry.is_ok(),
             "Error during parsing: {}",
@@ -419,7 +440,7 @@ pub mod test {
     fn cd_connection_pool_traces() {
         let map = util::map_file("test/cd0/cd0_traces.txt").unwrap();
         let data = std::str::from_utf8(map.deref()).unwrap();
-        let entry = ConnectionDumpParser::parse_entry(data);
+        let entry = ConnectionDumpParser::parse_entry(data, None);
         assert!(
             entry.is_ok(),
             "Error during parsing: {}",
@@ -441,7 +462,7 @@ pub mod test {
     #[test]
     fn cd_skipping_performance() {
         let line = "[15:08:03.660]|[11-02-2026]|[ConnectionDump]|[INFO]|[6744]| :: Skipping to dump performance logs for 960 seconds from last dump. Current trigger- Cause : High CPU";
-        let entry = ConnectionDumpParser::parse_entry(line);
+        let entry = ConnectionDumpParser::parse_entry(line, None);
         assert!(
             entry.is_ok(),
             "Error during parsing: {}",
@@ -465,7 +486,7 @@ pub mod test {
     #[test]
     fn cd_skipping_performance_nmc() {
         let line = "[02:04:00.888]|[29-07-2026]|[ConnectionDump]|[INFO]|[67]| :: Skipping to dump performance logs for 120 seconds from last dump. Current trigger- Cause : No ManagedConnections";
-        let entry = ConnectionDumpParser::parse_entry(line);
+        let entry = ConnectionDumpParser::parse_entry(line, None);
         assert!(
             entry.is_ok(),
             "Error during parsing: {}",

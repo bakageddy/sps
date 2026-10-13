@@ -23,6 +23,16 @@ pub fn open_database(
     Ok(DatabaseInfo { path })
 }
 
+#[tauri::command]
+pub fn save_database(path: String, state: tauri::State<'_, Mutex<AppState>>) -> Result<(), String> {
+    state
+        .lock()
+        .unwrap()
+        .store
+        .persist(path)
+        .map_err(|e| e.to_string())
+}
+
 #[instrument(skip(state))]
 #[tauri::command]
 pub fn database_info(state: tauri::State<'_, Mutex<AppState>>) -> Result<Option<String>, String> {

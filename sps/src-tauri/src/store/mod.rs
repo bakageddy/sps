@@ -2,13 +2,13 @@ pub mod connectiondump;
 pub mod cpumemstats;
 pub mod cpumonitoring;
 pub mod error;
+pub mod healthmeter;
 pub mod note;
 pub mod query;
 pub mod sql;
 pub mod stuckthread;
 pub mod tables;
 pub mod threaddump;
-pub mod healthmeter;
 pub mod types;
 
 use std::{iter, path::Path};
@@ -60,6 +60,24 @@ impl Store {
         cnx.execute_batch(schema)?;
 
         Ok(Self(pool))
+    }
+
+    pub fn persist<P>(&self, path: P) -> Result<(), store::error::Error>
+    where
+        P: AsRef<Path>,
+    {
+        let cnx = self.0.get()?;
+        let path = path.as_ref();
+        let query = format!(
+            r"
+                ATTACH '{}' AS target;
+                COPY FROM DATABASE memory TO target;
+                DETACH target;
+            ", 
+            path.display()
+        );
+        cnx.execute_batch(&query)?;
+        Ok(())
     }
 
     pub fn get(&self) -> Result<PooledConnection<DuckdbConnectionManager>, store::error::Error> {

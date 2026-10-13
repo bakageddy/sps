@@ -9,6 +9,7 @@
 import {
 	openDatabase,
 	databaseInfo,
+	saveDatabaseAs,
 	type DatabaseInfo,
 } from "$lib/api/database";
 
@@ -43,6 +44,22 @@ export async function open(path: string): Promise<DbState> {
 		db.state = { status: "error", message: String(e) };
 	}
 	return db.state;
+}
+
+/**
+ * Persist the in-memory database to `path`, then switch the live
+ * connection over to that file (so later ingests and notes land on disk).
+ * Two steps on purpose — the backend only copies; this module owns the
+ * reopen, same as every other connection-state change.
+ *
+ * THROWS if the copy fails, leaving db.state untouched: the in-memory
+ * database is still perfectly good, and a failed save must not paint the
+ * working connection as broken. A failed reopen reports through db.state
+ * like any open() does.
+ */
+export async function saveAs(path: string): Promise<DbState> {
+	await saveDatabaseAs(path);
+	return open(path);
 }
 
 /**

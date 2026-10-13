@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
+use time_tz::Tz;
 
 use crate::parser::tokenizer::Tokenizer;
 
@@ -8,13 +10,37 @@ pub mod connectiondump;
 pub mod cpumemstats;
 pub mod cpumonitoring;
 pub mod error;
+pub mod healthmeter;
 pub mod query;
 pub mod runningquery;
 pub mod stuckquery;
 pub mod stuckthread;
 pub mod threaddump;
-pub mod healthmeter;
 pub mod tokenizer;
+
+#[derive(Debug, Clone)]
+pub struct Context {
+    pub zone: Option<&'static Tz>,
+    pub handle: Option<AppHandle>,
+}
+
+impl Context {
+    pub const EMPTY: Context = Context {
+        zone: None,
+        handle: None,
+    };
+
+    pub fn emit<S>(&self, event: &str, payload: S) -> Option<()>
+    where
+        S: Serialize + Clone,
+    {
+        if let Some(ref handle) = self.handle {
+            handle.emit(event, payload).ok()
+        } else {
+            None
+        }
+    }
+}
 
 enum DBKind {
     Pgsql,

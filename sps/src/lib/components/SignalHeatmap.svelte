@@ -9,6 +9,11 @@
 	 * for the tooltip since they say "still hot", not "new incident". Days
 	 * are cut in the display timezone. Click a day → that day becomes the
 	 * global time window and the incident page opens on it.
+	 *
+	 * The grid spans the FULL calendar year(s) the data touches — Jan 1 to
+	 * Dec 31, every month present — not just the weeks with signals, exactly
+	 * like GitHub's contribution graph. A four-day bundle still shows where
+	 * in the year it sits; the grid scrolls sideways and opens on the data.
 	 */
 	import { goto } from "$app/navigation";
 	import { connectiondumpSignals, type ConnDumpSignal } from "$lib/api/connectiondump";
@@ -16,7 +21,7 @@
 	import { db } from "$lib/database.svelte";
 	import { ingest } from "$lib/ingest.svelte";
 	import { timeWindow } from "$lib/timewindow.svelte";
-	import { dayStart, resolveZone } from "$lib/timezone.svelte";
+	import { dayStart, resolveZone, zonedDate } from "$lib/timezone.svelte";
 	import { formatTimestamp } from "$lib/format";
 
 	let signals = $state<ConnDumpSignal[]>([]);
@@ -71,38 +76,57 @@
 		return map;
 	});
 
-	// the grid: from the Sunday on/before the first day to the Saturday
-	// on/after the last, one column per week
+	/** zone-midnight of month/day (1-based) in `year`, robust to the zone
+	 *  pushing noon-UTC across a date line */
+	function zoneDay(year: number, month: number, day: number, zone: string | undefined): number {
+		let ms = dayStart(Date.UTC(year, month - 1, day, 12));
+		// noon UTC can land a calendar day early/late in zones past ±12 (Dec 31
+		// in +14 is already next year's Jan 1) — compare the FULL date, year
+		// included, so the correction goes the right way across a year wrap
+		const [y, mo, d] = zonedDate(ms + 12 * 3_600_000, zone);
+		const got = (y * 12 + mo) * 31 + d;
+		const want = (year * 12 + month) * 31 + day;
+		if (got > want) ms -= DAY;
+		else if (got < want) ms += DAY;
+		return ms;
+	}
+
+	// the grid: every week from the Sunday on/before Jan 1 of the first
+	// data year to the Saturday on/after Dec 31 of the last — full years,
+	// one column per week; `first`/`last` stay the DATA bounds for the header
 	const grid = $derived.by(() => {
 		if (days.size === 0) return null;
 		const starts = [...days.keys()];
 		const first = Math.min(...starts);
 		const last = Math.max(...starts);
-		// weekday of a zone-midnight, asked at noon so DST shifts can't move it
 		const zone = resolveZone();
+		const [firstYear] = zonedDate(first + 12 * 3_600_000, zone);
+		const [lastYear] = zonedDate(last + 12 * 3_600_000, zone);
+		const yearStart = zoneDay(firstYear, 1, 1, zone);
+		const yearEnd = zoneDay(lastYear, 12, 31, zone);
+		// weekday of a zone-midnight, asked at noon so DST shifts can't move it
 		const wdFormat = new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short" });
 		const NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 		const weekday = (ms: number) => NAMES.indexOf(wdFormat.format(ms + 12 * 3_600_000));
-		const gridStart = first - weekday(first) * DAY;
-		const gridEnd = last + (6 - weekday(last)) * DAY;
+		const gridStart = yearStart - weekday(yearStart) * DAY;
+		const gridEnd = yearEnd + (6 - weekday(yearEnd)) * DAY;
 		const max = Math.max(1, ...[...days.values()].map((d) => d.real));
-		type Cell = Day | { start: number; real: number }; // real -1 = outside the bundle
+		// real -1 = padding outside the shown year(s) (blank, like GitHub);
+		// 0 = a real day in the year with nothing on it
+		type Cell = Day | { start: number; real: number };
 		const weeks: { start: number; days: Cell[] }[] = [];
+		let firstWeek = 0;
 		for (let w = gridStart; w <= gridEnd; w += 7 * DAY) {
 			const col: Cell[] = [];
 			for (let i = 0; i < 7; i++) {
 				const s = dayStart(w + i * DAY + 12 * 3_600_000); // re-anchor: DST can shift a day by an hour
 				const d = days.get(s);
-				col.push(
-					d ?? {
-						start: s,
-						real: s < first || s > last ? -1 : 0, // -1 = outside the bundle
-					},
-				);
+				col.push(d ?? { start: s, real: s < yearStart || s > yearEnd ? -1 : 0 });
 			}
+			if (w <= first && first < w + 7 * DAY) firstWeek = weeks.length;
 			weeks.push({ start: w, days: col });
 		}
-		return { weeks, max, first, last };
+		return { weeks, max, first, last, firstWeek };
 	});
 
 	/** 0 = none, 1..4 relative to the busiest day */
@@ -164,14 +188,16 @@
 	function step(weeks: number) {
 		scroller?.scrollBy({ left: weeks * 15, behavior: "smooth" });
 	}
-	// start at the most recent week, and know whether there is anything to scroll
+	// open scrolled to the DATA, not the end of the year: the bundle's first
+	// week lands roughly a third of the way in, so what follows it is visible
+	const WEEK_PX = 15; // 12px cell + 3px gap, matches the CSS
 	$effect(() => {
-		void grid;
+		const g = grid;
 		const el = scroller;
-		if (!el) return;
+		if (!el || g === null) return;
 		requestAnimationFrame(() => {
 			canScroll = el.scrollWidth > el.clientWidth;
-			el.scrollLeft = el.scrollWidth;
+			el.scrollLeft = Math.max(0, g.firstWeek * WEEK_PX - el.clientWidth / 3);
 		});
 	});
 	const WEEKDAYS = ["", "Mon", "", "Wed", "", "Fri", ""];

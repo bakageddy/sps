@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use time_tz::{Tz, timezones};
 
 #[derive(clap::Parser)]
 pub struct AppArgs {
@@ -17,6 +18,10 @@ pub enum Command {
         /// Path to persist logs as a Database, Empty to persist it in memory
         #[arg(long, short)]
         database: Option<PathBuf>,
+
+        /// Overrides the Timezone region of the log bundle
+        #[arg(long, short, value_parser = tz)]
+        zone: Option<&'static Tz>
     },
 
     /// Launches the GUI with the --database
@@ -54,4 +59,8 @@ pub enum Command {
         /// Path to the database after parsing logs
         database: PathBuf,
     }
+}
+
+pub fn tz(zone: &str) -> Result<&'static Tz, String> {
+    timezones::get_by_name(zone).ok_or_else(|| format!("Failed to resolve IANA Zone (Eg: Asia/Kolkata)"))
 }

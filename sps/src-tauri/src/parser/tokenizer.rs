@@ -1,12 +1,20 @@
 use crate::parser::tokenizer::error::Error;
 use std::str::Utf8Error;
 
-pub trait Parser<'a> {
+pub trait Parser<'a>: Sized {
+    type Context;
     type Error;
+
+    fn parse_with(data: &'a str, ctx: &Self::Context) -> Result<Self, Self::Error>
+    where
+        Self::Context: Clone;
 
     fn parse(data: &'a str) -> Result<Self, Self::Error>
     where
-        Self: Sized;
+        Self: Parser<'a, Context = ()>,
+    {
+        Self::parse_with(data, &())
+    }
 }
 
 pub struct Tokenizer<'a>(&'a str);

@@ -8,6 +8,7 @@ use std::net::Ipv4Addr;
 use std::str::FromStr;
 use time::OffsetDateTime;
 
+use crate::parser::Context;
 use crate::parser::WaitType;
 use crate::parser::query::error::SPWho2StatusParse;
 use crate::parser::tokenizer::Parser;
@@ -43,10 +44,13 @@ pub struct PGSQLQuery<'a> {
     pub client_port: Option<u16>,
 }
 
+// We do not need any context for pgsql query for now since, we already have the
+// timezone from the state change
 impl<'a> Parser<'a> for PGSQLQuery<'a> {
     type Error = Error;
+    type Context = ();
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    fn parse_with(data: &'a str, _ctx: &Self::Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -182,8 +186,9 @@ pub struct MSSQLQuery<'a> {
 
 impl<'a> Parser<'a> for MSSQLQuery<'a> {
     type Error = Error;
+    type Context = Context;
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    fn parse_with(data: &'a str, ctx: &Self::Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -227,10 +232,17 @@ impl<'a> Parser<'a> for MSSQLQuery<'a> {
         let program = tok.take_within_exclusive("|", "|")?.trim().into();
         let host_process = tok.take_within_exclusive("|", "|")?.trim().parse()?;
         let last_request_end = tok.take_within_exclusive("|", "|")?.trim();
-        let last_request_end =
-            util::utc_unix_timestamp_millis(last_request_end, MSSQL_LOGIN_TIME_FORMAT)?;
+        let last_request_end = util::utc_unix_timestamp_millis_optional_offset(
+            last_request_end,
+            MSSQL_LOGIN_TIME_FORMAT,
+            ctx.zone,
+        )?;
         let login_time = tok.take_within_exclusive("|", "|")?.trim();
-        let login_time = util::utc_unix_timestamp_millis(login_time, MSSQL_LOGIN_TIME_FORMAT)?;
+        let login_time = util::utc_unix_timestamp_millis_optional_offset(
+            login_time,
+            MSSQL_LOGIN_TIME_FORMAT,
+            ctx.zone,
+        )?;
         let open_txn = tok.take_within_exclusive("|", "|")?.trim().parse()?;
 
         Ok(Self {
@@ -322,8 +334,9 @@ pub struct BlockingQuery<'a> {
 
 impl<'a> Parser<'a> for BlockingQuery<'a> {
     type Error = Error;
+    type Context = ();
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    fn parse_with(data: &'a str, _ctx: &Self::Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -396,8 +409,9 @@ pub struct SPWho2Query<'a> {
 
 impl<'a> Parser<'a> for SPWho2Query<'a> {
     type Error = Error;
+    type Context = Context;
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    fn parse_with(data: &'a str, ctx: &Self::Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -423,7 +437,11 @@ impl<'a> Parser<'a> for SPWho2Query<'a> {
         let diskio = tok.take_within_exclusive("|", "|")?.trim().parse()?;
         let lastbatch = tok.take_within_exclusive("|", "|")?.trim();
         let lastbatch = format!("{}/{lastbatch}", OffsetDateTime::now_utc().year());
-        let lastbatch = util::utc_unix_timestamp_millis(&lastbatch, SPWHO2_LAST_BATCH_FORMAT)?;
+        let lastbatch = util::utc_unix_timestamp_millis_optional_offset(
+            &lastbatch,
+            SPWHO2_LAST_BATCH_FORMAT,
+            ctx.zone,
+        )?;
         let program_name = tok.take_within_exclusive("|", "|")?.trim();
         let program_name = if program_name.is_empty() {
             None
@@ -498,6 +516,7 @@ pub mod test {
     use super::MSSQLStatus;
     use super::PGSQLQuery;
     use super::PGSQLState;
+    use crate::parser::Context;
     use crate::parser::TableKind;
     use crate::parser::WaitType;
     use crate::parser::tokenizer::Parser;
@@ -531,7 +550,7 @@ pub mod test {
     #[test]
     fn mssql_query_single_line() {
         let query = r"|  114         |  suspended  |  35839033162  |  0           |  PAGEIOLATCH_EX  |  5:1:134959573  |  0.000000       |  402.755000    |  144979671      |  5529498   |  2510814  |  1319.037000       |  DBCC SHRINKDATABASE(N'sdpload15140' )                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |                |  DbccFilesCompact  |  SDP-DB-W221\Administrator  |  SDP-DB-W221  |  sdpload15140  |  SQL Server Management Studio          |  24968            |  2026-09-07 23:15:39.013  |  2026-09-07 23:15:25.7    |  1                       |";
-        let result = MSSQLQuery::parse(query);
+        let result = MSSQLQuery::parse_with(query, &Context::EMPTY);
         assert!(
             result.is_ok(),
             "Error during parsing: {}",

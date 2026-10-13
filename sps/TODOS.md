@@ -48,6 +48,13 @@ the spec; reconcile against them, not memory.
       SURVIVE re-ingest
       (never truncated with the log tables). Frontend is live: Ctrl+\
       editor (explicit Ctrl+S save) + sidebar section.
+- [ ] **`save_database(path)`** (requirements in `src/lib/api/database.ts`):
+      `ATTACH '<path>' AS target; COPY FROM DATABASE memory TO target;
+      DETACH target;` on the live in-memory connection — copy only, no
+      reopen/switch (the frontend calls `open_database(path)` after a
+      successful save). Needs DuckDB ≥ 0.10 and an empty/new target path.
+      Frontend is live: "Save as…" in the sidebar database control, shown
+      only while the open database is in-memory.
 - [ ] **cpumemstats**: schema DONE (platform-split: windows_cpu_stats /
       windows_memory_stats / linux_stats, totals denormalized per row).
       Remaining: column-map parser (header is ground truth; jagged Total rows

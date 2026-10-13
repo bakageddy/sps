@@ -24,7 +24,8 @@ pub async fn parse_logs(
                 },
             )
             .unwrap();
-        if let Err(e) = util::parse_and_persist(path.clone(), store, Some(&app_handle)) {
+        if let Err(e) = util::parse_and_persist(path.clone(), store, Some(app_handle.clone()), None)
+        {
             return Err(format!("Error during parsing {path}: {e}"));
         };
         app_handle.emit("ingest:finished", ()).unwrap();

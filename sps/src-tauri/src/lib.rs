@@ -141,7 +141,7 @@ pub fn run() {
                     std::process::exit(1);
                 }
             }
-            Command::Parse { path, database, .. } => {
+            Command::Parse { path, database, zone } => {
                 let store = match Store::init(database) {
                     Ok(x) => x,
                     Err(e) => {
@@ -150,7 +150,7 @@ pub fn run() {
                     }
                 };
 
-                if let Err(e) = util::parse_and_persist(&path, store, None) {
+                if let Err(e) = util::parse_and_persist(&path, store, None, zone) {
                     warn!(
                         "Error during parsing/persisting entries from {:?}: {e}",
                         path.display()

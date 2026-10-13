@@ -22,6 +22,8 @@ pub enum TimestampError {
     Parse(#[from] time::error::Parse),
     #[error("Conversion to u64 failed: {0}")]
     Conversion(#[from] TryFromIntError),
+    #[error("Normalizing Timestamp with Timezone Info failed")]
+    InvalidTime
 }
 
 #[derive(Debug, thiserror::Error)]

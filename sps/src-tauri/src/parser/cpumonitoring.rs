@@ -2,10 +2,11 @@ use std::borrow::Cow;
 
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
+use time_tz::Tz;
 use tracing::warn;
 
+use crate::parser::Context;
 use crate::parser::cpumonitoring::error::Error;
-use crate::parser::tokenizer;
 use crate::parser::tokenizer::{Parser, Tokenizer};
 use crate::util;
 
@@ -15,7 +16,7 @@ const CPU_MONITORING_DATE_FORMAT: &[BorrowedFormatItem] =
     format_description!("[day]-[month]-[year]");
 
 #[derive(Debug)]
-pub struct CPUMonitoringParser<'a>(&'a str, ParserState);
+pub struct CPUMonitoringParser<'a>(&'a str, ParserState, Context);
 
 // FIXME: when we return Some(Err(e)), call tok.remaining()
 impl<'a> Iterator for CPUMonitoringParser<'a> {
@@ -26,41 +27,16 @@ impl<'a> Iterator for CPUMonitoringParser<'a> {
         if self.0.is_empty() {
             return None;
         }
-        let mut iter = Tokenizer::new(self.0);
-        // let mut iter = self.0.split_inclusive('\n').peekable();
-
+        let mut tok = Tokenizer::new(self.0);
         let mut utc = None;
 
-        while let Some(line) = iter.get_line() {
+        while let Some(line) = tok.get_line() {
             if line.starts_with("[") {
-                if let Some(next) = iter.peek_line()
+                if let Some(next) = tok.peek_line()
                     && next.starts_with("Thread")
                 {
-                    let mut header_tokenizer = Tokenizer::new(line);
-                    let time = match header_tokenizer
-                        .take_within("[", "]")
-                        .map_err(Error::InvalidFormat)
-                    {
-                        Ok(time) => time,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    let date = match header_tokenizer
-                        .take_within("[", "]")
-                        .map_err(Error::InvalidFormat)
-                    {
-                        Ok(date) => date,
-                        Err(e) => return Some(Err(e)),
-                    };
-
-                    utc = util::unix_timestamp_millis(
-                        time,
-                        date,
-                        CPU_MONITORING_TIME_FORMAT,
-                        CPU_MONITORING_DATE_FORMAT,
-                    )
-                    .ok();
-
-                    self.1 = ParserState::EntryID;
+                    utc = Some(line);
+                    self.1 = ParserState::EntryHeader;
                     break;
                 } else {
                     continue;
@@ -68,76 +44,37 @@ impl<'a> Iterator for CPUMonitoringParser<'a> {
             }
         }
 
-        if !matches!(self.1, ParserState::EntryID) {
+        if !matches!(self.1, ParserState::EntryHeader) {
+            self.0 = tok.remaining();
             return None;
         }
 
-        let header = iter.get_line()?;
-        let mut tok = Tokenizer::new(header);
-
-        if let Err(e) = tok.expect("Thread Info:").map_err(Error::InvalidFormat) {
-            return Some(Err(e));
-        }
-
-        if let Err(e) = tok.expect("Thread Id :").map_err(Error::InvalidFormat) {
-            return Some(Err(e));
-        }
-
-        let id = match tok.take_until(",") {
-            Some(id) => id.trim().parse::<u64>().map_err(Error::ParseThreadID),
-            None => {
-                return Some(Err(Error::InvalidFormat(
-                    tokenizer::error::Error::DelimiterNotFound(String::from(",")),
-                )));
-            }
+        let utc = if let Some(line) = utc {
+            let t = match Self::parse_timestamp(line, self.2.zone) {
+                Ok(t) => t,
+                Err(e) => {
+                    self.0 = tok.remaining();
+                    return Some(Err(e));
+                }
+            };
+            t
+        } else {
+            self.0 = tok.remaining();
+            return None;
         };
 
-        let tid = match id {
-            Ok(id) => id,
-            Err(e) => return Some(Err(e)),
-        };
-
-        tok.skip_whitespace();
-        if let Err(e) = tok.expect("has CPU usage :").map_err(Error::InvalidFormat) {
-            return Some(Err(e));
-        };
-
-        let cpu = match tok.remaining() {
-            "" => {
-                return Some(Err(Error::InvalidFormat(
-                    tokenizer::error::Error::DelimiterNotFound(String::from("<newline>")),
-                )));
-            }
-            cpu => cpu.trim().parse::<f32>().map_err(Error::ParseCPU),
-        };
-
-        let cpu = match cpu {
+        let (tid, cpu, name, state) = match Self::parse_header(&mut tok) {
             Ok(x) => x,
-            Err(e) => return Some(Err(e)),
+            Err(e) => {
+                self.0 = tok.remaining();
+                return Some(Err(e));
+            }
         };
-
-        self.1 = ParserState::EntryState;
-
-        let line = iter.get_line()?;
-        let mut tok = Tokenizer::new(line);
-        if let Err(e) = tok.expect("Thread Name:").map_err(Error::InvalidFormat) {
-            return Some(Err(e));
-        }
-
-        tok.skip_whitespace();
-        let name = tok.take_until(",").map(|x| x.into());
-        tok.skip_whitespace();
-        if let Err(e) = tok.expect("Thread State:").map_err(Error::InvalidFormat) {
-            return Some(Err(e));
-        }
-
-        let state = tok.remaining();
-        let state = State::from(state.trim());
 
         self.1 = ParserState::EntryTrace;
 
         let mut frames = Vec::new();
-        while let Some(line) = iter.peek_line()
+        while let Some(line) = tok.peek_line()
             && !line.trim().is_empty()
             && line.trim_start().starts_with("at")
         {
@@ -146,7 +83,7 @@ impl<'a> Iterator for CPUMonitoringParser<'a> {
                 return Some(Err(e));
             }
             frames.push(frame.unwrap());
-            iter.get_line();
+            tok.get_line();
         }
 
         let trace = if frames.is_empty() {
@@ -155,10 +92,9 @@ impl<'a> Iterator for CPUMonitoringParser<'a> {
             Some(CPUTrace(frames))
         };
 
-        self.0 = iter.remaining();
-        self.1 = ParserState::EntryHeader;
+        self.0 = tok.remaining();
         Some(Ok(CPUMonitoring {
-            timestamp: utc.unwrap_or(0),
+            timestamp: utc,
             tid,
             usage: cpu,
             name,
@@ -170,7 +106,58 @@ impl<'a> Iterator for CPUMonitoringParser<'a> {
 
 impl<'a> CPUMonitoringParser<'a> {
     pub fn new(data: &'a str) -> Self {
-        Self(data, ParserState::EntryHeader)
+        Self(
+            data,
+            ParserState::Initial,
+            Context {
+                zone: None,
+                handle: None,
+            },
+        )
+    }
+
+    pub fn with_context(data: &'a str, ctx: Context) -> Self {
+        Self(data, ParserState::Initial, ctx)
+    }
+
+    pub fn parse_timestamp(data: &'a str, zone: Option<&'static Tz>) -> Result<u64, Error> {
+        let mut tok = Tokenizer::new(data);
+        let time = tok.take_within("[", "]")?;
+        let date = tok.take_within("[", "]")?;
+        let timestamp = util::unix_timestamp_millis(
+            time,
+            date,
+            CPU_MONITORING_TIME_FORMAT,
+            CPU_MONITORING_DATE_FORMAT,
+            zone,
+        )?;
+        Ok(timestamp)
+    }
+
+    pub fn parse_header<'b>(
+        tok: &mut Tokenizer<'b>,
+    ) -> Result<(u64, f32, Option<Cow<'b, str>>, State), Error> {
+        tok.expect("Thread Info:")?;
+        tok.expect("Thread Id :")?;
+        tok.skip_whitespace();
+        let tid = tok.take_until_fallible(",")?.parse()?;
+        tok.skip_whitespace();
+        tok.expect("has CPU usage :")?;
+        let cpu = tok.take_until_fallible("\n")?.trim().parse()?;
+        tok.expect("Thread Name:")?;
+        let name = tok.take_until_fallible(",")?.trim();
+        let name = if name.is_empty() {
+            None
+        } else {
+            Some(name.into())
+        };
+
+        tok.skip_whitespace();
+        tok.expect("Thread State:")?;
+        let state = tok.take_until_fallible("\n")?.trim();
+        let state = State::from(state);
+
+        Ok((tid, cpu, name, state))
     }
 }
 
@@ -185,9 +172,8 @@ impl<'a> TryFrom<&'a [u8]> for CPUMonitoringParser<'a> {
 
 #[derive(Debug)]
 enum ParserState {
+    Initial,
     EntryHeader,
-    EntryID,
-    EntryState,
     EntryTrace,
 }
 
@@ -206,8 +192,9 @@ pub struct CPUTrace<'a>(pub Vec<Frame<'a>>);
 
 impl<'a> Parser<'a> for CPUTrace<'a> {
     type Error = Error;
+    type Context = ();
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    fn parse_with(data: &'a str, _ctx: &Self::Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -229,10 +216,11 @@ pub struct Frame<'a> {
 
 impl<'a> Parser<'a> for Frame<'a> {
     type Error = Error;
+    type Context = ();
 
     /// Expect
     /// <whitespace>at<whitespace><method>(<source>)\n
-    fn parse(data: &'a str) -> Result<Self, Self::Error> {
+    fn parse_with(data: &'a str, _ctx: &Self::Context) -> Result<Self, Self::Error> {
         let mut tok = Tokenizer::new(data);
         tok.skip_whitespace();
         tok.expect("at").map_err(Error::InvalidFormat)?;
@@ -292,18 +280,18 @@ impl State {
 }
 
 pub mod error {
-    use crate::parser::tokenizer;
+    use crate::{parser::tokenizer, types::TimestampError};
     #[non_exhaustive]
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
         #[error("Invalid Format for stack trace/cpu monitoring entry: {0:?}")]
-        InvalidFormat(tokenizer::error::Error),
+        InvalidFormat(#[from] tokenizer::error::Error),
         #[error("Invalid Format for Timestamp: {0:?}")]
-        ParseTimestamp(#[from] time::error::Parse),
+        ParseTimestamp(#[from] TimestampError),
         #[error("Unable to parse Thread ID: {0:?}")]
-        ParseThreadID(std::num::ParseIntError),
+        ParseThreadID(#[from] std::num::ParseIntError),
         #[error("Unable to parse Thread CPU Usage: {0:?}")]
-        ParseCPU(std::num::ParseFloatError),
+        ParseCPU(#[from] std::num::ParseFloatError),
     }
 }
 

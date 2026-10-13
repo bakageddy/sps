@@ -42,3 +42,30 @@ export function openDatabase(path: string | null): Promise<DatabaseInfo> {
 export function databaseInfo(): Promise<DatabaseInfo | null> {
 	return invoke("database_info");
 }
+
+/**
+ * Persist the live (in-memory) database to a file. Copies everything —
+ * every table, the ENUM types, `notes` — and leaves the in-memory
+ * connection as the live one; the FRONTEND then calls open_database(path)
+ * to switch over, so from that point every write lands on disk.
+ *
+ * ```rust
+ * #[tauri::command]
+ * fn save_database(
+ *     path: String,
+ *     state: tauri::State<'_, AppDb>,
+ * ) -> Result<(), String>
+ * ```
+ * REQUIREMENTS: on the live connection,
+ *   ATTACH '<path>' AS target;
+ *   COPY FROM DATABASE memory TO target;
+ *   DETACH target;
+ * (`memory` is DuckDB's name for the default in-memory catalog; COPY FROM
+ * DATABASE needs DuckDB ≥ 0.10 and an EMPTY target — ATTACH on a path that
+ * doesn't exist yet creates it fresh, which is the intended case.) Does NOT
+ * reopen or switch the store. Err = the path already exists with content,
+ * the live database is already file-backed, or DuckDB failed — verbatim.
+ */
+export function saveDatabaseAs(path: string): Promise<void> {
+	return invoke("save_database", { path });
+}

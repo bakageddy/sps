@@ -1,4 +1,5 @@
 use self::error::Error;
+use crate::parser::Context;
 use crate::parser::TableKind;
 use crate::parser::query::BlockingQuery;
 use crate::parser::query::MSSQLQuery;
@@ -8,13 +9,14 @@ use crate::parser::tokenizer::Tokenizer;
 use crate::util;
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
+use time_tz::Tz;
 
 const STUCKQUERY_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
 const STUCKQUERY_DATE_FORMAT: &[BorrowedFormatItem] = format_description!("[day]-[month]-[year]");
 
 #[derive(Debug)]
-pub struct StuckQueryParser<'a>(&'a str, ParserState);
+pub struct StuckQueryParser<'a>(&'a str, ParserState, Context);
 
 #[derive(Debug)]
 enum ParserState {
@@ -25,10 +27,14 @@ enum ParserState {
 
 impl<'a> StuckQueryParser<'a> {
     pub fn new(data: &'a str) -> Self {
-        Self(data, ParserState::Initial)
+        Self(data, ParserState::Initial, Context::EMPTY)
     }
 
-    pub fn parse_header(data: &'a str) -> Result<u64, Error> {
+    pub fn with_context(data: &'a str, ctx: Context) -> Self {
+        Self(data, ParserState::Initial, ctx)
+    }
+
+    pub fn parse_header(data: &'a str, zone: Option<&'static Tz>) -> Result<u64, Error> {
         let mut tok = Tokenizer::new(data);
         let time = tok.take_within("[", "]")?;
         let date = tok.take_within("[", "]")?;
@@ -38,6 +44,7 @@ impl<'a> StuckQueryParser<'a> {
             date,
             STUCKQUERY_TIME_FORMAT,
             STUCKQUERY_DATE_FORMAT,
+            zone,
         )?;
 
         Ok(timestamp)
@@ -68,7 +75,7 @@ impl<'a> Iterator for StuckQueryParser<'a> {
         }
 
         let header = tok.get_line()?;
-        let timestamp = Self::parse_header(header);
+        let timestamp = Self::parse_header(header, self.2.zone);
         if let Err(e) = timestamp {
             self.0 = tok.remaining();
             return Some(Err(e));
@@ -129,7 +136,7 @@ impl<'a> Iterator for StuckQueryParser<'a> {
                             return Some(Err(Error::from(e)));
                         }
                     },
-                    TableKind::MSSQLRunningQuery => match MSSQLQuery::parse(line) {
+                    TableKind::MSSQLRunningQuery => match MSSQLQuery::parse_with(line, &self.2) {
                         Ok(query) => queries.push(StuckQuery::MSSQL(query)),
                         Err(e) => {
                             self.0 = tok.remaining();

@@ -1,9 +1,10 @@
 use error::Error;
 use std::str::Utf8Error;
+use time_tz::Tz;
 
 use crate::{
     parser::{
-        TableKind,
+        Context, TableKind,
         query::{BlockingQuery, MSSQLQuery, PGSQLQuery, SPWho2Query},
         tokenizer::{Parser, Tokenizer},
     },
@@ -18,7 +19,7 @@ const RUNNINGQUERY_TIME_FORMAT: &[BorrowedFormatItem] =
 const RUNNINGQUERY_DATE_FORMAT: &[BorrowedFormatItem] = format_description!("[day]-[month]-[year]");
 
 #[derive(Debug)]
-pub struct RunningQueryParser<'a>(&'a str, ParserState);
+pub struct RunningQueryParser<'a>(&'a str, ParserState, Context);
 
 #[derive(Debug)]
 enum ParserState {
@@ -51,7 +52,7 @@ impl<'a> Iterator for RunningQueryParser<'a> {
         }
 
         let header = tok.get_line()?;
-        let timestamp = Self::parse_header(header);
+        let timestamp = Self::parse_header(header, self.2.zone);
         if let Err(e) = timestamp {
             self.0 = tok.remaining();
             return Some(Err(e));
@@ -112,7 +113,7 @@ impl<'a> Iterator for RunningQueryParser<'a> {
                             return Some(Err(Error::from(e)));
                         }
                     },
-                    TableKind::MSSQLRunningQuery => match MSSQLQuery::parse(line) {
+                    TableKind::MSSQLRunningQuery => match MSSQLQuery::parse_with(line, &self.2) {
                         Ok(query) => queries.push(RunningQuery::MSSQL(query)),
                         Err(e) => {
                             self.0 = tok.remaining();
@@ -127,7 +128,7 @@ impl<'a> Iterator for RunningQueryParser<'a> {
                         }
                     },
 
-                    TableKind::MSSQLSPWho2 => match SPWho2Query::parse(line) {
+                    TableKind::MSSQLSPWho2 => match SPWho2Query::parse_with(line, &self.2) {
                         Ok(query) => queries.push(RunningQuery::SPWho2(query)),
                         Err(e) => {
                             self.0 = tok.remaining();
@@ -154,10 +155,21 @@ impl<'a> Iterator for RunningQueryParser<'a> {
 
 impl<'a> RunningQueryParser<'a> {
     pub fn new(data: &'a str) -> Self {
-        Self(data, ParserState::Initial)
+        Self(
+            data,
+            ParserState::Initial,
+            Context {
+                zone: None,
+                handle: None,
+            },
+        )
     }
 
-    pub fn parse_header(header: &'a str) -> Result<u64, Error> {
+    pub fn with_context(data: &'a str, ctx: Context) -> Self {
+        Self(data, ParserState::Initial, ctx)
+    }
+
+    pub fn parse_header(header: &'a str, zone: Option<&'static Tz>) -> Result<u64, Error> {
         let mut tok = Tokenizer::new(header);
         let time = tok.take_within("[", "]")?;
         let date = tok.take_within("[", "]")?;
@@ -167,6 +179,7 @@ impl<'a> RunningQueryParser<'a> {
             date,
             RUNNINGQUERY_TIME_FORMAT,
             RUNNINGQUERY_DATE_FORMAT,
+            zone,
         )?;
 
         Ok(timestamp)

@@ -3,7 +3,10 @@ use std::{borrow::Cow, ops::Deref, str::Utf8Error};
 use error::Error;
 use serde::{Deserialize, Serialize};
 
-use crate::{parser::tokenizer::Tokenizer, util};
+use crate::{
+    parser::{Context, tokenizer::Tokenizer},
+    util,
+};
 
 use time::{format_description::BorrowedFormatItem, macros::format_description};
 
@@ -11,7 +14,7 @@ const THREADDUMP_TIMESTAMP_FORMAT: &[BorrowedFormatItem] =
     format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]");
 
 #[derive(Debug)]
-pub struct ThreadDumpParser<'a>(&'a str, ParserState);
+pub struct ThreadDumpParser<'a>(&'a str, ParserState, Context);
 #[derive(Debug)]
 pub enum ParserState {
     Initial,
@@ -107,7 +110,11 @@ pub struct LockOwner<'a>(pub Cow<'a, str>);
 
 impl<'a> ThreadDumpParser<'a> {
     pub fn new(data: &'a str) -> Self {
-        Self(data, ParserState::Initial)
+        Self(data, ParserState::Initial, Context::EMPTY)
+    }
+
+    pub fn with_context(data: &'a str, ctx: Context) -> Self {
+        Self(data, ParserState::Initial, ctx)
     }
 
     pub fn parse_thread(tok: &mut Tokenizer<'a>) -> Result<Thread<'a>, Error> {
@@ -307,14 +314,17 @@ impl<'a> Iterator for ThreadDumpParser<'a> {
 
         tok.skip_whitespace();
         let timestamp = tok.get_line()?;
-        let timestamp =
-            match util::utc_unix_timestamp_millis(timestamp, THREADDUMP_TIMESTAMP_FORMAT) {
-                Ok(timestamp) => timestamp,
-                Err(e) => {
-                    self.0 = tok.remaining();
-                    return Some(Err(Error::from(e)));
-                }
-            };
+        let timestamp = match util::utc_unix_timestamp_millis_optional_offset(
+            timestamp,
+            THREADDUMP_TIMESTAMP_FORMAT,
+            self.2.zone,
+        ) {
+            Ok(timestamp) => timestamp,
+            Err(e) => {
+                self.0 = tok.remaining();
+                return Some(Err(Error::from(e)));
+            }
+        };
 
         self.1 = ParserState::Thread;
         let mut threads = Vec::new();

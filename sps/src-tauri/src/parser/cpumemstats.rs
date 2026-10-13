@@ -5,7 +5,9 @@ use std::collections::HashSet;
 use std::str::Utf8Error;
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
+use time_tz::Tz;
 
+use crate::parser::Context;
 use crate::parser::cpumemstats::error::Error;
 use crate::parser::tokenizer::Parser;
 use crate::parser::tokenizer::Tokenizer;
@@ -16,7 +18,7 @@ const CPUMEMSTATS_TIME_FORMAT: &[BorrowedFormatItem] =
 const CPUMEMSTATS_DATE_FORMAT: &[BorrowedFormatItem] = format_description!("[day]-[month]-[year]");
 
 #[derive(Debug)]
-pub struct CPUMemStatsParser<'a>(&'a str, ParserState);
+pub struct CPUMemStatsParser<'a>(&'a str, ParserState, Context);
 
 #[derive(Debug)]
 enum ParserState {
@@ -38,7 +40,32 @@ enum ParserState {
 
 impl<'a> CPUMemStatsParser<'a> {
     pub fn new(data: &'a str) -> Self {
-        Self(data, ParserState::Initial)
+        Self(
+            data,
+            ParserState::Initial,
+            Context {
+                zone: None,
+                handle: None,
+            },
+        )
+    }
+
+    pub fn with_context(data: &'a str, ctx: Context) -> Self {
+        Self(data, ParserState::Initial, ctx)
+    }
+
+    pub fn parse_header(header: &'a str, zone: Option<&'static Tz>) -> Result<u64, Error> {
+        let mut tok = Tokenizer::new(header);
+        let time = tok.take_within("[", "]")?;
+        let date = tok.take_within("[", "]")?;
+        let timestamp = util::unix_timestamp_millis(
+            time,
+            date,
+            CPUMEMSTATS_TIME_FORMAT,
+            CPUMEMSTATS_DATE_FORMAT,
+            zone,
+        )?;
+        Ok(timestamp)
     }
 }
 
@@ -66,43 +93,33 @@ impl<'a> Iterator for CPUMemStatsParser<'a> {
 
         while let Some(line) = tok.get_line() {
             if line.starts_with("[")
-                && let Some(next) = tok.peek_line()
-                && next.trim_start().starts_with("|")
+                && let Some(peek) = tok.peek_line()
+                && peek.trim_start().starts_with("|")
             {
-                let mut htok = Tokenizer::new(line);
-                let time = match htok.take_within("[", "]").map_err(Error::InvalidFormat) {
-                    Ok(time) => time,
-                    Err(e) => {
-                        self.0 = tok.remaining();
-                        return Some(Err(e));
-                    }
-                };
-
-                let date = match htok.take_within("[", "]").map_err(Error::InvalidFormat) {
-                    Ok(date) => date,
-                    Err(e) => {
-                        self.0 = tok.remaining();
-                        return Some(Err(e));
-                    }
-                };
-
-                timestamp = util::unix_timestamp_millis(
-                    time,
-                    date,
-                    CPUMEMSTATS_TIME_FORMAT,
-                    CPUMEMSTATS_DATE_FORMAT,
-                )
-                .ok();
                 self.1 = ParserState::Timestamp;
+                timestamp = Some(line);
                 break;
             }
         }
 
-        if !matches!(self.1, ParserState::Timestamp) {
+        if let ParserState::Initial = self.1 {
+            self.0 = tok.remaining();
             return None;
         }
 
-        let timestamp = timestamp.unwrap_or(0);
+        let timestamp = if let Some(header) = timestamp {
+            let timestamp = match Self::parse_header(header, self.2.zone) {
+                Ok(t) => t,
+                Err(e) => {
+                    self.0 = tok.remaining();
+                    return Some(Err(e));
+                }
+            };
+            timestamp
+        } else {
+            self.0 = tok.remaining();
+            return None;
+        };
 
         for _ in 0..3 {
             let _ = tok.get_line()?;
@@ -287,8 +304,9 @@ pub struct WindowsMemoryStat<'a> {
 
 impl<'a> Parser<'a> for WindowsMemoryStat<'a> {
     type Error = Error;
+    type Context = ();
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    fn parse_with(data: &'a str, _ctx: &Self::Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -341,9 +359,10 @@ pub struct WindowsCPUStat<'a> {
 }
 
 impl<'a> Parser<'a> for WindowsCPUStat<'a> {
+    type Context = ();
     type Error = Error;
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    fn parse_with(data: &'a str, _ctx: &Self::Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -399,9 +418,10 @@ pub struct LinuxStat<'a> {
 }
 
 impl<'a> Parser<'a> for LinuxStat<'a> {
+    type Context = ();
     type Error = Error;
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    fn parse_with(data: &'a str, _ctx: &Self::Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -458,13 +478,15 @@ impl LinuxStat<'_> {
 
 pub mod error {
     use std::num::{ParseFloatError, ParseIntError};
+
+    use crate::types::TimestampError;
     #[non_exhaustive]
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
         #[error("Invalid format for cpu/memory stats table: {0}")]
         InvalidFormat(#[from] crate::parser::tokenizer::error::Error),
         #[error("Parsing/Invalid Format for timestamp: {0}")]
-        ParseTimestamp(#[from] time::error::Parse),
+        ParseTimestamp(#[from] TimestampError),
         #[error("Parse PID (uint64_t) from string: {0}")]
         ParsePID(#[from] ParseIntError),
         #[error("Parse PID (float32_t) from string: {0}")]

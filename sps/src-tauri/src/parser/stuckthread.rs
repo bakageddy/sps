@@ -2,9 +2,13 @@ use error::Error;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, str::Utf8Error};
 use time::{format_description::BorrowedFormatItem, macros::format_description};
+use time_tz::Tz;
 
 use crate::{
-    parser::tokenizer::{self, Parser, Tokenizer},
+    parser::{
+        Context,
+        tokenizer::{self, Parser, Tokenizer},
+    },
     util,
 };
 
@@ -13,7 +17,7 @@ const STUCKTHREAD_TIME_FORMAT: &[BorrowedFormatItem] =
 const STUCKTHREAD_DATE_FORMAT: &[BorrowedFormatItem] = format_description!("[day]-[month]-[year]");
 
 #[derive(Debug)]
-pub struct StuckthreadParser<'a>(&'a str, ParserState);
+pub struct StuckthreadParser<'a>(&'a str, ParserState, Context);
 
 #[derive(Debug)]
 enum ParserState {
@@ -50,7 +54,7 @@ impl<'a> Iterator for StuckthreadParser<'a> {
             .unwrap_or("")
             .trim()
             .starts_with(Self::PREAMBLE);
-        let mut thread = match Self::parse_header(header, has_stacktrace) {
+        let mut thread = match Self::parse_header(header, self.2.zone, has_stacktrace) {
             Ok(t) => t,
             Err(e) => {
                 self.0 = tok.remaining();
@@ -89,10 +93,18 @@ impl<'a> TryFrom<&'a [u8]> for StuckthreadParser<'a> {
 impl<'a> StuckthreadParser<'a> {
     const PREAMBLE: &'static str = "java.lang.Throwable";
     pub fn new(data: &'a str) -> Self {
-        Self(data, ParserState::Initial)
+        Self(data, ParserState::Initial, Context::EMPTY)
     }
 
-    pub fn parse_header<'b>(data: &'b str, has_stacktrace: bool) -> Result<Stuckthread<'b>, Error> {
+    pub fn with_context(data: &'a str, ctx: Context) -> Self {
+        Self(data, ParserState::Initial, ctx)
+    }
+
+    pub fn parse_header<'b>(
+        data: &'b str,
+        offset: Option<&'static Tz>,
+        has_stacktrace: bool,
+    ) -> Result<Stuckthread<'b>, Error> {
         let mut tok = Tokenizer::new(data);
         let raw_time = tok.take_within("[", "]")?;
         let raw_date = tok.take_within("[", "]")?;
@@ -101,6 +113,7 @@ impl<'a> StuckthreadParser<'a> {
             raw_date,
             STUCKTHREAD_TIME_FORMAT,
             STUCKTHREAD_DATE_FORMAT,
+            offset,
         )?;
 
         let _ = tok.take_until("::").ok_or_else(|| {
@@ -202,8 +215,9 @@ pub struct Frame<'a> {
 
 impl<'a> Parser<'a> for Frame<'a> {
     type Error = Error;
+    type Context = ();
 
-    fn parse(data: &'a str) -> Result<Self, Self::Error>
+    fn parse_with(data: &'a str, _ctx: &Self::Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
