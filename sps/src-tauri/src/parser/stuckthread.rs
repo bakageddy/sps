@@ -100,6 +100,11 @@ impl<'a> StuckthreadParser<'a> {
         Self(data, ParserState::Initial, ctx)
     }
 
+    pub fn from_bytes_with_context(data: &'a [u8], ctx: Context) -> Result<Self, Utf8Error> {
+        let data = std::str::from_utf8(data)?;
+        Ok(Self::with_context(data, ctx))
+    }
+
     pub fn parse_header<'b>(
         data: &'b str,
         offset: Option<&'static Tz>,

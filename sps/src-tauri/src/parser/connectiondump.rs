@@ -13,9 +13,7 @@ use std::{
 use time_tz::Tz;
 
 use crate::parser::tokenizer::Tokenizer;
-use time::{
-    OffsetDateTime, format_description::BorrowedFormatItem, macros::format_description,
-};
+use time::{OffsetDateTime, format_description::BorrowedFormatItem, macros::format_description};
 
 const CONNECTION_DUMP_TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[hour]:[minute]:[second].[subsecond]");
@@ -106,6 +104,11 @@ impl<'a> ConnectionDumpParser<'a> {
 
     pub fn with_context(data: &'a str, ctx: Context) -> Self {
         Self(data, ParserState::Initial, ctx)
+    }
+
+    pub fn from_bytes_with_context(data: &'a [u8], ctx: Context) -> Result<Self, Utf8Error> {
+        let data = std::str::from_utf8(data)?;
+        Ok(Self::with_context(data, ctx))
     }
 
     pub fn parse_header(header: &'a str, zone: Option<&'static Tz>) -> Result<(u64, u64), Error> {

@@ -1,3 +1,5 @@
+use std::str::Utf8Error;
+
 use self::error::Error;
 use crate::parser::Context;
 use crate::parser::TableKind;
@@ -32,6 +34,11 @@ impl<'a> StuckQueryParser<'a> {
 
     pub fn with_context(data: &'a str, ctx: Context) -> Self {
         Self(data, ParserState::Initial, ctx)
+    }
+
+    pub fn from_bytes_with_context(data: &'a [u8], ctx: Context) -> Result<Self, Utf8Error> {
+        let data = std::str::from_utf8(data)?;
+        Ok(Self::with_context(data, ctx))
     }
 
     pub fn parse_header(data: &'a str, zone: Option<&'static Tz>) -> Result<u64, Error> {

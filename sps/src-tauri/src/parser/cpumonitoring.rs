@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::str::Utf8Error;
 
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
@@ -118,6 +119,11 @@ impl<'a> CPUMonitoringParser<'a> {
 
     pub fn with_context(data: &'a str, ctx: Context) -> Self {
         Self(data, ParserState::Initial, ctx)
+    }
+
+    pub fn from_bytes_with_context(data: &'a [u8], ctx: Context) -> Result<Self, Utf8Error> {
+        let data = std::str::from_utf8(data)?;
+        Ok(Self::with_context(data, ctx))
     }
 
     pub fn parse_timestamp(data: &'a str, zone: Option<&'static Tz>) -> Result<u64, Error> {

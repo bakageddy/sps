@@ -74,7 +74,11 @@ pub fn unix_timestamp_millis(
                     return Err(TimestampError::InvalidTime);
                 }
             };
-        timey_wimey.unix_timestamp_nanos()
+        timey_wimey
+            .checked_to_utc()
+            .ok_or_else(|| TimestampError::InvalidTime)?
+            .unix_timestamp_nanos()
+        // timey_wimey.unix_timestamp_nanos()
     } else {
         PlainDateTime::new(parsed_date, parsed_time)
             .assume_utc()
@@ -103,7 +107,11 @@ pub fn utc_unix_timestamp_millis_optional_offset(
                 return Err(TimestampError::InvalidTime);
             }
         };
-        offset.unix_timestamp_nanos() / 1_000_000
+        offset
+            .checked_to_utc()
+            .ok_or_else(|| TimestampError::InvalidTime)?
+            .unix_timestamp_nanos()
+            / 1_000_000
     } else {
         time.assume_utc().unix_timestamp_nanos() / 1_000_000
     };
@@ -361,7 +369,7 @@ fn parse_stuckqueries_and_persist(entries: &[PathBuf], store: Store, ctx: Contex
     let cnx = store.get()?;
     for (mmap, entry) in entries {
         info!("Parsing and Persisting: {:?}", entry.display());
-        let result = StuckQueryParser::try_from(mmap.deref());
+        let result = StuckQueryParser::from_bytes_with_context(mmap.deref(), ctx.clone());
         if let Ok(parser) = result {
             let _ = ctx.emit(
                 "ingest:file",
@@ -420,7 +428,7 @@ pub fn parse_runningqueries_and_persist(
     let cnx = store.get()?;
     for (mmap, entry) in entries {
         info!("Parsing and Persisting: {:?}", entry.display());
-        let result = RunningQueryParser::try_from(mmap.deref());
+        let result = RunningQueryParser::from_bytes_with_context(mmap.deref(), ctx.clone());
         if let Ok(parser) = result {
             let _ = ctx.emit(
                 "ingest:file",
@@ -484,7 +492,7 @@ where
     let cnx = store.get()?;
     for (mmap, entry) in entries {
         info!("Parsing and Persisting: {:?}", entry.display());
-        let result = CPUMonitoringParser::try_from(mmap.deref());
+        let result = CPUMonitoringParser::from_bytes_with_context(mmap.deref(), ctx.clone());
         if let Ok(parser) = result {
             let _ = ctx.emit(
                 "ingest:file",
@@ -543,7 +551,7 @@ pub fn parse_cpumemstats_and_persist(
     let cnx = store.get()?;
     for (mmap, entry) in entries {
         info!("Parsing and Persisting: {:?}", entry.display());
-        let parser = CPUMemStatsParser::try_from(mmap.deref());
+        let parser = CPUMemStatsParser::from_bytes_with_context(mmap.deref(), ctx.clone());
         if let Ok(parser) = parser {
             let _ = ctx.emit(
                 "ingest:file",
@@ -602,7 +610,7 @@ pub fn parse_stuckthreads_and_persist(
     let cnx = store.get()?;
     for (mmap, entry) in entries {
         info!("Parsing and persisting: {:?}", entry.display());
-        let parser = StuckthreadParser::try_from(mmap.deref());
+        let parser = StuckthreadParser::from_bytes_with_context(mmap.deref(), ctx.clone());
         if let Ok(parser) = parser {
             let _ = ctx.emit(
                 "ingest:file",
@@ -656,7 +664,7 @@ fn parse_connectiondump_and_persist(entries: &[PathBuf], store: Store, ctx: Cont
     let cnx = store.get()?;
     for (mmap, entry) in entries {
         info!("Parsing and persisting: {:?}", entry.display());
-        let parser = ConnectionDumpParser::try_from(mmap.deref());
+        let parser = ConnectionDumpParser::from_bytes_with_context(mmap.deref(), ctx.clone());
 
         if let Ok(parser) = parser {
             let _ = ctx.emit(
@@ -713,7 +721,7 @@ pub fn parse_threaddump_and_persist(entries: &[PathBuf], store: Store, ctx: Cont
 
     for (mmap, entry) in entries {
         info!("Parsing and persisting: {:?}", entry.display());
-        let parser = ThreadDumpParser::try_from(mmap.deref());
+        let parser = ThreadDumpParser::from_bytes_with_context(mmap.deref(), ctx.clone());
         if let Ok(parser) = parser {
             let _ = ctx.emit(
                 "ingest:file",
@@ -828,4 +836,28 @@ pub fn parse_healthmeter_and_persist(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+pub mod test {
+    use crate::util;
+    use std::assert;
+    use time::macros::format_description;
+    use time_tz;
+    #[test]
+    fn util_unix_timestamp_millis() {
+        let time = "14:30:10.237";
+        let date = "11-02-2026";
+        let time_fmt = format_description!("[hour]:[minute]:[second].[subsecond]");
+        let date_fmt = format_description!("[day]-[month]-[year]");
+        let tz = time_tz::timezones::get_by_name("Asia/Calcutta");
+        let timestamp = util::unix_timestamp_millis(time, date, time_fmt, date_fmt, tz);
+        assert!(
+            timestamp.is_ok(),
+            "Error during conversion: {}",
+            timestamp.unwrap_err()
+        );
+        let timestamp = timestamp.unwrap();
+        assert_eq!(timestamp, 1770800410237);
+    }
 }
