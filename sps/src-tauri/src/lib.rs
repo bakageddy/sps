@@ -17,8 +17,9 @@ use crate::{
 use arg::AppArgs;
 use clap::Parser;
 use handlers::{
-    connectiondump::*, cpumemstats::*, cpumonitoring::*, database::*, healthmeter::*, notes::*,
-    parse::*, runningquery::*, sql::*, stuckquery::*, stuckthread::*, threaddump::*,
+    connectiondump::*, cpumemstats::*, cpumonitoring::*, database::*, fragmentation_ratio::*,
+    healthmeter::*, notes::*, parse::*, runningquery::*, sql::*, stuckquery::*, stuckthread::*,
+    threaddump::*,
 };
 use tauri::Manager;
 use tracing::{info, level_filters::LevelFilter, warn};
@@ -82,6 +83,10 @@ pub fn launch(database: Option<PathBuf>) {
             runningquery_mssql_blocking,
             runningquery_spwho2_snapshots,
             runningquery_spwho2,
+            fragmentation_snapshots,
+            fragmentation_indices,
+            fragmentation_index_series,
+            fragmentation_flagged,
             notes_list,
             notes_upsert,
             notes_delete,

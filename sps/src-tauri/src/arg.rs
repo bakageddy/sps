@@ -62,6 +62,5 @@ pub enum Command {
 }
 
 pub fn tz(zone: &str) -> Result<&'static Tz, &'static str> {
-    timezones::get_by_name(zone)
-        .ok_or("Failed to resolve IANA Zone (Eg: Asia/Kolkata)")
+    timezones::get_by_name(zone).ok_or("Failed to resolve IANA Zone (Eg: Asia/Kolkata)")
 }

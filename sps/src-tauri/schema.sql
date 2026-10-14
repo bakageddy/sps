@@ -314,7 +314,7 @@ CREATE TABLE IF NOT EXISTS main.healthmeter (
 CREATE TABLE IF NOT EXISTS main.fragmentationratio (
 	timestamp UBIGINT NOT NULL,
 	schema STRING NOT NULL,
-	table STRING NOT NULL,
+	table_name STRING NOT NULL,
 	index_name STRING NOT NULL,
 	ratio FLOAT NOT NULL,
 	page_count UBIGINT NOT NULL,

@@ -2,6 +2,7 @@ pub mod connectiondump;
 pub mod cpumemstats;
 pub mod cpumonitoring;
 pub mod database;
+pub mod fragmentation_ratio;
 pub mod healthmeter;
 pub mod notes;
 pub mod parse;

@@ -252,3 +252,35 @@ pub struct SQLResult {
     pub rows: Vec<Vec<Option<String>>>,
     pub elapsed_ms: u128,
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FragSnapshot {
+    pub timestamp: u64,
+    pub indices: u64,
+    pub max_ratio: f32,
+    pub total_pages: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FragPoint {
+    pub timestamp: u64,
+    pub ratio: u64,
+    pub page_count: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FragFlag {
+    pub schema: String,
+    pub table: String,
+    pub index: String,
+    pub captures: u64,
+    pub flagged_captures: u64,
+    pub first_flagged: u64,
+    pub last_flagged: u64,
+    pub latest_ratio: f32,
+    pub latest_pages: u64,
+    pub max_ratio: f32,
+}
