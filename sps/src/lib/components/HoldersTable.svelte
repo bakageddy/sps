@@ -10,6 +10,8 @@
 	import type { ConnDumpHolder } from "$lib/api/connectiondump";
 	import { appFrame } from "$lib/connectiondump";
 	import { formatDuration, formatTimestamp } from "$lib/format";
+	import { sortRows } from "$lib/sort";
+	import SortButton from "$lib/components/SortButton.svelte";
 
 	interface Props {
 		rows: ConnDumpHolder[];
@@ -21,7 +23,23 @@
 
 	const rowKey = (r: ConnDumpHolder) => `${r.id}:${r.startTime}`;
 
-	const sorted = $derived([...rows].sort((a, b) => b.duration - a.duration));
+	type SortKey = "owner" | "id" | "duration" | "dumpCount" | "startTime";
+	let sortKey = $state<SortKey>("duration");
+	let sortDescending = $state(true);
+	function sortBy(key: SortKey) {
+		if (sortKey === key) sortDescending = !sortDescending;
+		else {
+			sortKey = key;
+			sortDescending = key !== "owner";
+		}
+	}
+	const sorted = $derived(
+		sortRows(
+			rows,
+			(r) => (sortKey === "owner" ? (appFrame(r.stackTrace) ?? "") : r[sortKey]),
+			sortDescending,
+		),
+	);
 
 	let expanded = $state<string | null>(null);
 
@@ -34,11 +52,11 @@
 
 <div class="table">
 	<div class="head">
-		<span>Owner</span>
-		<span class="col-num">Tid</span>
-		<span class="col-num">Held for</span>
-		<span class="col-num">Dumps</span>
-		<span>Acquired</span>
+		<span><SortButton label="Owner" active={sortKey === "owner"} descending={sortDescending} onclick={() => sortBy("owner")} /></span>
+		<span class="col-num"><SortButton label="Tid" active={sortKey === "id"} descending={sortDescending} onclick={() => sortBy("id")} /></span>
+		<span class="col-num"><SortButton label="Held for" active={sortKey === "duration"} descending={sortDescending} onclick={() => sortBy("duration")} /></span>
+		<span class="col-num"><SortButton label="Dumps" active={sortKey === "dumpCount"} descending={sortDescending} onclick={() => sortBy("dumpCount")} /></span>
+		<span><SortButton label="Acquired" active={sortKey === "startTime"} descending={sortDescending} onclick={() => sortBy("startTime")} /></span>
 	</div>
 
 	<div class="rows">

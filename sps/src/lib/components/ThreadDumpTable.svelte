@@ -8,6 +8,8 @@
 	import type { ThreadDumpThread } from "$lib/api/threaddump";
 	import { stateColor } from "$lib/threaddump";
 	import { virtualWindow } from "$lib/virtual";
+	import { sortRows } from "$lib/sort";
+	import SortButton from "$lib/components/SortButton.svelte";
 
 	interface Props {
 		threads: ThreadDumpThread[];
@@ -19,12 +21,28 @@
 	let { threads, selected, onselect }: Props = $props();
 
 	let filter = $state("");
+
+	// default = dump order; any column re-sorts ("—" cells sort last)
+	type SortKey = "tid" | "name" | "state" | "waitingOn" | "lockOwnerTid";
+	let sortKey = $state<SortKey | null>(null);
+	let sortDescending = $state(false);
+	function sortBy(key: SortKey) {
+		if (sortKey === key) sortDescending = !sortDescending;
+		else {
+			sortKey = key;
+			sortDescending = false;
+		}
+	}
+
 	const visible = $derived.by(() => {
 		const q = filter.trim().toLowerCase();
-		if (q === "") return threads;
-		return threads.filter(
-			(t) => t.name.toLowerCase().includes(q) || String(t.tid).includes(q),
-		);
+		const filtered =
+			q === ""
+				? threads
+				: threads.filter(
+						(t) => t.name.toLowerCase().includes(q) || String(t.tid).includes(q),
+					);
+		return sortRows(filtered, sortKey === null ? null : (t) => t[sortKey!], sortDescending);
 	});
 
 	// Virtualized rows: a dump has thousands of threads. ROW/HEADER must
@@ -71,11 +89,11 @@
 		<table>
 			<thead>
 				<tr>
-					<th class="num">Tid</th>
-					<th>Name</th>
-					<th>State</th>
-					<th>Waiting on</th>
-					<th>Owner</th>
+					<th class="num"><SortButton label="Tid" active={sortKey === "tid"} descending={sortDescending} onclick={() => sortBy("tid")} /></th>
+					<th><SortButton label="Name" active={sortKey === "name"} descending={sortDescending} onclick={() => sortBy("name")} /></th>
+					<th><SortButton label="State" active={sortKey === "state"} descending={sortDescending} onclick={() => sortBy("state")} /></th>
+					<th><SortButton label="Waiting on" active={sortKey === "waitingOn"} descending={sortDescending} onclick={() => sortBy("waitingOn")} /></th>
+					<th><SortButton label="Owner" active={sortKey === "lockOwnerTid"} descending={sortDescending} onclick={() => sortBy("lockOwnerTid")} /></th>
 				</tr>
 			</thead>
 			<tbody>
@@ -157,6 +175,8 @@
 	}
 	.scroller {
 		overflow: auto;
+		overflow-anchor: none;
+		overscroll-behavior: contain;
 		flex: 1;
 	}
 	table {

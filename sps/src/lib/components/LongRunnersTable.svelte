@@ -29,6 +29,8 @@
 	 * (most snapshots, then longest) on purpose: this is a ranking.
 	 */
 	import { formatDuration, formatTimestamp } from "$lib/format";
+	import { sortRows } from "$lib/sort";
+	import SortButton from "$lib/components/SortButton.svelte";
 
 	interface Props {
 		rows: LongRunnerRow[];
@@ -37,6 +39,22 @@
 	}
 
 	let { rows, onjump }: Props = $props();
+
+	// default = the incoming ranking (most snapshots, then longest); any
+	// column click re-sorts, a tie keeps the ranking (stable sort)
+	type SortKey = "who" | "snapshots" | "maxMs" | "flagCount" | "query";
+	let sortKey = $state<SortKey | null>(null);
+	let sortDescending = $state(true);
+	function sortBy(key: SortKey) {
+		if (sortKey === key) sortDescending = !sortDescending;
+		else {
+			sortKey = key;
+			sortDescending = key !== "who" && key !== "query";
+		}
+	}
+	const sorted = $derived(
+		sortRows(rows, sortKey === null ? null : (r) => r[sortKey!], sortDescending),
+	);
 
 	let expanded = $state<string | null>(null);
 
@@ -49,15 +67,15 @@
 
 <div class="table">
 	<div class="head">
-		<span>Who</span>
-		<span class="col-num">Snapshots</span>
-		<span class="col-num">Longest</span>
-		<span class="col-num">Flagged</span>
-		<span>Query</span>
+		<span><SortButton label="Who" active={sortKey === "who"} descending={sortDescending} onclick={() => sortBy("who")} /></span>
+		<span class="col-num"><SortButton label="Snapshots" active={sortKey === "snapshots"} descending={sortDescending} onclick={() => sortBy("snapshots")} /></span>
+		<span class="col-num"><SortButton label="Longest" active={sortKey === "maxMs"} descending={sortDescending} onclick={() => sortBy("maxMs")} /></span>
+		<span class="col-num"><SortButton label="Flagged" active={sortKey === "flagCount"} descending={sortDescending} onclick={() => sortBy("flagCount")} /></span>
+		<span><SortButton label="Query" active={sortKey === "query"} descending={sortDescending} onclick={() => sortBy("query")} /></span>
 	</div>
 
 	<div class="rows">
-		{#each rows as row (row.key)}
+		{#each sorted as row (row.key)}
 			<button
 				class="row"
 				onclick={() =>

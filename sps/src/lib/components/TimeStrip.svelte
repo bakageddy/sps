@@ -1,9 +1,14 @@
 <script lang="ts">
 	/**
 	 * Global time strip — every dump of every log kind as a dot on one
-	 * shared axis, one lane per kind. Sweep to set the app-wide time
-	 * window (lib/timewindow.svelte.ts); double-click clears it. Lane
-	 * labels jump to that analyzer.
+	 * shared axis, one lane per kind, with a dated axis underneath. Sweep
+	 * to set the app-wide time window (lib/timewindow.svelte.ts);
+	 * double-click clears it. Lane labels jump to that analyzer.
+	 *
+	 * Fine-tuning a window: the two bounds in the header are editable
+	 * (any time text parseZonedTime understands, e.g. "14:03" or
+	 * "2026-09-23 14:03:34"), and ◂ ▸ shift the window by one axis tick.
+	 * Hovering the band shows the exact time under the cursor.
 	 *
 	 * Bounded DOM whatever the bundle size: one <path> per lane carries all
 	 * its dots. Dots are drawn in PIXEL space (x from the measured width),
@@ -23,12 +28,14 @@
 		runningqueryMssqlSnapshots,
 		runningqueryPgsqlSnapshots,
 	} from "$lib/api/runningquery";
+	import { fragmentationSnapshots } from "$lib/api/fragmentation";
 	import { cached } from "$lib/query-cache";
 	import { db } from "$lib/database.svelte";
 	import { ingest } from "$lib/ingest.svelte";
 	import { persisted } from "$lib/persisted.svelte";
 	import { timeWindow, bundleDomain } from "$lib/timewindow.svelte";
 	import { formatTimestamp } from "$lib/format";
+	import { dayStart, parseZonedTime } from "$lib/timezone.svelte";
 
 	interface Lane {
 		key: string;
@@ -40,6 +47,7 @@
 
 	const LANE_H = 14;
 	const PAD_TOP = 4;
+	const AXIS_H = 16;
 
 	let lanes = $state<Lane[]>([]);
 	const collapsed = persisted("time-strip-collapsed", true);
@@ -49,7 +57,7 @@
 		r.status === "fulfilled" ? r.value : [];
 
 	async function load() {
-		const [sig, td, cpu, mem, stuck, sqm, sqp, rqm, rqp] = await Promise.allSettled([
+		const [sig, td, cpu, mem, stuck, sqm, sqp, rqm, rqp, frag] = await Promise.allSettled([
 			cached("connectiondump_signals|false", () => connectiondumpSignals(false)),
 			cached("threaddump_dumps", threaddumpDumps),
 			cached("cpu_dumps", cpuDumps),
@@ -59,6 +67,7 @@
 			cached("stuckquery_pgsql_snapshots", stuckqueryPgsqlSnapshots),
 			cached("runningquery_mssql_snapshots", runningqueryMssqlSnapshots),
 			cached("runningquery_pgsql_snapshots", runningqueryPgsqlSnapshots),
+			cached("fragmentation_snapshots", fragmentationSnapshots),
 		]);
 		const ts = (rows: { timestamp: number }[]) => rows.map((r) => r.timestamp);
 		lanes = [
@@ -75,6 +84,7 @@
 			},
 			{ key: "stuckq", label: "stuck queries", href: "/stuckqueries", color: "var(--red)", times: [...ts(ok(sqm)), ...ts(ok(sqp))] },
 			{ key: "rq", label: "running queries", href: "/runningqueries", color: "var(--green)", times: [...ts(ok(rqm)), ...ts(ok(rqp))] },
+			{ key: "frag", label: "fragmentation", href: "/fragmentation", color: "var(--purple)", times: ts(ok(frag)) },
 		].filter((l) => l.times.length > 0);
 	}
 
@@ -118,6 +128,10 @@
 		const d = domain!;
 		return ((t - d[0]) / (d[1] - d[0])) * width;
 	};
+	const tOf = (x: number) => {
+		const d = domain!;
+		return Math.round(d[0] + (x / width) * (d[1] - d[0]));
+	};
 
 	// one path per lane: "M x-r y a r r 0 1 0 2r 0 a r r 0 1 0 -2r 0" per dot
 	const R = 2.5;
@@ -134,7 +148,45 @@
 					return { lane: l, d };
 				}),
 	);
-	const height = $derived(PAD_TOP * 2 + lanes.length * LANE_H);
+	const lanesH = $derived(PAD_TOP * 2 + lanes.length * LANE_H);
+	const height = $derived(lanesH + AXIS_H);
+
+	// --- axis ------------------------------------------------------------
+	// "nice" tick steps; pick the smallest that leaves ~110px per label.
+	// Ticks are aligned to the display zone's midnight, so hour and day
+	// ticks land on local boundaries, not UTC ones.
+	const MIN = 60_000;
+	const HOUR = 3_600_000;
+	const DAY = 86_400_000;
+	const STEPS = [
+		1_000, 5_000, 15_000, 30_000,
+		MIN, 5 * MIN, 15 * MIN, 30 * MIN,
+		HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR,
+		DAY, 2 * DAY, 7 * DAY, 30 * DAY,
+	];
+	const ticks = $derived.by(() => {
+		if (domain === null || width === 0) return { step: DAY, times: [] as number[] };
+		const span = domain[1] - domain[0];
+		const step = STEPS.find((s) => (span / s) * 110 <= width) ?? STEPS[STEPS.length - 1];
+		const base = dayStart(domain[0]);
+		const first = base + Math.ceil((domain[0] - base) / step) * step;
+		const times: number[] = [];
+		for (let t = first; t <= domain[1] && times.length < 200; t += step) times.push(t);
+		return { step, times };
+	});
+
+	const fmtTime = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+	const fmtTimeS = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+	const fmtDate = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
+	/** a tick's label: dates at day steps; otherwise the time, with the
+	 * date added on the first tick and at every local midnight */
+	function tickLabel(t: number, i: number): string {
+		const { step } = ticks;
+		if (step >= DAY) return formatTimestamp(fmtDate, t);
+		const time = formatTimestamp(step < MIN ? fmtTimeS : fmtTime, t);
+		const atMidnight = dayStart(t) === t;
+		return i === 0 || atMidnight ? `${formatTimestamp(fmtDate, t)} ${time}` : time;
+	}
 
 	// --- sweep -----------------------------------------------------------
 	let band = $state<HTMLDivElement>();
@@ -159,16 +211,20 @@
 	function onwindowup() {
 		if (dragStart !== null && dragNow !== null && dragging && domain !== null) {
 			const [a, b] = [Math.min(dragStart, dragNow), Math.max(dragStart, dragNow)];
-			const span = domain[1] - domain[0];
-			timeWindow.value = [
-				Math.round(domain[0] + (a / width) * span),
-				Math.round(domain[0] + (b / width) * span),
-			];
+			timeWindow.value = [tOf(a), tOf(b)];
 		}
 		dragStart = null;
 		dragNow = null;
 	}
 
+	// --- hover readout ---------------------------------------------------
+	let hoverX = $state<number | null>(null);
+	function onbandmove(e: PointerEvent) {
+		if (domain === null) return;
+		hoverX = px(e.clientX);
+	}
+
+	// --- fine-tuning -----------------------------------------------------
 	const timeFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: "medium",
 		timeStyle: "medium",
@@ -179,6 +235,42 @@
 		if (w === null || domain === null || width === 0) return null;
 		return [xOf(w[0]), xOf(w[1])] as [number, number];
 	});
+
+	/** typed bound: parse relative to the bound being edited (so a bare
+	 * "14:03" lands on that bound's day); reject if the window would invert */
+	function editBound(which: 0 | 1, e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const w = timeWindow.value;
+		if (w === null) return;
+		const ms = parseZonedTime(input.value, w[which]);
+		const next: [number, number] = which === 0 ? [ms ?? NaN, w[1]] : [w[0], ms ?? NaN];
+		if (ms === null || !(next[0] < next[1])) {
+			input.classList.add("invalid");
+			input.value = formatTimestamp(timeFormat, w[which]);
+			setTimeout(() => input.classList.remove("invalid"), 800);
+			return;
+		}
+		timeWindow.value = next;
+	}
+	function onboundkey(e: KeyboardEvent) {
+		if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+		if (e.key === "Escape") {
+			const input = e.currentTarget as HTMLInputElement;
+			const w = timeWindow.value;
+			if (w) input.value = formatTimestamp(timeFormat, w[input.dataset.bound === "0" ? 0 : 1]);
+			input.blur();
+		}
+	}
+	/** shift the whole window by one axis tick, clamped to the bundle */
+	function shift(dir: -1 | 1) {
+		const w = timeWindow.value;
+		if (w === null || domain === null) return;
+		const by = dir * ticks.step;
+		const span = w[1] - w[0];
+		let a = w[0] + by;
+		a = Math.max(domain[0], Math.min(domain[1] - span, a));
+		timeWindow.value = [a, a + span];
+	}
 </script>
 
 <svelte:window onpointermove={onwindowmove} onpointerup={onwindowup} />
@@ -194,12 +286,27 @@
 			>
 			<span class="title">time window</span>
 			{#if timeWindow.value !== null}
-				<span class="range mono">
-					{formatTimestamp(timeFormat, timeWindow.value[0])} → {formatTimestamp(
-						timeFormat,
-						timeWindow.value[1],
-					)}
-				</span>
+				<button class="nudge" onclick={() => shift(-1)} title="Shift the window one tick earlier">◂</button>
+				<input
+					class="bound mono"
+					data-bound="0"
+					value={formatTimestamp(timeFormat, timeWindow.value[0])}
+					onchange={(e) => editBound(0, e)}
+					onkeydown={onboundkey}
+					spellcheck="false"
+					title="Edit the start (Enter to apply, Esc to revert)"
+				/>
+				<span class="range">→</span>
+				<input
+					class="bound mono"
+					data-bound="1"
+					value={formatTimestamp(timeFormat, timeWindow.value[1])}
+					onchange={(e) => editBound(1, e)}
+					onkeydown={onboundkey}
+					spellcheck="false"
+					title="Edit the end (Enter to apply, Esc to revert)"
+				/>
+				<button class="nudge" onclick={() => shift(1)} title="Shift the window one tick later">▸</button>
 				<button class="clear" onclick={() => (timeWindow.value = null)}
 					>clear</button
 				>
@@ -234,6 +341,8 @@
 					bind:clientWidth={width}
 					style:height="{height}px"
 					{onpointerdown}
+					onpointermove={onbandmove}
+					onpointerleave={() => (hoverX = null)}
 					ondblclick={() => (timeWindow.value = null)}
 				>
 					<svg {width} {height} aria-hidden="true">
@@ -243,9 +352,15 @@
 								x={windowPx[0]}
 								y="0"
 								width={Math.max(1, windowPx[1] - windowPx[0])}
-								{height}
+								height={lanesH}
 							/>
 						{/if}
+						{#each ticks.times as t, i (t)}
+							{@const x = xOf(t)}
+							<line class="tick" x1={x} x2={x} y1="0" y2={lanesH + 3} />
+							<text class="tick-label" x={x + 3} y={lanesH + AXIS_H - 4}>{tickLabel(t, i)}</text>
+						{/each}
+						<line class="axis" x1="0" x2={width} y1={lanesH} y2={lanesH} />
 						{#each paths as p (p.lane.key)}
 							<path d={p.d} fill={p.lane.color} />
 						{/each}
@@ -255,7 +370,17 @@
 							class="brush"
 							style:left="{Math.min(dragStart, dragNow)}px"
 							style:width="{Math.abs(dragNow - dragStart)}px"
+							style:height="{lanesH}px"
 						></span>
+					{/if}
+					{#if hoverX !== null && domain !== null && !dragging}
+						<span class="cursor" style:left="{hoverX}px" style:height="{lanesH}px"></span>
+						<span
+							class="readout mono"
+							class:flip={hoverX > width - 170}
+							style:left="{hoverX}px"
+							>{formatTimestamp(timeFormat, tOf(hoverX))}</span
+						>
 					{/if}
 				</div>
 			</div>
@@ -272,7 +397,7 @@
 	.bar {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 8px;
 		padding: 3px 10px;
 		font-size: 11px;
 	}
@@ -300,6 +425,34 @@
 	}
 	.mono {
 		font-family: var(--font-mono);
+	}
+	.bound {
+		width: 176px;
+		padding: 1px 6px;
+		font-size: 11px;
+		color: var(--accent);
+		background: var(--bg-hard);
+		border: 1px solid transparent;
+		border-radius: var(--radius);
+		transition: border-color 150ms;
+	}
+	.bound:focus {
+		border-color: var(--accent);
+		outline: none;
+	}
+	.bound:global(.invalid) {
+		border-color: var(--red);
+		color: var(--red);
+	}
+	.nudge {
+		padding: 0 5px;
+		color: var(--fg-muted);
+		font-size: 11px;
+		border-radius: var(--radius);
+	}
+	.nudge:hover {
+		background: var(--bg-hover);
+		color: var(--fg);
 	}
 	.clear {
 		padding: 0 10px;
@@ -354,13 +507,49 @@
 		stroke: var(--accent);
 		stroke-width: 1;
 	}
+	.tick {
+		stroke: var(--hairline);
+		stroke-width: 1;
+	}
+	.axis {
+		stroke: var(--fg-muted);
+		stroke-opacity: 0.5;
+		stroke-width: 1;
+	}
+	.tick-label {
+		fill: var(--fg-muted);
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+	}
 	.brush {
 		position: absolute;
 		top: 0;
-		bottom: 0;
 		background: color-mix(in srgb, var(--accent) 18%, transparent);
 		border-left: 1px solid var(--accent);
 		border-right: 1px solid var(--accent);
 		pointer-events: none;
+	}
+	.cursor {
+		position: absolute;
+		top: 0;
+		width: 0;
+		border-left: 1px dashed var(--fg-muted);
+		pointer-events: none;
+	}
+	.readout {
+		position: absolute;
+		top: 2px;
+		padding: 0 5px;
+		transform: translateX(4px);
+		font-size: 10px;
+		color: var(--fg-strong);
+		background: var(--bg-soft);
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius);
+		pointer-events: none;
+		white-space: nowrap;
+	}
+	.readout.flip {
+		transform: translateX(calc(-100% - 4px));
 	}
 </style>

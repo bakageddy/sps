@@ -15,7 +15,8 @@
 			| "running"
 			| "stuck"
 			| "dump"
-			| "signal";
+			| "signal"
+			| "frag";
 		/** e.g. "21 queries · 3 blocked" */
 		detail: string;
 		/** true = something is wrong in this snapshot (blocked/idle-in-txn) */
@@ -135,6 +136,8 @@
 <style>
 	.list {
 		overflow: auto;
+		overflow-anchor: none;
+		overscroll-behavior: contain;
 		height: 100%;
 		outline: none;
 	}

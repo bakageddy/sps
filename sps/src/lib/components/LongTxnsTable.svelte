@@ -7,6 +7,8 @@
 	 */
 	import type { MssqlLongTxn } from "$lib/api/stuckquery";
 	import { formatDuration, formatTimestamp } from "$lib/format";
+	import { sortRows } from "$lib/sort";
+	import SortButton from "$lib/components/SortButton.svelte";
 	import { copyText } from "$lib/clipboard";
 	import Icon from "$lib/components/Icon.svelte";
 
@@ -19,6 +21,33 @@
 	let { rows, onjump }: Props = $props();
 
 	const txnKey = (r: MssqlLongTxn) => `${r.sessionId}:${r.txnId}`;
+
+	// default = the incoming ranking; any column re-sorts (stable on ties)
+	type SortKey = "sessionId" | "txnId" | "snapshots" | "span" | "queries" | "login";
+	let sortKey = $state<SortKey | null>(null);
+	let sortDescending = $state(true);
+	function sortBy(key: SortKey) {
+		if (sortKey === key) sortDescending = !sortDescending;
+		else {
+			sortKey = key;
+			sortDescending = key !== "login";
+		}
+	}
+	const sorted = $derived(
+		sortRows(
+			rows,
+			sortKey === null
+				? null
+				: (r) =>
+						sortKey === "span"
+							? r.lastSeen - r.firstSeen
+							: sortKey === "queries"
+								? r.queries.length
+								: r[sortKey!],
+			sortDescending,
+		),
+	);
+
 	let expanded = $state<string | null>(null);
 	let copied = $state<string | null>(null);
 
@@ -44,16 +73,16 @@
 
 <div class="table">
 	<div class="head">
-		<span class="col-num">Session</span>
-		<span class="col-num">Txn</span>
-		<span class="col-num">Snapshots</span>
-		<span class="col-num">Observed span</span>
-		<span class="col-num">Queries</span>
-		<span>Login</span>
+		<span class="col-num"><SortButton label="Session" active={sortKey === "sessionId"} descending={sortDescending} onclick={() => sortBy("sessionId")} /></span>
+		<span class="col-num"><SortButton label="Txn" active={sortKey === "txnId"} descending={sortDescending} onclick={() => sortBy("txnId")} /></span>
+		<span class="col-num"><SortButton label="Snapshots" active={sortKey === "snapshots"} descending={sortDescending} onclick={() => sortBy("snapshots")} /></span>
+		<span class="col-num"><SortButton label="Observed span" active={sortKey === "span"} descending={sortDescending} onclick={() => sortBy("span")} /></span>
+		<span class="col-num"><SortButton label="Queries" active={sortKey === "queries"} descending={sortDescending} onclick={() => sortBy("queries")} /></span>
+		<span><SortButton label="Login" active={sortKey === "login"} descending={sortDescending} onclick={() => sortBy("login")} /></span>
 	</div>
 
 	<div class="rows">
-		{#each rows as r (txnKey(r))}
+		{#each sorted as r (txnKey(r))}
 			<button
 				class="row"
 				onclick={() => (expanded = expanded === txnKey(r) ? null : txnKey(r))}

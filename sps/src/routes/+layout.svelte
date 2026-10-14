@@ -239,6 +239,9 @@
 			],
 		},
 		{ href: "/stuckqueries", label: "Stuck Queries", icon: "database" },
+		// database maintenance rather than an incident view: which indices
+		// need a rebuild, and whether it's getting worse between captures
+		{ href: "/fragmentation", label: "Index Fragmentation", icon: "stats" },
 		// not an analyzer: the escape hatch when none of them asks your question
 		{ href: "/sql", label: "SQL Console", icon: "terminal" },
 	];
@@ -253,6 +256,7 @@
 		"/cpumonitoring",
 		"/cpumemstats",
 		"/stuckthreads/queries",
+		"/fragmentation",
 	];
 	const jumpFormat = new Intl.DateTimeFormat(undefined, {
 		dateStyle: "medium",

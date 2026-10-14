@@ -240,6 +240,22 @@ the spec; reconcile against them, not memory.
 - [ ] Zoom permission: if Ctrl+± rejects, add
       `"core:webview:allow-set-webview-zoom"` to `capabilities/default.json`.
 
+## Backend — index fragmentation page (contract: `src/lib/api/fragmentation.ts`)
+
+- [ ] `fragmentation_snapshots() -> Vec<FragSnapshot>` — one row per
+      capture (index count, max ratio, total pages), timestamp ascending.
+- [ ] `fragmentation_indices(timestamp: u64) -> Vec<FragIndex>` — one
+      capture's rows, ratio descending.
+- [ ] `fragmentation_index_series(schema, table, index) -> Vec<FragPoint>`
+      — one index across captures, timestamp ascending.
+      Frontend treats `ratio` as 0–100 (avg_fragmentation_in_percent); if
+      the log prints 0–1, scale in the parser, not here.
+- [ ] `fragmentation_flagged(min_pages: u64, min_ratio: f64) -> Vec<FragFlag>`
+      — one row per index flagged (ratio ≥ min_ratio AND pages ≥ min_pages)
+      in at least one capture, with capture counts, first/last flagged
+      time and the newest reading; latest ratio descending. Thresholds
+      come from the UI (defaults 200 pages / 30 %).
+
 ## Frontend (Claude)
 
 - [ ] Nothing blocking. On request: `user` column in cpumemstats table,

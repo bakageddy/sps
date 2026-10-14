@@ -7,6 +7,8 @@
 	 */
 	import type { PathRollup } from "$lib/stuckthread";
 	import { formatDuration } from "$lib/format";
+	import { sortRows } from "$lib/sort";
+	import SortButton from "$lib/components/SortButton.svelte";
 
 	interface Props {
 		rollups: PathRollup[];
@@ -14,20 +16,41 @@
 	}
 
 	let { rollups, onpick }: Props = $props();
+
+	// default = the incoming worst-first ranking; any column re-sorts
+	type SortKey = "path" | "episodes" | "open" | "avg" | "maxMs" | "totalMs";
+	let sortKey = $state<SortKey | null>(null);
+	let sortDescending = $state(true);
+	function sortBy(key: SortKey) {
+		if (sortKey === key) sortDescending = !sortDescending;
+		else {
+			sortKey = key;
+			sortDescending = key !== "path";
+		}
+	}
+	const sorted = $derived(
+		sortRows(
+			rollups,
+			sortKey === null
+				? null
+				: (r) => (sortKey === "avg" ? r.totalMs / r.episodes : r[sortKey!]),
+			sortDescending,
+		),
+	);
 </script>
 
 <div class="table">
 	<div class="head">
-		<span class="col-path">Path</span>
-		<span class="col-num">Episodes</span>
-		<span class="col-num">Stuck</span>
-		<span class="col-num">Avg</span>
-		<span class="col-num">Max</span>
-		<span class="col-num">Total</span>
+		<span class="col-path"><SortButton label="Path" active={sortKey === "path"} descending={sortDescending} onclick={() => sortBy("path")} /></span>
+		<span class="col-num"><SortButton label="Episodes" active={sortKey === "episodes"} descending={sortDescending} onclick={() => sortBy("episodes")} /></span>
+		<span class="col-num"><SortButton label="Stuck" active={sortKey === "open"} descending={sortDescending} onclick={() => sortBy("open")} /></span>
+		<span class="col-num"><SortButton label="Avg" active={sortKey === "avg"} descending={sortDescending} onclick={() => sortBy("avg")} /></span>
+		<span class="col-num"><SortButton label="Max" active={sortKey === "maxMs"} descending={sortDescending} onclick={() => sortBy("maxMs")} /></span>
+		<span class="col-num"><SortButton label="Total" active={sortKey === "totalMs"} descending={sortDescending} onclick={() => sortBy("totalMs")} /></span>
 	</div>
 
 	<div class="rows">
-		{#each rollups as r}
+		{#each sorted as r (r.path)}
 			<button
 				class="row"
 				onclick={() => onpick(r.path)}

@@ -10,6 +10,8 @@
 	import { stateColor } from "$lib/threaddump";
 	import { formatDuration } from "$lib/format";
 	import { virtualWindow } from "$lib/virtual";
+	import { sortRows } from "$lib/sort";
+	import SortButton from "$lib/components/SortButton.svelte";
 
 	interface Props {
 		threads: IncidentThread[];
@@ -20,12 +22,29 @@
 	let { threads, selected, onselect }: Props = $props();
 
 	let filter = $state("");
+
+	// default = dump order; any column re-sorts ("—" cells sort last, so
+	// "CPU %" descending puts the sampled hot threads first)
+	type SortKey = "tid" | "name" | "state" | "cpu" | "heldFor" | "lockOwnerTid";
+	let sortKey = $state<SortKey | null>(null);
+	let sortDescending = $state(false);
+	function sortBy(key: SortKey) {
+		if (sortKey === key) sortDescending = !sortDescending;
+		else {
+			sortKey = key;
+			sortDescending = key === "cpu" || key === "heldFor";
+		}
+	}
+
 	const visible = $derived.by(() => {
 		const q = filter.trim().toLowerCase();
-		if (q === "") return threads;
-		return threads.filter(
-			(t) => t.name.toLowerCase().includes(q) || String(t.tid).includes(q),
-		);
+		const filtered =
+			q === ""
+				? threads
+				: threads.filter(
+						(t) => t.name.toLowerCase().includes(q) || String(t.tid).includes(q),
+					);
+		return sortRows(filtered, sortKey === null ? null : (t) => t[sortKey!], sortDescending);
 	});
 
 	// Virtualized rows: a dump has thousands of threads and the incident
@@ -73,12 +92,12 @@
 		<table>
 			<thead>
 				<tr>
-					<th class="num">Tid</th>
-					<th>Name</th>
-					<th>State</th>
-					<th class="num">CPU %</th>
-					<th class="num">Held</th>
-					<th>Owner</th>
+					<th class="num"><SortButton label="Tid" active={sortKey === "tid"} descending={sortDescending} onclick={() => sortBy("tid")} /></th>
+					<th><SortButton label="Name" active={sortKey === "name"} descending={sortDescending} onclick={() => sortBy("name")} /></th>
+					<th><SortButton label="State" active={sortKey === "state"} descending={sortDescending} onclick={() => sortBy("state")} /></th>
+					<th class="num"><SortButton label="CPU %" active={sortKey === "cpu"} descending={sortDescending} onclick={() => sortBy("cpu")} /></th>
+					<th class="num"><SortButton label="Held" active={sortKey === "heldFor"} descending={sortDescending} onclick={() => sortBy("heldFor")} /></th>
+					<th><SortButton label="Owner" active={sortKey === "lockOwnerTid"} descending={sortDescending} onclick={() => sortBy("lockOwnerTid")} /></th>
 				</tr>
 			</thead>
 			<tbody>
@@ -163,6 +182,8 @@
 	}
 	.scroller {
 		overflow: auto;
+		overflow-anchor: none;
+		overscroll-behavior: contain;
 		flex: 1;
 	}
 	table {

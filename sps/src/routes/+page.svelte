@@ -54,6 +54,12 @@
         "Every running statement at each periodic tick — the always-on view of the database, joined to incidents.",
     },
     {
+      href: "/fragmentation",
+      title: "Index Fragmentation",
+      description:
+        "Every index's fragmentation and size per capture — what needs a rebuild, and whether it's growing.",
+    },
+    {
       href: "/sql",
       title: "SQL Console",
       description:

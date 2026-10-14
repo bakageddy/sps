@@ -82,6 +82,8 @@
 	.grid {
 		height: 100%;
 		overflow: auto;
+		overflow-anchor: none;
+		overscroll-behavior: contain;
 		font-size: 12.5px;
 	}
 	.sheet {
