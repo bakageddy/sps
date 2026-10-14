@@ -23,8 +23,7 @@ pub async fn fragmentation_snapshots(
         })
     })
     .await
-    .unwrap()
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -44,8 +43,7 @@ pub async fn fragmentation_indices(
             .map_err(|e| format!("Failed to get the fragmentation indices from the database: {e}"))
     })
     .await
-    .unwrap()
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -68,15 +66,14 @@ pub async fn fragmentation_index_series(
         )
     })
     .await
-    .unwrap()
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn fragmentation_flagged(
     min_pages: u64,
     min_ratio: f32,
-    state: State<'_, Mutex<AppState>>
+    state: State<'_, Mutex<AppState>>,
 ) -> Result<Vec<FragFlag>, String> {
     let cnx = state
         .lock()
@@ -86,11 +83,10 @@ pub async fn fragmentation_flagged(
         .map_err(|e| format!("Failed to obtain database connection from the pool: {e}"))?;
 
     spawn_blocking(move || {
-        store::fragmentation_ratio::get_fragmentation_flagged(&cnx, min_pages, min_ratio)
-            .map_err(|e| format!("Failed to get the fragmentation ratio flagged from the database: {e}"))
+        store::fragmentation_ratio::get_fragmentation_flagged(&cnx, min_pages, min_ratio).map_err(
+            |e| format!("Failed to get the fragmentation ratio flagged from the database: {e}"),
+        )
     })
     .await
-    .unwrap()
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
-

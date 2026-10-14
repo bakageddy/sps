@@ -509,7 +509,8 @@ impl SPWho2Status {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FragmentationRatioEntry<'a> {
     pub schema: Cow<'a, str>,
     pub table: Cow<'a, str>,
