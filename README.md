@@ -26,18 +26,31 @@ sps --help
 # Options:
 #  -h, --help  Print help
 
-sps parse # Attempts to find sps logs in the current working directory, parses it and keeps the result in memory.
-sps parse -d foo.db # Attempts to find sps logs in the current working directory, parses it and persists the results in foo.db
-sps parse path/to/sps/directory -d foo.db # Attempts to parse path/to/sps/directory and persists the results in foo.db
-sps parse path/to/sps/directory -d foo.db -z Asia/Calcutta # Attempts to parse path/to/sps/directory and persists the results in foo.db with the IANA zone Asia/Calcutta
+# Attempts to find sps logs in the current working directory, parses it and keeps the result in memory.
+sps parse
+# Attempts to find sps logs in the current working directory, parses it and persists the results in foo.db
+sps parse -d foo.db
+# Attempts to parse path/to/sps/directory and persists the results in foo.db
+sps parse path/to/sps/directory -d foo.db
+# Attempts to parse path/to/sps/directory and persists the results in foo.db with the IANA zone Asia/Calcutta
+sps parse path/to/sps/directory -d foo.db -z Asia/Calcutta 
 
-sps schema foo.db # Prints the schema and statistics of the logs, helpful for discovery with agents
-sps query "SELECT 1" -d foo.db # Prints the results of the query as json
-sps query "SELECT * FROM threaddump" -d foo.db --export threaddump.csv # Exports the result of the query to the CSV file
-sps query "SELECT * FROM threaddump" -d foo.db --limit 10 --offset 10 # Explicit pagination of query result
+# Prints the schema and statistics of the logs, helpful for discovery with agents
+sps schema foo.db
 
-sps launch # Launches the GUI, where you can parse a directory chosen from your file picker
-sps launch -d foo.db # Launches the GUI with the results from the db
+# Prints the results of the query as json
+sps query "SELECT 1" -d foo.db
+
+# Exports the result of the query to the CSV file
+sps query "SELECT * FROM threaddump" -d foo.db --export threaddump.csv
+
+# Explicit pagination of query result
+sps query "SELECT * FROM threaddump" -d foo.db --limit 10 --offset 10
+
+# Launches the GUI, where you can parse a directory chosen from your file picker
+sps launch 
+# Launches the GUI with the results from the db
+sps launch -d foo.db 
 ```
 
 # Installation
