@@ -29,6 +29,7 @@ sps --help
 sps parse # Attempts to find sps logs in the current working directory, parses it and keeps the result in memory.
 sps parse -d foo.db # Attempts to find sps logs in the current working directory, parses it and persists the results in foo.db
 sps parse path/to/sps/directory -d foo.db # Attempts to parse path/to/sps/directory and persists the results in foo.db
+sps parse path/to/sps/directory -d foo.db -z Asia/Calcutta # Attempts to parse path/to/sps/directory and persists the results in foo.db with the IANA zone Asia/Calcutta
 
 sps schema foo.db # Prints the schema and statistics of the logs, helpful for discovery with agents
 sps query "SELECT 1" -d foo.db # Prints the results of the query as json
@@ -48,8 +49,8 @@ sps launch -d foo.db # Launches the GUI with the results from the db
 
 ```bash
 # For Example
-curl -OL https://github.com/bakageddy/sps/releases/download/v2026.10.14/sps_2026.10.14_amd64_ubuntu-24.04.deb
-sudo apt install ./sps_2026.10.14_amd64_ubuntu-24.04.deb
+curl -OL https://github.com/bakageddy/sps/releases/download/v2026.10.15/sps_2026.10.15_amd64_ubuntu-24.04.deb
+sudo apt install ./sps_2026.10.15_amd64_ubuntu-24.04.deb
 ```
 
 3. Open the Application from desktop or Launch it from command line with
@@ -65,7 +66,7 @@ sps
 1. Download the .dmg file by copying the link from [releases](https://github.com/bakageddy/sps/releases) and executing:
 
 ```bash
-curl -OL https://github.com/bakageddy/sps/releases/download/v2026.10.14/sps_2026.10.14_aarch64.dmg
+curl -OL https://github.com/bakageddy/sps/releases/download/v2026.10.15/sps_2026.10.15_aarch64.dmg
 ```
 
 2. Install either by using `open` in a terminal or with `finder`.
