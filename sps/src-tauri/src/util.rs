@@ -5,6 +5,7 @@ use crate::{
     handlers::types::IngestEvent,
     parser::{
         Context,
+        fragmentationratio::FragmentationRatioParser,
         healthmeter::{self, HealthMeterParser},
         runningquery::{self, RunningQueryParser},
     },
@@ -189,6 +190,7 @@ where
     let threaddump = get_files_reverse_sort(&root, "threaddump", ".txt")?;
     let runningqueries = get_files_reverse_sort(&root, "runningqueries", ".txt")?;
     let healthmeter = get_files_reverse_sort(&root, "HealthMeter.html", "")?;
+    let fragmentation_ratio = get_files_reverse_sort(&root, "FragmentationRatio", ".txt")?;
     Ok(LogFiles {
         healthmeter,
         cpumonitoring,
@@ -198,6 +200,7 @@ where
         runningqueries,
         connectiondump,
         threaddump,
+        fragmentation_ratio,
     })
 }
 
@@ -234,6 +237,7 @@ where
         runningqueries,
         connectiondump,
         healthmeter,
+        fragmentation_ratio,
     } = get_files(root)?;
 
     let result = parse_healthmeter_and_persist(&healthmeter, store.clone(), app.clone().as_ref());
@@ -348,6 +352,19 @@ where
                 });
             }
         }
+
+        s.spawn(|| -> Result<()> {
+            let result = parse_fragmentation_ratio_and_persist(
+                &fragmentation_ratio,
+                store.clone(),
+                ctx.clone(),
+            );
+            if let Err(ref e) = result {
+                warn!("Error during parsing/persisting: {e}");
+            }
+            result
+        });
+
         // TODO:
         // let _query_monitoring
         // let _pgsql_log
@@ -359,6 +376,64 @@ where
         error!("Error during flushing database results: {}", e);
     }
     Ok(())
+}
+
+fn parse_fragmentation_ratio_and_persist(
+    entries: &[PathBuf],
+    store: Store,
+    ctx: Context,
+) -> Result<()> {
+    let entries = entries
+        .iter()
+        .flat_map(|e| -> Result<(Mmap, &Path)> { Ok((map_file(e)?, e)) });
+    let cnx = store.get()?;
+    for (mmap, entry) in entries {
+        info!("Parsing and Persisting: {:?}", entry.display());
+        let result = FragmentationRatioParser::from_bytes_with_context(mmap.deref(), ctx.clone());
+        if let Ok(parser) = result {
+            let _ = ctx.emit(
+                "ingest:file",
+                IngestEvent::File {
+                    kind: "FragmentationRatio",
+                    file: entry.to_path_buf(),
+                },
+            );
+            store::append_fragmentation_ratio(
+                &cnx,
+                parser.into_iter().flat_map(|item| {
+                    if let Err(e) = item {
+                        let _ = ctx.emit(
+                            "ingest:error",
+                            IngestEvent::Error {
+                                file: Some(entry.to_path_buf()),
+                                message: e.to_string(),
+                            },
+                        );
+                        warn!("Error during parsing {:?} due to {}", entry.display(), e);
+                        None
+                    } else {
+                        item.ok()
+                    }
+                }),
+            )?;
+        } else {
+            let err = result.unwrap_err();
+            let _ = ctx.emit(
+                "ingest:error",
+                IngestEvent::Error {
+                    file: Some(entry.to_path_buf()),
+                    message: err.to_string(),
+                },
+            );
+            warn!(
+                "Cannot convert bytes of {:?} to UTF8 due to {:?}",
+                entry.display(),
+                err
+            );
+            continue;
+        }
+    }
+    todo!()
 }
 
 fn parse_stuckqueries_and_persist(entries: &[PathBuf], store: Store, ctx: Context) -> Result<()> {

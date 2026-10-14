@@ -141,7 +141,11 @@ pub fn run() {
                     std::process::exit(1);
                 }
             }
-            Command::Parse { path, database, zone } => {
+            Command::Parse {
+                path,
+                database,
+                zone,
+            } => {
                 let store = match Store::init(database) {
                     Ok(x) => x,
                     Err(e) => {

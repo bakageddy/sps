@@ -242,7 +242,7 @@ pub struct SQLColumn {
     pub name: String,
     pub r#type: String,
     pub nullable: bool,
-    pub default_value: Option<String>
+    pub default_value: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -509,6 +509,39 @@ impl SPWho2Status {
     }
 }
 
+#[derive(Debug)]
+pub struct FragmentationRatioEntry<'a> {
+    pub schema: Cow<'a, str>,
+    pub table: Cow<'a, str>,
+    pub index: Cow<'a, str>,
+    pub ratio: f64,
+    pub page_count: u64,
+}
+
+impl<'a> Parser<'a> for FragmentationRatioEntry<'a> {
+    type Context = ();
+    type Error = Error;
+
+    fn parse_with(data: &'a str, _ctx: &Self::Context) -> Result<Self, Self::Error>
+    where
+        Self::Context: Clone,
+    {
+        let mut tok = Tokenizer::new(data);
+        let schema = tok.take_within_exclusive("|", "|")?.into();
+        let table = tok.take_within_exclusive("|", "|")?.into();
+        let index = tok.take_within_exclusive("|", "|")?.into();
+        let ratio = tok.take_within_exclusive("|", "|")?.trim().parse()?;
+        let page_count = tok.take_within_exclusive("|", "|")?.trim().parse()?;
+        Ok(FragmentationRatioEntry {
+            schema,
+            table,
+            index,
+            ratio,
+            page_count,
+        })
+    }
+}
+
 #[cfg(test)]
 pub mod test {
     use super::BlockingQuery;

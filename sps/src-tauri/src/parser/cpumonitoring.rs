@@ -51,14 +51,13 @@ impl<'a> Iterator for CPUMonitoringParser<'a> {
         }
 
         let utc = if let Some(line) = utc {
-            let t = match Self::parse_timestamp(line, self.2.zone) {
+            match Self::parse_timestamp(line, self.2.zone) {
                 Ok(t) => t,
                 Err(e) => {
                     self.0 = tok.remaining();
                     return Some(Err(e));
                 }
-            };
-            t
+            }
         } else {
             self.0 = tok.remaining();
             return None;

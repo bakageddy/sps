@@ -313,7 +313,6 @@ pub fn get_mssql_spwho2_snapshots(cnx: &Connection) -> Result<Vec<SPWho2Snapshot
             blocked: r.get(3)?,
         })
     })?
-    .into_iter()
     .collect()
 }
 
@@ -363,6 +362,5 @@ pub fn get_mssql_spwho2(
             request_id: r.get(12)?,
         })
     })?
-    .into_iter()
     .collect()
 }

@@ -266,9 +266,10 @@ pub fn get_connectiondump_cpumemstats(
 pub fn get_connectiondump_runningqueries(
     cnx: &Connection,
     timestamp: u64,
-    tolerance: u64
+    tolerance: u64,
 ) -> Result<Option<u64>, Error> {
-    let query = format!(r"
+    let query = format!(
+        r"
         SELECT (timestamp) FROM (
             SELECT timestamp FROM {0} WHERE {0}.timestamp BETWEEN $1 - $2 AND $1 + $2
             UNION ALL

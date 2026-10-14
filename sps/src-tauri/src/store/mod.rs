@@ -21,6 +21,7 @@ use crate::{
         connectiondump::{ConnectionDumpEntry, Signal, Stats, TraceDump},
         cpumemstats::StatTable,
         cpumonitoring::CPUMonitoring,
+        fragmentationratio::FragmentationRatioTable,
         healthmeter::HCell,
         runningquery::{RunningQuery, RunningQueryTable},
         stuckquery::{StuckQuery, StuckQueryTable},
@@ -73,7 +74,7 @@ impl Store {
                 ATTACH '{}' AS target;
                 COPY FROM DATABASE memory TO target;
                 DETACH target;
-            ", 
+            ",
             path.display()
         );
         cnx.execute_batch(&query)?;
@@ -522,6 +523,26 @@ pub fn append_healthmeter<'a>(
 ) -> Result<(), store::error::Error> {
     let mut healthmeter = cnx.appender_to_db(Tables::HealthMeter.as_str(), "main")?;
     healthmeter.append_rows(iter.map(|c| (c.key, c.val)))?;
+    Ok(())
+}
+
+pub fn append_fragmentation_ratio<'a>(
+    cnx: &Connection,
+    iter: impl Iterator<Item = FragmentationRatioTable<'a>>,
+) -> Result<(), store::error::Error> {
+    let mut frag = cnx.appender_to_db(Tables::FragmentationRatio.as_str(), "main")?;
+    for table in iter {
+        for entry in table.values {
+            frag.append_row((
+                table.timestamp,
+                entry.schema,
+                entry.table,
+                entry.index,
+                entry.ratio,
+                entry.page_count,
+            ))?;
+        }
+    }
     Ok(())
 }
 

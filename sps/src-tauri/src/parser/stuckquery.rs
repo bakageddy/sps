@@ -158,7 +158,7 @@ impl<'a> Iterator for StuckQueryParser<'a> {
                         }
                     },
 
-                    TableKind::MSSQLSPWho2 => {
+                    TableKind::MSSQLSPWho2 | TableKind::MSSQLFragmentationRatio => {
                         self.0 = tok.remaining();
                         return Some(Err(Error::InvalidQueryType));
                     }

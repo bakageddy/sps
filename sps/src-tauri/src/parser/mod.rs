@@ -10,6 +10,7 @@ pub mod connectiondump;
 pub mod cpumemstats;
 pub mod cpumonitoring;
 pub mod error;
+pub mod fragmentationratio;
 pub mod healthmeter;
 pub mod query;
 pub mod runningquery;
@@ -53,6 +54,7 @@ pub enum TableKind {
     MSSQLRunningQuery,
     MSSQLBlockingQuery,
     MSSQLSPWho2,
+    MSSQLFragmentationRatio,
 }
 
 impl TableKind {
@@ -69,6 +71,7 @@ impl TableKind {
         } else if columns.contains("Session ID")
             || columns.contains("Logical Reads")
             || columns.contains("SPID")
+            || columns.contains("FragmentationRatio")
         {
             Some(DBKind::Mssql)
         } else {
@@ -91,6 +94,7 @@ impl TableKind {
             (DBKind::Mssql, "Currently Running Queries") => Some(Self::MSSQLRunningQuery),
             (DBKind::Mssql, "Currently Blocking Query Details") => Some(Self::MSSQLBlockingQuery),
             (DBKind::Mssql, "sp Who2") => Some(Self::MSSQLSPWho2),
+            (DBKind::Mssql, "FragmentationRatio") => Some(Self::MSSQLFragmentationRatio),
             _ => None,
         }
     }

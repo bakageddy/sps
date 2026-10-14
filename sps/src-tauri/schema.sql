@@ -310,3 +310,12 @@ CREATE TABLE IF NOT EXISTS main.healthmeter (
 	key STRING NOT NULL,
 	val STRING NULL,
 );
+
+CREATE TABLE IF NOT EXISTS main.fragmentationratio (
+	timestamp UBIGINT NOT NULL,
+	schema STRING NOT NULL,
+	table STRING NOT NULL,
+	index_name STRING NOT NULL,
+	ratio FLOAT NOT NULL,
+	page_count UBIGINT NOT NULL,
+);

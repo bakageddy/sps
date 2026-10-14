@@ -54,7 +54,6 @@ pub fn get_table_columns(
             default_value: row.get(3)?,
         })
     })?
-    .into_iter()
     .collect()
 }
 

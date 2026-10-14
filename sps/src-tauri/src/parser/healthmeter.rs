@@ -90,11 +90,7 @@ impl<'a> Iterator for HealthMeterParser<'a> {
             }
         };
 
-        let val = if val.is_empty() {
-            None
-        } else {
-            Some(val)
-        };
+        let val = if val.is_empty() { None } else { Some(val) };
 
         tok.skip_whitespace();
         if let Err(e) = tok.expect("</tr>") {

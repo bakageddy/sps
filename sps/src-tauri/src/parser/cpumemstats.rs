@@ -113,14 +113,13 @@ impl<'a> Iterator for CPUMemStatsParser<'a> {
         }
 
         let timestamp = if let Some(header) = timestamp {
-            let timestamp = match Self::parse_header(header, self.2.zone) {
+            match Self::parse_header(header, self.2.zone) {
                 Ok(t) => t,
                 Err(e) => {
                     self.0 = tok.remaining();
                     return Some(Err(e));
                 }
-            };
-            timestamp
+            }
         } else {
             self.0 = tok.remaining();
             return None;

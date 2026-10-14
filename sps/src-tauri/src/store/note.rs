@@ -13,7 +13,6 @@ pub fn get_notes(cnx: &Connection) -> Result<Vec<Note>, Error> {
             route: row.get(3)?,
         })
     })?
-    .into_iter()
     .collect()
 }
 

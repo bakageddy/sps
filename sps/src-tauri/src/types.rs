@@ -14,6 +14,7 @@ pub struct LogFiles {
     pub runningqueries: Vec<PathBuf>,
     pub connectiondump: Vec<PathBuf>,
     pub threaddump: Vec<PathBuf>,
+    pub fragmentation_ratio: Vec<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -23,7 +24,7 @@ pub enum TimestampError {
     #[error("Conversion to u64 failed: {0}")]
     Conversion(#[from] TryFromIntError),
     #[error("Normalizing Timestamp with Timezone Info failed")]
-    InvalidTime
+    InvalidTime,
 }
 
 #[derive(Debug, thiserror::Error)]

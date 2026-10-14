@@ -47,5 +47,6 @@ strip = true
 incremental = false
 
 [profile.dev]
+codegen-units = 256
 incremental = true
 strip = false

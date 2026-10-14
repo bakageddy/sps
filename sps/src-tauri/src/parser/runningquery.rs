@@ -135,6 +135,11 @@ impl<'a> Iterator for RunningQueryParser<'a> {
                             return Some(Err(Error::from(e)));
                         }
                     },
+
+                    TableKind::MSSQLFragmentationRatio => {
+                        self.0 = tok.remaining();
+                        return Some(Err(Error::InvalidTableKind));
+                    }
                 }
 
                 let _ = tok.get_line()?;
@@ -238,6 +243,9 @@ pub mod error {
 
         #[error("Query parse: {0}")]
         QueryParse(#[from] query::error::Error),
+
+        #[error("Invalid Table Kind")]
+        InvalidTableKind,
     }
 }
 
