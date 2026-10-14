@@ -4071,7 +4071,7 @@ dependencies = [
 
 [[package]]
 name = "sps"
-version = "2026.10.15"
+version = "2026.10.16"
 dependencies = [
  "clap",
  "duckdb",
