@@ -433,7 +433,7 @@ fn parse_fragmentation_ratio_and_persist(
             continue;
         }
     }
-    todo!()
+    Ok(())
 }
 
 fn parse_stuckqueries_and_persist(entries: &[PathBuf], store: Store, ctx: Context) -> Result<()> {
