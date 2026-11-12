@@ -35,6 +35,8 @@ tracing-subscriber = "0.3.23"
 tauri-plugin-dialog = "2"
 serde_with = "3.23.0"
 time-tz = { version = "2.0.0", features = ["thiserror"] }
+reqwest = { version = "0.13.5", features = ["cookies", "json", "rustls", "gzip", "query"] }
+url = { version = "2.5.8", features = ["std"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

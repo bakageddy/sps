@@ -1,6 +1,7 @@
 pub mod arg;
 pub mod error;
 pub mod handlers;
+pub mod ingest;
 pub mod parser;
 pub mod store;
 pub mod types;
@@ -21,6 +22,7 @@ use handlers::{
     healthmeter::*, notes::*, parse::*, runningquery::*, sql::*, stuckquery::*, stuckthread::*,
     threaddump::*,
 };
+use ingest::handlers::{glowroot_connect, glowroot_agents, glowroot_agent_layout, glowroot_count};
 use tauri::Manager;
 use tracing::{info, level_filters::LevelFilter, warn};
 
@@ -29,12 +31,16 @@ pub fn launch(database: Option<PathBuf>) {
     tauri::Builder::default()
         .setup(|app| {
             let store = Store::init(database)?;
-            let state = AppState { store };
+            let state = AppState {
+                store,
+                client: None,
+            };
             app.manage(Mutex::new(state));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             open_database,
+            save_database,
             database_info,
             parse_logs,
             cpu_dumps,
@@ -93,7 +99,11 @@ pub fn launch(database: Option<PathBuf>) {
             sql_schema,
             sql_query,
             sql_export_csv,
-            healthmeter_info
+            healthmeter_info,
+            glowroot_connect,
+            glowroot_agents,
+            glowroot_agent_layout,
+            glowroot_count,
         ])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

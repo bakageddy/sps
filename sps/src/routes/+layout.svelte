@@ -242,6 +242,9 @@
 		// database maintenance rather than an incident view: which indices
 		// need a rebuild, and whether it's getting worse between captures
 		{ href: "/fragmentation", label: "Index Fragmentation", icon: "stats" },
+		// the live-collector source, last like the console: neither is a log
+		// analyzer, and the console queries the ingested traces too
+		{ href: "/glowroot", label: "Glowroot", icon: "graph" },
 		// not an analyzer: the escape hatch when none of them asks your question
 		{ href: "/sql", label: "SQL Console", icon: "terminal" },
 	];
@@ -279,9 +282,12 @@
 		];
 	}
 
-	// the time strip decorates analyzers only — not the ingest hub or the console
+	// the time strip decorates analyzers only — not the ingest hub, the
+	// Glowroot ingest page or the console
 	const showStrip = $derived(
-		page.url.pathname !== "/" && !page.url.pathname.startsWith("/sql"),
+		page.url.pathname !== "/" &&
+			!page.url.pathname.startsWith("/glowroot") &&
+			!page.url.pathname.startsWith("/sql"),
 	);
 
 	// Ctrl+K palette: every page (children as "Parent › Child") plus the

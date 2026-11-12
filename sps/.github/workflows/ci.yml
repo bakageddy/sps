@@ -1,0 +1,169 @@
+# CI for sps.
+#
+#   push to main / PRs:  frontend ∥ rust ∥ schema  →  bundle (linux + macos)
+#   tag v*:              the same, then the bundles are attached to a GitHub Release
+#
+# Bundles are built on ubuntu-22.04 on purpose: an AppImage/deb built against
+# an older glibc runs on everything newer; the reverse is not true.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # keep in step with the duckdb crate's major.minor in src-tauri/Cargo.toml
+  DUCKDB_CLI_VERSION: v1.5.5
+
+jobs:
+  frontend:
+    name: frontend (svelte-check, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+
+  rust:
+    name: rust (fmt, clippy, test)
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - name: tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets
+      - run: cargo test
+
+  schema:
+    name: schema.sql (duckdb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install duckdb cli ${{ env.DUCKDB_CLI_VERSION }}
+        run: |
+          curl -sSfL -o duckdb.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_CLI_VERSION}/duckdb_cli-linux-amd64.zip"
+          unzip -o duckdb.zip -d "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # Store::init runs schema.sql on EVERY open, including of an existing
+      # database, so the file must: apply to an empty database, be idempotent
+      # (second run = catches a missing IF NOT EXISTS), and create every table
+      # the Rust side names in store/tables.rs.
+      - name: validate schema.sql
+        shell: bash
+        run: |
+          set -euo pipefail
+          SCHEMA=src-tauri/schema.sql
+          TABLES_RS=src-tauri/src/store/tables.rs
+          DB="$RUNNER_TEMP/schema-check.duckdb"
+          duckdb --version
+
+          echo "== 1. applies to an empty database"
+          duckdb -bail "$DB" < "$SCHEMA"
+
+          echo "== 2. idempotent (second run on the same database)"
+          duckdb -bail "$DB" < "$SCHEMA"
+
+          echo "== 3. every table named in $TABLES_RS exists"
+          expected=$(grep -oE '=> "[a-z_0-9]+"' "$TABLES_RS" | sed -E 's/.*"([^"]+)"/\1/' | sort -u)
+          actual=$(duckdb -noheader -csv "$DB" \
+            "SELECT table_name FROM duckdb_tables() WHERE schema_name = 'main' ORDER BY 1" | sort -u)
+          missing=$(comm -23 <(echo "$expected") <(echo "$actual"))
+          if [ -n "$missing" ]; then
+            echo "::error file=$SCHEMA::tables referenced in Rust but not created by schema.sql: $(echo "$missing" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "ok: $(echo "$actual" | grep -c .) tables, all $(echo "$expected" | grep -c .) Rust-referenced tables present"
+
+  bundle:
+    name: bundle (${{ matrix.name }})
+    needs: [frontend, rust, schema]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-22.04
+            bundles: deb appimage
+            paths: |
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/appimage/*.AppImage
+          - name: macos
+            os: macos-latest
+            bundles: dmg
+            paths: |
+              src-tauri/target/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: tauri system dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential file
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      # tauri runs beforeBuildCommand (vite build) itself; the frontend job
+      # already proved it builds, this is the real one for the bundle
+      - run: npx tauri build --bundles ${{ matrix.bundles }}
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sps-${{ matrix.name }}
+          path: ${{ matrix.paths }}
+          if-no-files-found: error
+
+  release:
+    name: github release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true

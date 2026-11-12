@@ -256,8 +256,106 @@ the spec; reconcile against them, not memory.
       time and the newest reading; latest ratio descending. Thresholds
       come from the UI (defaults 200 pages / 30 %).
 
+## Backend — Glowroot ingest (contracts: `src/lib/api/glowroot.ts`, `glowroot-events.ts`; wire reference: `docs/glowroot-http-api.md`)
+
+The frontend page (`/glowroot`, last in the sidebar beside the SQL Console) is done and waits on these. Nothing under
+`src-tauri/` was touched. The `ingest` module stub and the commented-out
+`pub mod ingest;` in `lib.rs` are yours.
+
+**Commands** (exact names and argument shapes are in the contract file):
+- [ ] `glowroot_connect(url)`, `glowroot_login(username, password)`,
+      `glowroot_disconnect()` — one session at a time in `AppState`: a
+      `reqwest` client with a cookie jar, HTTP/1.1 only, idle pool of 32 per
+      host, 10 s connect timeout, 60 s request timeout, plus the base URL and
+      the cached layout. Failed login is HTTP 200 with an incorrect-login
+      flag, not a 401.
+- [ ] `glowroot_agents(top_level_id, from, to)` — Central only; top-level
+      rollups, or one rollup's children. Sorted by display name.
+- [ ] `glowroot_agent_layout(agent_rollup_id)` — transaction types and the
+      permission flags. Embedded reads the layout cached at connect.
+- [ ] `glowroot_count(options)` — one trace-count request per selected type
+      and family; same filters as listing (duration band, name, headline,
+      user, error message, attribute, window); families switched off report 0.
+- [ ] `glowroot_ingest(options) -> run id` — validate, register the run,
+      emit `glowroot:started`, spawn the work, resolve. One run at a time.
+- [ ] `glowroot_cancel(run_id)` — cooperative and idempotent.
+- [ ] `glowroot_runs()` — history from the database, newest first; a run
+      still marked running after a restart is reported as failed.
+
+**Events** (cumulative totals from the single writer, at most about five per
+second; every payload carries the run id): `glowroot:started`, `listing`,
+`listed`, `progress`, `problem`, `finished`. Order per run: started, listing
+repeatedly, listed, progress repeatedly, finished, with problems in
+between. `finished` fires exactly once for every outcome, after the last
+progress event. First 200 problems individually, the rest only counted.
+
+**Filters.** `headline`, `user`, `errorMessage` and `attribute` in the options
+are optional text filters (text plus a comparator: begins, equals, ends,
+contains, not-contains; strings on the wire, so a serde enum with
+`rename_all = "kebab-case"`), ANDed with each other and with the duration band.
+They map to the headline, user, error-message and attribute parameters and
+their comparator parameters in the points and count requests (see section 3
+of `docs/glowroot-http-api.md`). Send a filter only when it is set. The
+error-message filter goes to the error family only; the slow family is
+listed without it. The attribute filter always has a name and a value. Not
+verified against the source: whether Glowroot accepts an attribute name with
+an empty value, and whether it ignores the error-message filter on slow
+listings. The UI never sends either case.
+
+**Listing.** Per selected type and family, ask for points with a limit of
+5000. When the limit is exceeded, split the window in half and recurse; stop
+splitting under one second and report the truncation as a problem. Ignore
+partial points. De-duplicate on agent id plus trace id across families and
+sub-windows, sort by capture time newest first, drop traces already stored
+when asked, then cut to the cap.
+
+**Fetching.** A semaphore sized to `workers`; per trace: header first, then
+entries, queries and both profiles only when the option is on and the
+header's existence flag says yes. Forward the check-live-traces flag when the
+point carried it. Retry three times with backoff on timeouts and 5xx. A 404
+or expired answer for a part is not a failure: store the header with the
+flag. Resolve truncated query texts once per hash (shared map). Check the
+cancellation token before every request.
+
+**Writing.** One writer thread owns the appenders and is the only emitter.
+Fetch tasks hand finished traces over a channel. Flush about every 500
+traces. On cancel, drain what is already queued, flush, finalise the run as
+cancelled. Re-ingesting a stored trace replaces its rows. A 401/403 mid-run
+(expired session) ends the run as failed with that message.
+
+**Tables** (add to `schema.sql` with `IF NOT EXISTS` and name them in
+`store/tables.rs`, or the CI schema gate fails). Times are UTC ms, durations
+are nanoseconds unless the name says otherwise:
+- [ ] `glowroot_runs` — id, collector URL, agent rollup id, options as JSON,
+      started and finished ms, outcome, total, stored, failed.
+- [ ] `glowroot_traces` — agent id, trace id, run id, collector URL, agent
+      display, transaction type and name, headline, user, start and capture
+      ms, duration, async and partial flags, error message and exception
+      class, main and aux thread stats (cpu, blocked, waited, allocated),
+      entry, query and profile-sample counts with their limit-exceeded flags,
+      the three existence flags, location stack as a JSON list.
+- [ ] `glowroot_trace_attributes` — agent id, trace id, name, value (one row
+      per value).
+- [ ] `glowroot_trace_timers` — agent id, trace id, index, parent index,
+      depth, kind (main, aux, async), name, total, count, extended.
+- [ ] `glowroot_trace_entries` — agent id, trace id, index, parent index,
+      depth, start offset, duration, message, query text hash, prefix,
+      suffix, error message, location stack, detail as JSON.
+- [ ] `glowroot_trace_queries` — agent id, trace id, query type, query text
+      hash, total duration, execution count, total rows (nullable).
+- [ ] `glowroot_query_texts` — hash (unique), full text, truncated flag.
+      Texts the server sent without a hash get one computed locally.
+- [ ] `glowroot_trace_profiles` — agent id, trace id, kind (main, aux),
+      unfiltered sample count, tree as JSON (flattening waits for the trace
+      browser).
+
+**Dependencies to add:** `reqwest` (json, cookies, rustls-tls), `tokio-util`
+(cancellation token). Tauri's async runtime already provides tokio.
+
 ## Frontend (Claude)
 
-- [ ] Nothing blocking. On request: `user` column in cpumemstats table,
+- [ ] Trace browser for the ingested Glowroot traces (list, filter, detail
+      with timer and entry trees, per-trace queries) once the backend lands.
+- [ ] Nothing else blocking. On request: `user` column in cpumemstats table,
       chart point-click → dump selection, ingest "indexing…" phase
       (see IDEAS.md).
